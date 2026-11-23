@@ -24,6 +24,17 @@ async function getJson(url) {
   } finally { clearTimeout(timer); }
 }
 function encodeSymbol(symbol) { return encodeURIComponent(symbol); }
+const platformHealth = await getJson(base + '/api/health');
+const advertisedTypes = platformHealth.capabilities?.bitgetProductTypes || [];
+for (const required of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures']) {
+  assert(advertisedTypes.includes(required), 'Cloudflare API health does not advertise Bitget ' + required + '.');
+}
+console.log('PASS Cloudflare API health: ' + advertisedTypes.join(', '));
+const storageResponse = await fetch(base + '/api/storage/health', { headers: { accept: 'application/json' }, cache: 'no-store' });
+const storageHealth = await storageResponse.json().catch(() => null);
+assert(storageResponse.ok && storageHealth?.status === 'ok',
+  'Cloudflare D1/KV health is not ready: HTTP ' + storageResponse.status + ' ' + JSON.stringify(storageHealth));
+console.log('PASS Cloudflare D1/KV storage health');
 for (const category of categories) {
   const row = { category: category.label, checks: [] };
   try {
