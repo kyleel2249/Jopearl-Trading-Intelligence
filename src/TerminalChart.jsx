@@ -184,7 +184,7 @@ export default function TerminalChart({ exchange = 'bitget', symbol, timeframe, 
       </div>
       <div className="ci-terminal-layers">
         {[
-          ['structure','Structure'],['orderBlocks','Order Blocks'],['fvg','FVG / IFVG'],['liquidity','Liquidity'],['sweeps','Sweeps'],
+          ['signals','Alpha Signals'],['plan','Trade Plan'],['structure','Structure'],['orderBlocks','Order Blocks'],['fvg','FVG / IFVG'],['liquidity','Liquidity'],['sweeps','Sweeps'],
           ['profile','Volume Profile'],['volumeNodes','HVN / LVN'],['vwap','VWAP'],['smc','Premium / OTE'],['orderflow','Order Flow'],['liquidation','Liquidations']
         ].map(([key,label]) => <button type="button" key={key} aria-pressed={!!ciLayers[key]} className={ciLayers[key] ? 'active' : ''} onClick={() => chartIntel.update({ layers: { [key]: !ciLayers[key] } })}>{label}</button>)}
       </div>
