@@ -401,7 +401,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   useEffect(() => { if (exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot'); }, [exchange, marketType]);
   const setSymbol = useCallback((raw) => {
     const next = String(raw || '').trim().toUpperCase().replace('-', '/');
-    if (!/^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}$/.test(next)) return false;
+    if (!/^[A-Z0-9._]{2,20}\\/[A-Z0-9._]{2,20}(?::[A-Z0-9._]{2,20})?$/.test(next)) return false;
     setSymbolState(next); setSymbolDraft(next); store.set('jpti.terminal.symbol', next); onSymbolChange?.(next); return true;
   }, [onSymbolChange]);
   const toggleOverlay = (key) => setOverlays((o) => { const next = { ...o, [key]: !o[key] }; store.set('jpti.terminal.overlays', next); return next; });
