@@ -1,7 +1,7 @@
 // Live Bitget + Cloudflare Pages regression verification.
 // Usage: JPTI_PAGES_URL=https://<your-pages-domain> node scripts/verify-bitget-live.mjs
 // The test is read-only and uses public market endpoints only.
-const base = String(process.env.JPTI_PAGES_URL || 'https://jpti.pages.dev').replace(/\\/+$/, '');
+const base = String(process.env.JPTI_PAGES_URL || 'https://jpti.pages.dev').replace(/\/+$/, '');
 const categories = [
   { key: 'spot', label: 'Spot', productCategory: 'SPOT', marketDataCategory: 'SPOT' },
   { key: 'margin', label: 'Margin', productCategory: 'MARGIN', marketDataCategory: 'SPOT' },
