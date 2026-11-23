@@ -1,6 +1,6 @@
 // Smart-money-concept analytics built on the shared swing/structure primitives. Closed candles only: an item is
 // created at the bar that confirms it and never moves afterwards (no repainting). Definitions are in docs/CHART_INTELLIGENCE.md.
-import { clamp, atrSeries, findSwings, equalLevels, structureEvents, fairValueGaps } from '../gainz-alpha/indicators.js';
+import { clamp, atrSeries, findSwings, equalLevels, structureEvents, fairValueGaps, relativeVolume } from '../gainz-alpha/indicators.js';
 
 const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
 const src = (method, inputs = {}) => ({ module: 'chart-intelligence/smc', method, basis: 'ohlcv', inputs });
@@ -56,6 +56,26 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     const dir = inverted ? (g.direction === 'bullish' ? 'bearish' : 'bullish') : g.direction;
     add({ id: [inverted ? 'IFVG' : 'FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: inverted ? 'IFVG' : 'FVG', direction: dir, ts: g.ts, endTs: inverted ? rows[invIdx][0] : null, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: inverted ? 'IFVG' : 'FVG', status: inverted ? 'inverted' : g.status, fillPct: g.fillPct, strength: inverted ? 0.55 : clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src(inverted ? 'fvg-closed-through' : 'three-candle-imbalance', { minGapAtr: 0.1 }) });
   }
+
+  // --- Displacement: closed-candle impulse with range/body and relative-volume evidence -------------------
+  const displacement = [];
+  for (let i = Math.max(start + 1, 21); i <= last; i++) {
+    const c = rows[i], a = atrS[i] || atr, range = c[2] - c[3], body = Math.abs(c[4] - c[1]);
+    if (!(range > 0) || body < a * 1.2) continue;
+    const closeLocation = (c[4] - c[3]) / range, rv = relativeVolume(rows.slice(0, i + 1));
+    if (rv != null && rv < 1.35) continue;
+    const bullish = c[4] > c[1] && closeLocation >= 0.8;
+    const bearish = c[4] < c[1] && closeLocation <= 0.2;
+    if (!bullish && !bearish) continue;
+    displacement.push({ index: i, direction: bullish ? 'bullish' : 'bearish', bodyAtr: body / a, relVolume: rv });
+  }
+  displacement.slice(-12).forEach((d) => add({
+    id: ['DISPLACEMENT', rows[d.index][0], d.direction].join('|'),
+    layer: 'smc', kind: 'DISPLACEMENT', direction: d.direction, ts: rows[d.index][0],
+    price: r8(rows[d.index][4]), label: d.direction === 'bullish' ? 'Bull displacement' : 'Bear displacement',
+    strength: clamp((d.bodyAtr / 2) * (d.relVolume == null ? 0.65 : Math.min(d.relVolume / 2, 1)), 0.35, 1),
+    source: src('closed-impulse-body-close-location-relative-volume', { bodyAtr: r8(d.bodyAtr), relativeVolume: r8(d.relVolume) })
+  }));
 
   // --- Liquidity: pools, sweeps, magnets ------------------------------------------------------------------
   // Pools are always built from swings CONFIRMED strictly before the bar being judged, so a sweep found at bar j can
@@ -113,6 +133,11 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     add({ id: 'PD|premium', layer: 'smc', kind: 'PREMIUM', direction: 'bearish', ts: rows[since][0], top: r8(mh.price), bottom: r8(eq), price: r8((mh.price + eq) / 2), label: 'Premium', strength: 0.3, source: src('dealing-range-upper-half', { high: mh.ts, low: ml.ts }) });
     add({ id: 'PD|discount', layer: 'smc', kind: 'DISCOUNT', direction: 'bullish', ts: rows[since][0], top: r8(eq), bottom: r8(ml.price), price: r8((eq + ml.price) / 2), label: 'Discount', strength: 0.3, source: src('dealing-range-lower-half', { high: mh.ts, low: ml.ts }) });
     add({ id: 'PD|eq', layer: 'smc', kind: 'EQUILIBRIUM', direction: 'neutral', ts: rows[since][0], price: r8(eq), label: 'EQ', strength: 0.3, source: src('dealing-range-midpoint', { high: mh.ts, low: ml.ts }) });
+    const span = mh.price - ml.price;
+    const bullOte = { top: mh.price - span * 0.62, bottom: mh.price - span * 0.79 };
+    const bearOte = { top: ml.price + span * 0.79, bottom: ml.price + span * 0.62 };
+    add({ id: 'OTE|bullish', layer: 'smc', kind: 'OTE_BULLISH', direction: 'bullish', ts: rows[since][0], top: r8(bullOte.top), bottom: r8(bullOte.bottom), price: r8((bullOte.top + bullOte.bottom) / 2), label: 'Bull OTE 62–79%', strength: 0.4, source: src('dealing-range-fibonacci-retracement', { retracement: [0.62, 0.79], swingHigh: mh.ts, swingLow: ml.ts }) });
+    add({ id: 'OTE|bearish', layer: 'smc', kind: 'OTE_BEARISH', direction: 'bearish', ts: rows[since][0], top: r8(bearOte.top), bottom: r8(bearOte.bottom), price: r8((bearOte.top + bearOte.bottom) / 2), label: 'Bear OTE 62–79%', strength: 0.4, source: src('dealing-range-fibonacci-retracement', { retracement: [0.62, 0.79], swingHigh: mh.ts, swingLow: ml.ts }) });
   }
   out.items = items; out.status = 'ready'; out.trend = st.trend; out.atr = atr;
   out.liquidity = { pools: pools.map((p) => ({ ...p, price: r8(p.price) })), magnets, sweeps: sweeps.map((s) => ({ side: s.side, price: r8(s.price), at: s.sweptAt, kind: s.kind })) };
