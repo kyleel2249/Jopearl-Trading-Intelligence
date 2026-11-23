@@ -42,10 +42,9 @@ async function persistMarketSnapshot(env, routeKey, body, occurredAt) {
   if (!env.JPTI_DB) return;
   try {
     const routeHash = await sha256Hex(routeKey);
-    const minuteBucket = Math.floor(Date.parse(occurredAt) / 60000);
-    const id = 'market:' + routeHash + ':' + minuteBucket;
+    const id = 'market:' + routeHash;
     await env.JPTI_DB.prepare(
-      "INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, occurred_at, payload) VALUES (?, 'market-snapshot', 'cloudflare-edge', ?, ?, ?)"
+      "INSERT INTO jpti_events (id, kind, source, external_id, occurred_at, payload) VALUES (?, 'market-snapshot', 'cloudflare-edge', ?, ?, ?) ON CONFLICT(id) DO UPDATE SET external_id = excluded.external_id, occurred_at = excluded.occurred_at, payload = excluded.payload, created_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
     ).bind(id, routeKey, occurredAt, JSON.stringify(body)).run();
   } catch {
     // Public market delivery must remain available if optional snapshot persistence is degraded.
