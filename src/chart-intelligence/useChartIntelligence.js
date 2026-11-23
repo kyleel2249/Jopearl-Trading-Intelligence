@@ -15,13 +15,13 @@ function getLedger() { if (!ledger) { const s = safeStorage(); ledger = s ? crea
 const shared = new Map(), htfCache = new Map(), memorySeen = new Set();
 const HTF_TTL = 60e3;
 
-async function loadHtf(exchange, symbol, timeframe, signal) {
+async function loadHtf(exchange, symbol, timeframe, marketType, signal) {
   const out = [];
   for (const tf of higherTimeframesFor(timeframe)) {
-    const key = [exchange, symbol, tf].join('|'), hit = htfCache.get(key);
+    const key = [exchange, symbol, tf, marketType].join('|'), hit = htfCache.get(key);
     if (hit && Date.now() - hit.at < HTF_TTL) { out.push({ timeframe: tf, candles: hit.rows }); continue; }
     try {
-      const res = await apiFetch('/api/exchanges/' + exchange + '/ohlcv/' + symbol.replace('/', '-') + '?timeframe=' + tf + '&limit=120', { signal });
+      const res = await apiFetch('/api/exchanges/' + exchange + '/ohlcv/' + symbol.replace('/', '-') + '?timeframe=' + tf + '&limit=120&type=' + encodeURIComponent(marketType || 'spot'), { signal });
       if (!res.ok) continue;
       const data = await res.json(), rows = (data.candles || []).filter((r) => r.length >= 6).map((r) => r.map(Number));
       htfCache.set(key, { at: Date.now(), rows }); out.push({ timeframe: tf, candles: rows });
@@ -31,7 +31,7 @@ async function loadHtf(exchange, symbol, timeframe, signal) {
 }
 
 /** One hook per chart. Charts on the same exchange/symbol/timeframe share one computed result object. */
-export function useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels, clock }) {
+export function useChartIntelligence({ exchange, symbol, timeframe, marketType = 'spot', candles, ga, externalLevels, clock }) {
   const st = getStore();
   const [settings, setSettings] = useState(() => st.get());
   const [htf, setHtf] = useState({ key: '', data: [] });
@@ -41,11 +41,11 @@ export function useChartIntelligence({ exchange, symbol, timeframe, candles, ga,
 
   useEffect(() => {
     if (!settings.enabled || !exchange || !symbol || !timeframe) return undefined;
-    const ctl = new AbortController(), key = [exchange, symbol, timeframe].join('|');
-    loadHtf(exchange, symbol, timeframe, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); });
+    const ctl = new AbortController(), key = [exchange, symbol, timeframe, marketType].join('|');
+    loadHtf(exchange, symbol, timeframe, marketType, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); });
     const timer = setInterval(() => loadHtf(exchange, symbol, timeframe, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); }), HTF_TTL);
     return () => { ctl.abort(); clearInterval(timer); };
-  }, [exchange, symbol, timeframe, settings.enabled]);
+  }, [exchange, symbol, timeframe, marketType, settings.enabled]);
 
   const lastClosed = useMemo(() => {
     const { closed } = splitClosed(normalizeCandles(candles), timeframe, clock || Date.now());
@@ -57,8 +57,8 @@ export function useChartIntelligence({ exchange, symbol, timeframe, candles, ga,
   const gaSignal = ga && ga.result && ga.result.confirmed ? ga.result.confirmed.signal : null;
   const result = useMemo(() => {
     if (!settings.enabled || !candles || !candles.length || !lastClosed) return null;
-    const htfOk = htf.key === [exchange, symbol, timeframe].join('|') ? htf.data : [];
-    const key = [exchange, symbol, timeframe, lastClosed, gaAsOf, gaSignal, htfOk.length, extHash, ga && ga.settings ? JSON.stringify([ga.settings.preset, ga.settings.overrides]) : '', settings.historyBars].join('|');
+    const htfOk = htf.key === [exchange, symbol, timeframe, marketType].join('|') ? htf.data : [];
+    const key = [exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htfOk.length, extHash, ga && ga.settings ? JSON.stringify([ga.settings.preset, ga.settings.overrides]) : '', settings.historyBars].join('|');
     const hit = shared.get(key); if (hit) return hit;
     let out;
     try {
@@ -68,7 +68,7 @@ export function useChartIntelligence({ exchange, symbol, timeframe, candles, ga,
     shared.set(key, out); if (shared.size > 48) shared.delete(shared.keys().next().value);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.enabled, settings.historyBars, exchange, symbol, timeframe, lastClosed, gaAsOf, gaSignal, htf, extHash]);
+  }, [settings.enabled, settings.historyBars, exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htf, extHash]);
 
   useEffect(() => {
     if (!result || result.status !== 'ready' || !result.alerts.length) return;
