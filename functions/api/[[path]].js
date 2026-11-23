@@ -265,7 +265,7 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
     }
 
     const requestedType = String(url.searchParams.get('type') || 'spot').toLowerCase();
-    const supportedBitgetTypes = ['spot', 'margin', 'futures', 'perpetual', 'coin-futures', 'usdc-futures', 'all'];
+    const supportedBitgetTypes = ['spot', 'margin', 'futures', 'perpetual', 'coin-futures', 'usdc-futures', 'usdt-m', 'usdt-m-futures', 'usdt-futures', 'coin-m', 'coin-m-futures', 'usdc-m', 'usdc-m-futures', 'all'];
     const isExchangeMarketRoute = /\/api\/exchanges\/([a-z0-9_]+)\/(?:markets|ticker\/[^/]+|ohlcv\/[^/]+)$/i.test(url.pathname);
     const exchangeMatch = url.pathname.match(/\/api\/exchanges\/([a-z0-9_]+)\//i);
     const requestedExchange = exchangeMatch?.[1]?.toLowerCase();
