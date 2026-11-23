@@ -73,7 +73,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const rows = useMemo(() => valid.slice(-visible), [valid, visible]);
   const offset = valid.length - rows.length;
 
-  const smc = useMemo(() => (overlays.smc || overlays.institutional ? detectSmartMoney(valid.slice(0, -1), 3) : null), [valid, overlays.smc, overlays.institutional]);
+  const smc = useMemo(() => (overlays.institutional ? detectSmartMoney(valid.slice(0, -1), 3) : null), [valid, overlays.institutional]);
   const bands = useMemo(() => (overlays.bands ? bollinger(valid.map((c) => c[4])).slice(offset) : null), [valid, overlays.bands, offset]);
   const ranges = useMemo(() => liquidityRanges(context?.liquidity, valid.at(-1)?.[4]), [context, valid]);
 
@@ -169,7 +169,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       </>}
     </div>
     <div className="tc-legend" role="group" aria-label="Chart overlays">
-      {[['smc', 'SMC - Liquidity'], ['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([key, label]) =>
+      {[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([key, label]) =>
         <button key={key} type="button" aria-pressed={overlays[key]} className={overlays[key] ? 'on' : ''} onClick={() => onOverlayChange(key)}><i/>{label}</button>)}
       <button type="button" aria-pressed={ga.settings.enabled} className={ga.settings.enabled ? 'on' : ''} onClick={() => ga.update({ enabled: !ga.settings.enabled })}><i/>GainzAlpha</button>
     </div>
@@ -222,12 +222,6 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <rect x={geo.left} y={r.y} width={rightEdge - geo.left} height={r.h} fill="#22c58b" opacity=".2" stroke="#22c58b" strokeOpacity=".65" strokeDasharray="5 3"/>
         <text x={geo.left + 156} y={r.y + r.h - 5} fill="#7be7bc" fontSize="10.5" fontFamily="DM Sans, sans-serif"><tspan fontWeight="600">Sell-Side Liquidity</tspan>  {formatPrice(ranges.sellSide.low, profile)} – {formatPrice(ranges.sellSide.high, profile)}</text></g>; })()}
 
-      {overlays.smc && smc && <g>
-        {smc.structureBreaks.filter((b) => b.index - offset >= 0).slice(-6).map((b) => <g key={'bos' + b.index}>
-          <line x1={x(Math.max(0, b.index - offset - 8))} x2={x(b.index - offset)} y1={y(b.level)} y2={y(b.level)} stroke={b.direction === 'bullish' ? UP : DOWN} strokeOpacity=".7" strokeDasharray="3 3"/>
-          <text x={x(b.index - offset)} y={y(b.level) + (b.direction === 'bullish' ? -4 : 11)} textAnchor="middle" fill={b.direction === 'bullish' ? UP : DOWN} fontSize="9" fontWeight="700" fontFamily="DM Sans, sans-serif">{b.kind}</text></g>)}
-        {smc.liquiditySweeps.filter((s) => s.index - offset >= 0).slice(-6).map((s) => <path key={'sw' + s.index} d={s.direction === 'buy-side' ? 'M' + (x(s.index - offset) - 4) + ' ' + (y(s.level) - 9) + 'l4 7l4 -7z' : 'M' + (x(s.index - offset) - 4) + ' ' + (y(s.level) + 9) + 'l4 -7l4 7z'} fill="#f0b45a"><title>{s.direction} liquidity sweep at {formatPrice(s.level, profile)}</title></path>)}
-      </g>}
 
       {marker && <g>
         <line x1={x(marker.index)} x2={x(marker.index)} y1={geo.top + 34} y2={geo.priceBottom} stroke="#a9c4ff" strokeOpacity=".7" strokeDasharray="4 4"/>
