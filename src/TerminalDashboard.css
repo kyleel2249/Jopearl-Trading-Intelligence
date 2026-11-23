@@ -222,3 +222,17 @@
   .tc-legend button{font-size:9.5px;padding:1px 5px}
   .tc-ohlc{font-size:10px;gap:2px 8px}
 }
+
+
+/* ---- live SMC / chart-intelligence panel ---------------------------------- */
+.ci-terminal-panel{display:flex;flex-direction:column;gap:7px;padding:8px 10px;margin:4px 0 7px;border:1px solid #233a58;border-radius:8px;background:linear-gradient(110deg,rgba(12,28,49,.96),rgba(8,17,31,.96));}
+.ci-terminal-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:10px;color:#9eb2cc}
+.ci-terminal-summary strong{font-size:11px;color:#c6d8f2;letter-spacing:.35px}
+.ci-terminal-summary strong.bull{color:#4cdbac}.ci-terminal-summary strong.bear{color:#ff8290}
+.ci-terminal-kicker{font-size:9px;letter-spacing:.9px;color:#6f8cad;font-weight:700}
+.ci-terminal-layers{display:flex;gap:4px;flex-wrap:wrap}
+.ci-terminal-layers button{border:1px solid #263a54;background:#0b1728;color:#8297b3;border-radius:5px;padding:3px 7px;font-size:9px;cursor:pointer}
+.ci-terminal-layers button.active{border-color:#3478b8;background:#102d4a;color:#d5e8ff}
+.ci-terminal-foot{display:flex;gap:10px;flex-wrap:wrap;color:#7187a4;font-size:9px}
+.ci-chart-zone{pointer-events:none}
+@media(max-width:560px){.ci-terminal-summary{gap:6px 9px}.ci-terminal-layers button{font-size:8px;padding:3px 5px}.ci-terminal-foot{font-size:8px}}
