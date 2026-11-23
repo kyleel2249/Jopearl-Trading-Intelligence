@@ -46,7 +46,7 @@ export function parseSymbol(raw) {
   if (rest.length || pairRest.length || !/^[A-Z0-9]{2,20}$/.test(base || '') || !/^[A-Z0-9]{2,20}$/.test(quote || '') || (settle && !/^[A-Z0-9]{2,20}$/.test(settle))) {
     throw new DirectError('Invalid market symbol. Use BASE/QUOTE for spot or BASE/QUOTE:SETTLE for contracts.', 400);
   }
-  return { base, quote, settle, symbol: base + '/' + quote + (settle ? ':' + settle : '') };
+  return { base, quote, ...(settle ? { settle } : {}), symbol: base + '/' + quote + (settle ? ':' + settle : '') };
 }
 
 export const venueSymbol = (exchange, { base, quote }) => (exchange === 'okx' ? base + '-' + quote : base + quote);
