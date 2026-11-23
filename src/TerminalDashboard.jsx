@@ -19,7 +19,7 @@ const store = {
 };
 const TIMEFRAMES = [['1m', '1m'], ['5m', '5m'], ['15m', '15m'], ['1h', '1h'], ['4h', '4h'], ['1d', '1D']];
 const SYMBOL_PRESETS = ['EUR/USDT', 'GBP/USDT', 'AUD/USDT', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'LINK/USDT'];
-const DEFAULT_OVERLAYS = { smc: true, sessions: true, institutional: true, bands: false, liquidity: true };
+const DEFAULT_OVERLAYS = { smc: false, sessions: true, institutional: false, bands: false, liquidity: true };
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳' };
 const SESSION_COLOR = { sydney: '#9b8cf6', tokyo: '#4a9bf5', london: '#a767ee', 'new-york': '#f0a848' };
 
@@ -499,7 +499,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
             </div>
           </div>
           <div className="td-chart-area">
-            <TerminalChart symbol={symbol} timeframe={timeframe} candles={candles} profile={profile} context={context} strip={strip}
+            <TerminalChart exchange={exchange} symbol={symbol} timeframe={timeframe} candles={candles} profile={profile} context={context} strip={strip}
               loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay}/>
           </div>
         </section>
