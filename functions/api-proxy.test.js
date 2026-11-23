@@ -10,3 +10,22 @@ test('Pages API uses the same-origin Cloudflare runtime without an upstream URL'
   assert.equal(body.mode, 'cloudflare-edge');
   assert.equal(body.source, 'cloudflare-edge');
 });
+
+test('Pages API forwards Bitget derivative chart requests with their product type', async () => {
+  let requested = '';
+  const handler = createPagesApiHandler({ marketProvider: { request: async (path) => {
+    requested = path;
+    return { status: 200, body: { exchange: 'bitget', symbol: 'BTC/USDT:USDT', timeframe: '1h', candles: [[1, 1, 2, 0.5, 1.5, 10]] } };
+  } } });
+  const response = await handler({ request: new Request('https://jpti.pages.dev/api/exchanges/bitget/ohlcv/BTC-USDT%3AUSDT?timeframe=1h&limit=200&type=futures') });
+  assert.equal(response.status, 200);
+  assert.match(requested, /type=futures/);
+  assert.equal((await response.json()).exchange, 'bitget');
+});
+
+test('Pages API does not claim derivative support for other direct-only exchanges', async () => {
+  const handler = createPagesApiHandler({ marketProvider: { request: async () => { throw new Error('should not call provider'); } } });
+  const response = await handler({ request: new Request('https://jpti.pages.dev/api/exchanges/binance/ohlcv/BTC-USDT?timeframe=1h&type=futures') });
+  assert.equal(response.status, 501);
+  assert.equal((await response.json()).code, 'EXCHANGE_PRODUCT_TYPE_UNAVAILABLE');
+});
