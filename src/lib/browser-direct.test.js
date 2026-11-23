@@ -23,7 +23,7 @@ test('symbols are validated and mapped to each venue format', () => {
   assert.equal(venueSymbol('okx', parseSymbol('ETH/USDT')), 'ETH-USDT');
   assert.equal(venueSymbol('binance', parseSymbol('ETH/USDT')), 'ETHUSDT');
   assert.deepEqual(parseSymbol('BTC-USDT:USDT'), { base: 'BTC', quote: 'USDT', settle: 'USDT', symbol: 'BTC/USDT:USDT' });
-  for (const bad of ['BTC/USDT:USDT', 'BTC', '', 'A/B', 'BTC/USDT/EXTRA', '../etc']) assert.throws(() => parseSymbol(bad), DirectError, bad);
+  for (const bad of ['BTC/USDT:USDT:EXTRA', 'BTC', '', 'A/B', 'BTC/USDT/EXTRA', '../etc']) assert.throws(() => parseSymbol(bad), DirectError, bad);
 });
 
 test('route matching covers only the supported GET routes and never absolute URLs', () => {
@@ -70,7 +70,7 @@ test('urls use each venue format and reject unsupported timeframes', () => {
   assert.match(candlesUrl('bitget', s, '1d', 50), /category=SPOT.*interval=1D/);
   assert.match(tickerUrl('bitget', { ...s, marketType: 'futures' }), /category=USDT-FUTURES/);
   assert.match(candlesUrl('bitget', { ...s, marketType: 'coin-futures' }, '4h', 50), /category=COIN-FUTURES.*interval=4H/);
-  assert.throws(() => candlesUrl('bitget', s, '8h', 50), /does not support timeframe/);
+  assert.throws(() => candlesUrl('bitget', s, '8h', 50), /Unsupported timeframe/);
   assert.match(marketsUrl('binance'), /exchangeInfo/);
 });
 
@@ -107,8 +107,8 @@ test('provider reports failure (not invented data) when every venue is down, and
   const down = createDirectProvider({ fetchImpl: async () => { throw new TypeError('Failed to fetch'); } });
   const r = await down.request('/api/exchanges/binance/ticker/BTC-USDT');
   assert.equal(r.failed, true); assert.equal(r.status, 502); assert.ok(r.body.error);
-  const bad = await down.request('/api/exchanges/binance/ticker/BTC-USDT:USDT');
-  assert.equal(bad.status, 404);
+  const bad = await down.request('/api/exchanges/binance/ticker/INVALID');
+  assert.equal(bad.status, 400);
   const unsupportedFrame = await createDirectProvider({ fetchImpl: async () => json({}) }).request('/api/exchanges/bitget/ohlcv/BTC-USDT?timeframe=8h');
   assert.equal(unsupportedFrame.status, 400);
   assert.equal(await down.request('/api/ledger'), null);
