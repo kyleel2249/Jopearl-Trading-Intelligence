@@ -219,13 +219,17 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
         const tables = (result?.results || []).map((row) => row.name);
         const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors'];
         const missingTables = requiredTables.filter((name) => !tables.includes(name));
+        const snapshotIndex = await env.JPTI_DB.prepare(
+          "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
+        ).bind('jpti_events_market_snapshot_lookup').first();
+        const missingIndexes = snapshotIndex ? [] : ['jpti_events_market_snapshot_lookup'];
         // A read-only KV lookup exercises the binding without creating a public write surface.
         await env.JPTI_KV.get('jpti:system:health');
-        const healthy = missingTables.length === 0;
+        const healthy = missingTables.length === 0 && missingIndexes.length === 0;
         return json(healthy ? 200 : 503, {
           status: healthy ? 'ok' : 'migration-required',
           service: 'JPTI Cloudflare storage',
-          d1: { connected: true, tables, missingTables },
+          d1: { connected: true, tables, missingTables, indexes: snapshotIndex ? [snapshotIndex.name] : [], missingIndexes },
           kv: { connected: true, operation: 'read' },
           timestamp: now().toISOString()
         }, request);
