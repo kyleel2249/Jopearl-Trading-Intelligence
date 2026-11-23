@@ -15,7 +15,7 @@ export default function AlphaSignalEngine(){
  const loadLedger=useCallback(async()=>{try{const r=await apiFetch('/api/alpha/paper/ledger',{headers:headers(),cache:'no-store'});const d=await r.json();if(r.ok)setLedger(d);}catch{}},[apiToken]);
  useEffect(()=>{loadLedger();},[loadLedger]);
  const getMarketData=useCallback(async()=>{
-  const normalized=symbol.trim().toUpperCase();if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(normalized))throw new Error('Enter a normalized BASE/QUOTE symbol such as BTC/USDT.');
+  const normalized=symbol.trim().toUpperCase();if(!/^[A-Z0-9._-]{2,20}\\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(normalized))throw new Error('Enter BASE/QUOTE, or BASE/QUOTE:SETTLE for a Bitget contract.');
   const marketPath=normalized.replace('/','-');
   const [candleResponse,quoteResponse]=await Promise.all([
    apiFetch('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(marketPath)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=320&type='+encodeURIComponent(marketType),{cache:'no-store'}),
