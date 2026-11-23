@@ -139,7 +139,7 @@ export function tickerUrl(exchange, sym) {
   return HOSTS.bitget + '/api/v3/market/tickers?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s);
 }
 
-export function candlesUrl(exchange, sym, timeframe, limit) {
+export function candlesUrl(exchange, sym, timeframe, limit, endTime = null) {
   const frame = FRAMES[exchange]?.[timeframe];
   if (!frame) throw new DirectError('Unsupported timeframe: ' + timeframe, 400);
   const s = venueSymbol(exchange, sym);
@@ -149,7 +149,7 @@ export function candlesUrl(exchange, sym, timeframe, limit) {
   const category = BITGET_CATEGORIES[String(sym.marketType || 'spot').toLowerCase()] || 'SPOT';
   const bitgetFrame = BITGET_TIMEFRAMES[timeframe];
   if (!bitgetFrame) throw new DirectError('Bitget does not support timeframe ' + timeframe + '.', 400);
-  return HOSTS.bitget + '/api/v3/market/history-candles?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s) + '&interval=' + encodeURIComponent(bitgetFrame) + '&limit=' + Math.min(limit, 100);
+  return HOSTS.bitget + '/api/v3/market/history-candles?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s) + '&interval=' + encodeURIComponent(bitgetFrame) + '&limit=' + Math.min(limit, 100) + (endTime === null ? '' : '&endTime=' + encodeURIComponent(String(endTime)));
 }
 
 export function marketsUrl(exchange) {
@@ -304,7 +304,24 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
         const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + timeframe + limit, CACHE_TTL.ohlcv, async () => {
-          const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
+          if (venue !== 'bitget') {
+            const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
+            return rows.slice(-limit);
+          }
+          const merged = new Map();
+          let endTime = null;
+          const maxPages = Math.min(5, Math.ceil(limit / 100));
+          for (let page = 0; page < maxPages && merged.size < limit; page += 1) {
+            const pageLimit = Math.min(100, limit - merged.size);
+            const payload = await getJson(candlesUrl('bitget', sym, timeframe, pageLimit, endTime), opts);
+            const rows = CANDLE_PARSERS.bitget(payload);
+            for (const row of rows) merged.set(row[0], row);
+            const oldest = rows[0]?.[0];
+            if (!Number.isFinite(oldest) || rows.length < pageLimit || (endTime !== null && oldest >= endTime)) break;
+            endTime = oldest - 1;
+          }
+          const rows = [...merged.values()].sort((a, b) => a[0] - b[0]);
+          if (!rows.length) throw new DirectError('Bitget returned no historical candles for this market.', 404);
           return rows.slice(-limit);
         }), signal, !(route.exchange === 'bitget' && marketType !== 'spot'));
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timeframe, candles: r.value, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
