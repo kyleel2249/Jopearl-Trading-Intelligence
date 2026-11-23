@@ -316,7 +316,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const search = String(route.query.search || '').trim().toLowerCase().slice(0, 60);
         const all = await cached('m:' + id, CACHE_TTL.markets, async () => {
           if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
-          const categories = Object.values(BITGET_CATEGORIES);
+          const categories = ['SPOT', 'MARGIN', 'USDT-FUTURES', 'COIN-FUTURES', 'USDC-FUTURES'];
           const categoryResults = await Promise.allSettled(categories.map(async (category) => {
             const payload = await getJson(HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category), { ...opts, timeoutMs: 15000 });
             if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget instrument catalogue failed for ' + category + '.', 502);
@@ -342,7 +342,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           }));
           const successful = categoryResults.filter((result) => result.status === 'fulfilled').map((result) => result.value);
           if (!successful.length) throw new DirectError('Bitget instrument catalog is unavailable for every product category.', 502);
-          const failedCategories = categoryResults.filter((result) => result.status === 'rejected').map((result, index) => ({ category: categories[index], error: result.reason?.message || 'Category unavailable' }));
+          const failedCategories = categoryResults.map((result, index) => ({ result, category: categories[index] })).filter(({ result }) => result.status === 'rejected').map(({ result, category }) => ({ category, error: result.reason?.message || 'Category unavailable' }));
           return successful.flatMap((result) => result.markets).map((market) => ({ ...market, categoryErrors: failedCategories }));
         });
         const normalizedType = type === 'all' ? 'all' : type;
