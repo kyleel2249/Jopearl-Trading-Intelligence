@@ -100,12 +100,12 @@ const timeLabel = (stamp, timeframe) => {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, onTimeframeChange, onMarketTypeChange, alphaLevels = [] }) {
+export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, alphaLevels = [] }) {
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
   const [supportedTimeframes, setSupportedTimeframes] = useState(null);
-  const [marketType, setMarketType] = useState('futures');
+  const [marketType, setMarketType] = useState(initialMarketType || 'futures');
   const [directMode, setDirectMode] = useState(() => getApiSource().mode === 'direct');
   const [marketSearch, setMarketSearch] = useState('');
   const [marketCounts, setMarketCounts] = useState(null);
@@ -172,6 +172,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   useEffect(() => { let active=true; const legacy=readSessionMemory(); apiFetch('/api/session/memory').then(response=>response.ok?response.json():null).then(async data=>{if(!active||!Array.isArray(data?.records))return; if(legacy.length){const migrated=await apiFetch('/api/session/memory/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:legacy})});if(!migrated.ok)throw new Error('legacy session memory migration failed');if(typeof localStorage!=='undefined')localStorage.removeItem('jpti.session-memory.v1');const refreshed=await apiFetch('/api/session/memory');const result=await refreshed.json();if(active&&Array.isArray(result.records)){setSessionMemory(result.records);setSessionMemoryStatus('legacy memory migrated');}return;} setSessionMemory(data.records);setSessionMemoryStatus('backend synced');}).catch(()=>{if(active)setSessionMemoryStatus('backend unavailable · local memory retained');}); return ()=>{active=false;}; }, []);
   useEffect(() => { if (initialTimeframe && initialTimeframe !== timeframe) setTimeframe(initialTimeframe); }, [initialTimeframe]);
   useEffect(() => { if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
+  useEffect(() => { if (initialMarketType && initialMarketType !== marketType) setMarketType(initialMarketType); }, [initialMarketType, marketType]);
   useEffect(() => { if (onMarketTypeChange) onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
 
   useEffect(() => {
