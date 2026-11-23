@@ -61,6 +61,26 @@ export default function ChartIntelligenceOverlays({ result, layers, rows, geomet
         <text x={Math.max(left + 2, Math.min(right - 42, x(i) + 3))} y={y(it.price) - 3} fill={color} fontSize="8">{it.label}</text>
       </g>;
     })}
+    {layers.signals && (result.layers.signals || []).slice(-24).map((it) => {
+      const i = indexAt(it.ts); if (i < 0 || !Number.isFinite(it.price)) return null;
+      const bullish = it.direction === 'bullish', color = COLORS[it.direction] || COLORS.neutral;
+      const px = x(i), py = y(it.price);
+      return <g key={it.id}><path d={bullish ? 'M' + px + ' ' + (py - 8) + 'l-5 8h10z' : 'M' + px + ' ' + (py + 8) + 'l-5 -8h10z'} fill={color}><title>{it.label} · {it.outcome || 'recorded signal'}</title></path></g>;
+    })}
+    {layers.orderflow && (result.layers.orderflow || []).slice(-18).map((it) => {
+      const i = indexAt(it.ts); if (i < 0 || !Number.isFinite(it.price)) return null;
+      const color = COLORS[it.direction] || COLORS.orderflow;
+      return <g key={it.id}><circle cx={x(i)} cy={y(it.price)} r="3.1" fill={color} stroke="#08111f" strokeWidth="1"><title>{it.label} · {it.source?.basis || 'OHLCV estimate'}</title></circle></g>;
+    })}
+    {layers.plan && result.plan && (() => {
+      const p = result.plan, entries = [
+        { key: 'ENTRY', price: p.entry, color: '#f3d078', dash: '3 2' },
+        { key: 'STOP', price: p.stopLoss, color: '#ef5361', dash: '5 3' },
+        ...(p.targets || []).map((t) => ({ key: t.name, price: t.price, color: '#22c58b', dash: '4 3' })),
+        ...(p.trailingStop?.armed && Number.isFinite(p.trailingStop.price) ? [{ key: 'TRAIL', price: p.trailingStop.price, color: '#d6a5ff', dash: '2 2' }] : [])
+      ];
+      return <g>{entries.map((e) => <g key={e.key}><line x1={left} x2={right} y1={y(e.price)} y2={y(e.price)} stroke={e.color} strokeWidth="1.15" strokeDasharray={e.dash}/><text x={right - 42} y={y(e.price) - 3} fill={e.color} fontSize="8.5" fontWeight="700">{e.key}</text></g>)}</g>;
+    })()}
     {vp && ['POC','VAH','VAL'].map((k) => {
       const v = vp[k.toLowerCase()]; if (!Number.isFinite(v)) return null;
       const color = k === 'POC' ? '#f2cf79' : '#9aaec8';
