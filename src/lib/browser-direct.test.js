@@ -22,6 +22,7 @@ test('symbols are validated and mapped to each venue format', () => {
   assert.deepEqual(parseSymbol('btc-usdt'), { base: 'BTC', quote: 'USDT', symbol: 'BTC/USDT' });
   assert.equal(venueSymbol('okx', parseSymbol('ETH/USDT')), 'ETH-USDT');
   assert.equal(venueSymbol('binance', parseSymbol('ETH/USDT')), 'ETHUSDT');
+  assert.deepEqual(parseSymbol('BTC-USDT:USDT'), { base: 'BTC', quote: 'USDT', settle: 'USDT', symbol: 'BTC/USDT:USDT' });
   for (const bad of ['BTC/USDT:USDT', 'BTC', '', 'A/B', 'BTC/USDT/EXTRA', '../etc']) assert.throws(() => parseSymbol(bad), DirectError, bad);
 });
 
@@ -66,8 +67,10 @@ test('urls use each venue format and reject unsupported timeframes', () => {
   assert.match(tickerUrl('bybit', s), /category=spot&symbol=BTCUSDT$/);
   assert.match(candlesUrl('bybit', s, '1h', 100), /interval=60&limit=100$/);
   assert.match(candlesUrl('okx', s, '4h', 999), /bar=4H&limit=300$/);
-  assert.match(candlesUrl('bitget', s, '1d', 50), /granularity=1day/);
-  assert.throws(() => candlesUrl('bitget', s, '3m', 50), /Unsupported timeframe/);
+  assert.match(candlesUrl('bitget', s, '1d', 50), /category=SPOT.*interval=1D/);
+  assert.match(tickerUrl('bitget', { ...s, marketType: 'futures' }), /category=USDT-FUTURES/);
+  assert.match(candlesUrl('bitget', { ...s, marketType: 'coin-futures' }, '4h', 50), /category=COIN-FUTURES.*interval=4H/);
+  assert.throws(() => candlesUrl('bitget', s, '8h', 50), /does not support timeframe/);
   assert.match(marketsUrl('binance'), /exchangeInfo/);
 });
 
@@ -106,7 +109,7 @@ test('provider reports failure (not invented data) when every venue is down, and
   assert.equal(r.failed, true); assert.equal(r.status, 502); assert.ok(r.body.error);
   const bad = await down.request('/api/exchanges/binance/ticker/BTC-USDT:USDT');
   assert.equal(bad.status, 404);
-  const unsupportedFrame = await createDirectProvider({ fetchImpl: async () => json({}) }).request('/api/exchanges/bitget/ohlcv/BTC-USDT?timeframe=3m');
+  const unsupportedFrame = await createDirectProvider({ fetchImpl: async () => json({}) }).request('/api/exchanges/bitget/ohlcv/BTC-USDT?timeframe=8h');
   assert.equal(unsupportedFrame.status, 400);
   assert.equal(await down.request('/api/ledger'), null);
 });
@@ -194,4 +197,67 @@ test('direct multi-exchange comparison reports venue failures without discarding
   assert.equal(result.body.venueCount, 1);
   assert.equal(result.body.results.find((item) => item.exchange === 'binance').status, 'error');
   assert.equal(result.body.results.find((item) => item.exchange === 'bybit').status, 'ok');
+});
+
+test('Bitget v3 ticker payload is normalized for spot and futures', () => {
+  const payload = { code: '00000', requestTime: 1700000000000, data: [{ category: 'USDT-FUTURES', symbol: 'BTCUSDT', lastPrice: '98123.45', openPrice24h: '97000', highPrice24h: '99000', lowPrice24h: '96000', bid1Price: '98123', ask1Price: '98124', volume24h: '1234.5', turnover24h: '120000000', price24hPcnt: '0.012', ts: '1700000000000' }] };
+  const ticker = parsers.ticker.bitget(payload);
+  assert.equal(ticker.last, 98123.45);
+  assert.equal(ticker.bid, 98123);
+  assert.equal(ticker.percentage, 1.2);
+  assert.equal(ticker.quoteVolume, 120000000);
+});
+
+test('Bitget loads all five public instrument categories and filters contract types', async () => {
+  const byCategory = {
+    SPOT: [{ symbol: 'BTCUSDT', baseCoin: 'BTC', quoteCoin: 'USDT', status: 'online', pricePrecision: '2', quantityPrecision: '6' }],
+    MARGIN: [{ symbol: 'ETHUSDT', baseCoin: 'ETH', quoteCoin: 'USDT', status: 'online', pricePrecision: '2', quantityPrecision: '5' }],
+    'USDT-FUTURES': [{ symbol: 'BTCUSDT', baseCoin: 'BTC', quoteCoin: 'USDT', settleCoin: 'USDT', status: 'online', type: 'perpetual', pricePrecision: '1', quantityPrecision: '3', maxLeverage: '125' }],
+    'COIN-FUTURES': [{ symbol: 'BTCUSD', baseCoin: 'BTC', quoteCoin: 'USD', settleCoin: 'BTC', status: 'online', type: 'perpetual', pricePrecision: '1', quantityPrecision: '0' }],
+    'USDC-FUTURES': [{ symbol: 'ETHUSDC', baseCoin: 'ETH', quoteCoin: 'USDC', settleCoin: 'USDC', status: 'online', type: 'perpetual', pricePrecision: '2', quantityPrecision: '3' }]
+  };
+  const calls = [];
+  const provider = createDirectProvider({ fetchImpl: async (url) => {
+    const category = new URL(url).searchParams.get('category');
+    calls.push(category);
+    return json({ code: '00000', data: byCategory[category] || [] });
+  } });
+  const all = await provider.request('/api/exchanges/bitget/markets?type=all');
+  assert.equal(all.status, 200);
+  assert.deepEqual([...new Set(calls)].sort(), ['COIN-FUTURES', 'MARGIN', 'SPOT', 'USDC-FUTURES', 'USDT-FUTURES'].sort());
+  assert.equal(all.body.totalMarkets, 5);
+  assert.equal(all.body.counts.spot, 1);
+  assert.equal(all.body.counts.margin, 1);
+  assert.equal(all.body.counts.futures, 3);
+  assert.equal(all.body.counts.coinFutures, 1);
+  assert.equal(all.body.markets.find((market) => market.productCategory === 'COIN-FUTURES').symbol, 'BTC/USD:BTC');
+  const margin = await provider.request('/api/exchanges/bitget/markets?type=margin');
+  assert.equal(margin.body.count, 1);
+  const futures = await provider.request('/api/exchanges/bitget/markets?type=futures');
+  assert.equal(futures.body.count, 3);
+});
+
+test('Bitget derivative candles use their product category and preserve settlement symbol', async () => {
+  let requestedUrl = '';
+  const provider = createDirectProvider({ fetchImpl: async (url) => {
+    requestedUrl = String(url);
+    return json({ code: '00000', data: [['1700000000000', '1', '2', '0.5', '1.5', '8', '12']] });
+  } });
+  const result = await provider.request('/api/exchanges/bitget/ohlcv/BTC-USDT:USDT?timeframe=1h&limit=20&type=futures');
+  assert.equal(result.status, 200);
+  assert.match(requestedUrl, /category=USDT-FUTURES/);
+  assert.match(requestedUrl, /interval=1H/);
+  assert.equal(result.body.symbol, 'BTC/USDT:USDT');
+  assert.equal(result.body.candles.length, 1);
+});
+
+test('Bitget derivative failures never silently fall over to another venue spot market', async () => {
+  const hosts = [];
+  const provider = createDirectProvider({ fetchImpl: async (url) => {
+    hosts.push(new URL(url).hostname);
+    return json({ code: '40001', msg: 'Bitget contract temporarily unavailable' }, 400);
+  } });
+  const result = await provider.request('/api/exchanges/bitget/ohlcv/BTC-USDT:USDT?timeframe=1h&type=futures');
+  assert.equal(result.failed, true);
+  assert.deepEqual(hosts, ['api.bitget.com']);
 });
