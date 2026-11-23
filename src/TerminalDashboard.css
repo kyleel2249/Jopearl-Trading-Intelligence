@@ -225,7 +225,9 @@
 
 
 /* ---- live SMC / chart-intelligence panel ---------------------------------- */
-.ci-terminal-panel{display:flex;flex-direction:column;gap:7px;padding:8px 10px;margin:4px 0 7px;border:1px solid #233a58;border-radius:8px;background:linear-gradient(110deg,rgba(12,28,49,.96),rgba(8,17,31,.96));}
+.ci-terminal-panel{position:absolute;z-index:4;top:58px;left:8px;width:max-content;max-width:calc(100% - 16px);display:flex;flex-direction:column;gap:7px;padding:5px 8px;border:1px solid #233a58;border-radius:8px;background:rgba(8,17,31,.96);box-shadow:0 5px 16px rgba(0,0,0,.28)}
+.ci-terminal-panel[open]{right:8px;width:auto;max-height:128px;overflow:auto;padding:8px 10px}
+.ci-terminal-panel summary{list-style:none;cursor:pointer}.ci-terminal-panel summary::-webkit-details-marker{display:none}
 .ci-terminal-summary{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:10px;color:#9eb2cc}
 .ci-terminal-summary strong{font-size:11px;color:#c6d8f2;letter-spacing:.35px}
 .ci-terminal-summary strong.bull{color:#4cdbac}.ci-terminal-summary strong.bear{color:#ff8290}
