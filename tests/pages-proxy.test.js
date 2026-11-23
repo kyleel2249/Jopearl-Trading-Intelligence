@@ -85,13 +85,13 @@ test('Cloudflare edge API permits only the standard Capacitor WebView origin for
   assert.equal(denied.headers.get('access-control-allow-origin'), null);
 });
 
-test('Cloudflare edge API refuses to relabel spot candles as futures', async () => {
+test('Cloudflare edge API refuses unsupported derivatives on spot-only exchanges', async () => {
   const handler = createPagesApiHandler();
   const response = await handler({
     request: new Request('https://jpti.pages.dev/api/exchanges/binance/ohlcv/BTC-USDT?timeframe=1h&type=futures')
   });
   assert.equal(response.status, 501);
   const body = await response.json();
-  assert.equal(body.code, 'CLOUDFLARE_SPOT_ONLY');
+  assert.equal(body.code, 'EXCHANGE_PRODUCT_TYPE_UNAVAILABLE');
   assert.deepEqual(body.supportedTypes, ['spot']);
 });
