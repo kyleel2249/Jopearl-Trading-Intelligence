@@ -196,7 +196,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     refreshCatalog();
     const timer = setInterval(refreshCatalog, 300000);
     return () => { active = false; clearInterval(timer); };
-  }, [exchange, marketType, marketSearch]);
+  }, [exchange, marketType, marketSearch, directMode]);
 
   const load = async () => {
     setLoading(true);
