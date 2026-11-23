@@ -46,7 +46,7 @@ async function persistMarketSnapshot(env, routeKey, body, occurredAt) {
     const id = 'market:' + routeHash + ':' + minuteBucket;
     await env.JPTI_DB.prepare(
       "INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, occurred_at, payload) VALUES (?, 'market-snapshot', 'cloudflare-edge', ?, ?, ?)"
-    ).bind(id, routeKey.slice(0, 500), occurredAt, JSON.stringify(body)).run();
+    ).bind(id, routeKey, occurredAt, JSON.stringify(body)).run();
   } catch {
     // Public market delivery must remain available if optional snapshot persistence is degraded.
   }
@@ -67,6 +67,30 @@ async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
     }
   }
   await persistMarketSnapshot(env, routeKey, body, occurredAt);
+}
+
+async function readStoredMarketSnapshot(env, routeKey) {
+  if (!env.JPTI_DB) return null;
+  try {
+    const row = await env.JPTI_DB.prepare(
+      "SELECT payload, occurred_at FROM jpti_events WHERE kind = 'market-snapshot' AND external_id = ? ORDER BY occurred_at DESC LIMIT 1"
+    ).bind(routeKey).first();
+    if (!row?.payload) return null;
+    const body = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    return { body, occurredAt: row.occurred_at || null };
+  } catch {
+    return null;
+  }
+}
+
+async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
+  if (!env.JPTI_KV) return;
+  try {
+    const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
+    await env.JPTI_KV.put(key, JSON.stringify({ status: 200, body, cachedAt: occurredAt, stale: true }), { expirationTtl: 5 });
+  } catch {
+    // Stale cache is best-effort; D1 remains the durable source.
+  }
 }
 
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
@@ -261,6 +285,12 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
         '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200';
       const candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
       if (!candlesResult || candlesResult.status !== 200) {
+        const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
+        if (snapshot) {
+          const staleBody = { ...snapshot.body, stale: true, lastUpdatedAt: snapshot.occurredAt, source: 'cloudflare-d1-stale' };
+          await cacheStaleMarketResponse(env, marketRouteKey, staleBody, now().toISOString());
+          return json(200, staleBody, request, { 'x-jpti-cache': 'd1-stale' });
+        }
         return json(candlesResult?.status || 502, candlesResult?.body || { error: 'Market candles are unavailable for context analysis.' }, request);
       }
       const generatedAt = now().toISOString();
@@ -273,6 +303,14 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       method: request.method,
       signal: request.signal
     });
+    if ((!result || result.status >= 500) && isMarketDataRoute) {
+      const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
+      if (snapshot) {
+        const staleBody = { ...snapshot.body, stale: true, lastUpdatedAt: snapshot.occurredAt, source: 'cloudflare-d1-stale' };
+        await cacheStaleMarketResponse(env, marketRouteKey, staleBody, now().toISOString());
+        return json(200, staleBody, request, { 'x-jpti-cache': 'd1-stale' });
+      }
+    }
     if (!result) {
       return json(501, {
         error: 'This endpoint is not implemented in the Cloudflare edge runtime.',
