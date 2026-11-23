@@ -220,9 +220,9 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
   const order = (requested) => [...new Set([DIRECT_EXCHANGES.includes(requested) ? requested : null, ...DIRECT_EXCHANGES].filter(Boolean))];
 
   // Try each venue in turn; the first that answers wins. The response says which venue served it.
-  async function withFailover(requested, attempt, signal) {
+  async function withFailover(requested, attempt, signal, allowFailover = true) {
     let lastError = null;
-    for (const venue of order(requested)) {
+    for (const venue of (allowFailover ? order(requested) : [requested])) {
       if (signal && signal.aborted) throw new DirectError('The request was cancelled.', 499);
       try {
         const value = await attempt(venue);
@@ -293,7 +293,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
-        }), signal);
+        }), signal, !(route.exchange === 'bitget' && marketType !== 'spot'));
         const t = r.value;
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
@@ -306,7 +306,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + timeframe + limit, CACHE_TTL.ohlcv, async () => {
           const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
           return rows.slice(-limit);
-        }), signal);
+        }), signal, !(route.exchange === 'bitget' && marketType !== 'spot'));
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timeframe, candles: r.value, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'markets': {
@@ -317,10 +317,10 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const all = await cached('m:' + id, CACHE_TTL.markets, async () => {
           if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
           const categories = Object.values(BITGET_CATEGORIES);
-          const responses = await Promise.all(categories.map(async (category) => {
+          const categoryResults = await Promise.allSettled(categories.map(async (category) => {
             const payload = await getJson(HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category), { ...opts, timeoutMs: 15000 });
             if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget instrument catalogue failed for ' + category + '.', 502);
-            return (payload.data || []).filter((market) => market.status === 'online').map((market) => {
+            return { category, markets: (payload.data || []).filter((market) => market.status === 'online').map((market) => {
               const isSpot = category === 'SPOT', isMargin = category === 'MARGIN';
               const isCoin = category === 'COIN-FUTURES';
               const isContract = !isSpot && !isMargin;
@@ -338,9 +338,12 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
                 limits: { amount: { min: Number(market.minOrderQty) || null }, leverage: { max: Number(market.maxLeverage) || null } },
                 productCategory: category, contractType: market.type || null, instrumentType: market.instrumentType || 'crypto'
               };
-            });
+            }) };
           }));
-          return responses.flat();
+          const successful = categoryResults.filter((result) => result.status === 'fulfilled').map((result) => result.value);
+          if (!successful.length) throw new DirectError('Bitget instrument catalog is unavailable for every product category.', 502);
+          const failedCategories = categoryResults.filter((result) => result.status === 'rejected').map((result, index) => ({ category: categories[index], error: result.reason?.message || 'Category unavailable' }));
+          return successful.flatMap((result) => result.markets).map((market) => ({ ...market, categoryErrors: failedCategories }));
         });
         const normalizedType = type === 'all' ? 'all' : type;
         const markets = all.filter((market) => {
@@ -364,7 +367,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           usdcFutures: all.filter((market) => market.productCategory === 'USDC-FUTURES').length
         };
         const frames = id === 'bitget' ? Object.keys(BITGET_TIMEFRAMES) : Object.keys(FRAMES[id]);
-        return { status: 200, body: { exchange: id, filter: type, count: markets.length, markets, totalMarkets: all.length, counts, timeframes: frames, capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: true, fetchFundingRate: true, fetchPositions: false, createOrder: false }, unsupported: { cfd: 'Bitget does not list a native CFD product category in its public instruments API.', options: 'Options are not included in this Bitget public instrument catalogue.' }, fetchedAt: new Date(now()).toISOString(), source: DIRECT_SOURCE, note: id === 'bitget' ? 'Spot, margin, USDT-margined, USDC-margined and coin-margined public instruments are loaded from Bitget instrument categories.' : 'This venue direct adapter currently exposes spot markets only.' } };
+        return { status: 200, body: { exchange: id, filter: type, count: markets.length, markets, totalMarkets: all.length, counts, timeframes: frames, capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: false, fetchFundingRate: false, fetchPositions: false, createOrder: false }, unsupported: { cfd: 'Bitget does not list a native CFD product category in its public instruments API.', options: 'Options are not included in this Bitget public instrument catalogue.' }, categoryErrors: all.find((market) => market.categoryErrors)?.categoryErrors || [], fetchedAt: new Date(now()).toISOString(), source: DIRECT_SOURCE, note: id === 'bitget' ? 'Spot, margin, USDT-margined, USDC-margined and coin-margined public instruments are loaded from Bitget instrument categories.' : 'This venue direct adapter currently exposes spot markets only.' } };
       }
       default:
         throw new DirectError('Not available in direct mode.', 501);
