@@ -3,6 +3,8 @@ import { detectSmartMoney } from './smartMoney.js';
 import { TRADING_SESSIONS } from './session-intelligence.js';
 import { useGainzAlpha } from './gainz-alpha/useGainzAlpha.js';
 import GainzAlphaOverlays from './gainz-alpha/GainzAlphaOverlays.jsx';
+import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.js';
+import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
 
 const UP = '#22c58b', DOWN = '#ef5361';
@@ -45,7 +47,7 @@ function timeLabel(ts, timeframe) {
   return hhmm(utcMinuteOfDay(ts));
 }
 
-export default function TerminalChart({ symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
+export default function TerminalChart({ exchange = 'bitget', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 820, h: 400 });
   const [count, setCount] = useState(96);
@@ -63,7 +65,10 @@ export default function TerminalChart({ symbol, timeframe, candles, profile, con
   }, []);
 
   const valid = useMemo(() => (candles || []).filter((c) => Array.isArray(c) && c.length >= 6 && c.slice(0, 6).every((v) => Number.isFinite(Number(v)))).map((c) => c.slice(0, 6).map(Number)), [candles]);
-  const ga = useGainzAlpha({ exchange: (context && context.exchange) || 'terminal', symbol, timeframe, candles: valid });
+  const ga = useGainzAlpha({ exchange: exchange || (context && context.exchange) || 'bitget', symbol, timeframe, candles: valid });
+  const chartIntel = useChartIntelligence({ exchange: exchange || 'bitget', symbol, timeframe, candles: valid, ga });
+  const ci = chartIntel.result;
+  const ciLayers = chartIntel.settings.layers;
   const visible = Math.max(30, Math.min(count, valid.length));
   const rows = useMemo(() => valid.slice(-visible), [valid, visible]);
   const offset = valid.length - rows.length;
@@ -80,6 +85,7 @@ export default function TerminalChart({ symbol, timeframe, candles, profile, con
     const extra = [];
     if (overlays.liquidity) { if (ranges.buySide) extra.push(ranges.buySide.high); if (ranges.sellSide) extra.push(ranges.sellSide.low); }
     let lo = Math.min(...rows.map((c) => c[3]), ...extra), hi = Math.max(...rows.map((c) => c[2]), ...extra);
+    if (ci?.volumeProfile) { lo = Math.min(lo, ci.volumeProfile.low); hi = Math.max(hi, ci.volumeProfile.high); }
     if (bands) { bands.filter(Boolean).forEach((b) => { lo = Math.min(lo, b.lower); hi = Math.max(hi, b.upper); }); }
     const pad = (hi - lo || hi * 0.002 || 1) * 0.06;
     lo -= pad; hi += pad;
@@ -92,7 +98,7 @@ export default function TerminalChart({ symbol, timeframe, candles, profile, con
     for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) ticks.push(p);
     const decimals = Math.min(profile.digits, Math.max(profile.fx ? 4 : 0, Math.ceil(-Math.log10(step) - 1e-9)));
     return { left, right, top, bottom, priceBottom, volH, slot, x, y, lo, hi, maxVol, ticks, decimals };
-  }, [rows, size, ranges, overlays.liquidity, bands, profile.digits]);
+  }, [rows, size, ranges, overlays.liquidity, bands, profile.digits, ci?.volumeProfile]);
 
   const focus = useMemo(() => {
     const active = strip?.snapshot?.activeSessionIds || [];
@@ -167,6 +173,28 @@ export default function TerminalChart({ symbol, timeframe, candles, profile, con
         <button key={key} type="button" aria-pressed={overlays[key]} className={overlays[key] ? 'on' : ''} onClick={() => onOverlayChange(key)}><i/>{label}</button>)}
       <button type="button" aria-pressed={ga.settings.enabled} className={ga.settings.enabled ? 'on' : ''} onClick={() => ga.update({ enabled: !ga.settings.enabled })}><i/>GainzAlpha</button>
     </div>
+    <section className="ci-terminal-panel" aria-label="Smart Money Concepts chart intelligence">
+      <div className="ci-terminal-summary">
+        <span className="ci-terminal-kicker">LIVE CHART INTELLIGENCE</span>
+        <strong className={ci?.confluence?.direction > 0 ? 'bull' : ci?.confluence?.direction < 0 ? 'bear' : ''}>{ci?.display?.state || (ci?.status === 'insufficient' ? 'BUILDING HISTORY' : 'ANALYZING')}</strong>
+        <span>Confluence {ci?.confluence?.score == null ? '—' : (ci.confluence.score * 100).toFixed(0) + '/100'}</span>
+        <span>Regime {ci?.regime?.state || '—'}</span>
+        <span>Grade {ci?.grade?.grade || '—'}</span>
+        <span>MTF {ci?.mtf?.filter((m) => m.status === 'fresh').length || 0} active</span>
+      </div>
+      <div className="ci-terminal-layers">
+        {[
+          ['structure','Structure'],['orderBlocks','Order Blocks'],['fvg','FVG / IFVG'],['liquidity','Liquidity'],['sweeps','Sweeps'],
+          ['profile','Volume Profile'],['volumeNodes','HVN / LVN'],['vwap','VWAP'],['smc','Premium / OTE'],['orderflow','Order Flow'],['liquidation','Liquidations']
+        ].map(([key,label]) => <button type="button" key={key} aria-pressed={!!ciLayers[key]} className={ciLayers[key] ? 'active' : ''} onClick={() => chartIntel.update({ layers: { [key]: !ciLayers[key] } })}>{label}</button>)}
+      </div>
+      {ci?.status === 'ready' && <div className="ci-terminal-foot">
+        <span>{ci.asOf ? new Date(ci.asOf).toLocaleTimeString() : '—'} · closed candles only</span>
+        <span>{ci.provenance?.reduce((n,p) => n + (p.count || 0), 0) || 0} evidence objects</span>
+        <span>{ci.orderFlow?.basis === 'ohlcv-estimate' ? 'Order flow estimated from OHLCV' : ci.orderFlow?.basis || 'Order flow unavailable'}</span>
+        <span>{ci.liquidation?.basis === 'estimated-model' ? 'Liquidation modelled' : ci.liquidation?.basis || 'Liquidation unavailable'}</span>
+      </div>}
+    </section>
     <svg ref={svgRef} width={size.w} height={size.h} viewBox={'0 0 ' + size.w + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
       onMouseMove={onMove} onMouseLeave={() => setHover(null)} onWheel={onWheel} xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width={size.w} height={size.h} fill="#091221"/>
@@ -210,6 +238,7 @@ export default function TerminalChart({ symbol, timeframe, candles, profile, con
         </g>
       </g>}
 
+      <ChartIntelligenceOverlays result={ci} layers={ciLayers} rows={rows} geometry={geo} profile={profile} />
       {rows.map((c, i) => { const up = c[4] >= c[1]; const col = up ? UP : DOWN; const h = Math.max(1, Math.abs(y(c[4]) - y(c[1])));
         return <g key={c[0]}><line x1={x(i)} x2={x(i)} y1={y(c[2])} y2={y(c[3])} stroke={col} strokeWidth="1"/>
           <rect x={x(i) - bodyW / 2} y={Math.min(y(c[1]), y(c[4]))} width={bodyW} height={h} fill={col}/>
