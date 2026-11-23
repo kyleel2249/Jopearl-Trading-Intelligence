@@ -51,9 +51,26 @@ export function parseSymbol(raw) {
 
 export const venueSymbol = (exchange, { base, quote }) => (exchange === 'okx' ? base + '-' + quote : base + quote);
 
+const BITGET_MARKET_TYPE_ALIASES = Object.freeze({
+  spot: 'spot',
+  margin: 'margin',
+  futures: 'futures', perpetual: 'perpetual',
+  'usdt-m': 'futures', 'usdt-m-futures': 'futures', 'usdt-futures': 'futures',
+  'coin-m': 'coin-futures', 'coin-m-futures': 'coin-futures',
+  'usdc-m': 'usdc-futures', 'usdc-m-futures': 'usdc-futures',
+  'coin-futures': 'coin-futures', 'usdc-futures': 'usdc-futures',
+  all: 'all'
+});
+export function normalizeBitgetMarketType(value = 'spot') {
+  const key = String(value || 'spot').trim().toLowerCase();
+  return BITGET_MARKET_TYPE_ALIASES[key] || key;
+}
 const BITGET_CATEGORIES = Object.freeze({
-  spot: 'SPOT', margin: 'SPOT', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
-  'coin-futures': 'COIN-FUTURES', 'usdc-futures': 'USDC-FUTURES'
+  spot: 'SPOT', margin: 'SPOT',
+  futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
+  'usdt-m': 'USDT-FUTURES', 'usdt-m-futures': 'USDT-FUTURES', 'usdt-futures': 'USDT-FUTURES',
+  'coin-futures': 'COIN-FUTURES', 'coin-m': 'COIN-FUTURES', 'coin-m-futures': 'COIN-FUTURES',
+  'usdc-futures': 'USDC-FUTURES', 'usdc-m': 'USDC-FUTURES', 'usdc-m-futures': 'USDC-FUTURES'
 });
 const BITGET_TIMEFRAMES = Object.freeze({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','4h':'4H','6h':'6H','12h':'12H','1d':'1D' });
 const marketTypeOf = (market) => market.contract ? (market.swap ? 'perpetual' : 'futures') : market.margin ? 'margin' : 'spot';
@@ -286,7 +303,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         } };
       }
       case 'ticker': {
-        const marketType = String(route.query.type || 'spot').toLowerCase();
+        const marketType = normalizeBitgetMarketType(route.query.type || 'spot');
         const sym = parseSymbol(route.symbol);
         sym.marketType = marketType;
         const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol, CACHE_TTL.ticker, async () => {
@@ -329,7 +346,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       case 'markets': {
         const id = route.exchange;
         if (!DIRECT_EXCHANGES.includes(id)) throw new DirectError('Direct mode does not support ' + id + '.', 404);
-        const type = String(route.query.type || 'all').toLowerCase();
+        const type = normalizeBitgetMarketType(route.query.type || 'all');
         const search = String(route.query.search || '').trim().toLowerCase().slice(0, 60);
         const all = await cached('m:' + id, CACHE_TTL.markets, async () => {
           if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
@@ -362,7 +379,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const failedCategories = categoryResults.map((result, index) => ({ result, category: categories[index] })).filter(({ result }) => result.status === 'rejected').map(({ result, category }) => ({ category, error: result.reason?.message || 'Category unavailable' }));
           return successful.flatMap((result) => result.markets).map((market) => ({ ...market, categoryErrors: failedCategories }));
         });
-        const normalizedType = type === 'all' ? 'all' : type;
+        const normalizedType = normalizeBitgetMarketType(type);
         const markets = all.filter((market) => {
           const typeMatch = normalizedType === 'all' ||
             (normalizedType === 'futures' && (market.future || market.swap)) ||
