@@ -28,7 +28,7 @@ const FRAMES = {
   binance: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M' },
   bybit: { '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720', '1d': 'D', '1w': 'W', '1M': 'M' },
   okx: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '12h': '12H', '1d': '1D', '1w': '1W', '1M': '1M' },
-  bitget: { '1m': '1min', '5m': '5min', '15m': '15min', '30m': '30min', '1h': '1h', '4h': '4h', '6h': '6h', '12h': '12h', '1d': '1day', '1w': '1week', '1M': '1M' }
+  bitget: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '8h': '8H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' }
 };
 
 const num = (value) => {
@@ -38,15 +38,25 @@ const num = (value) => {
 };
 
 export function parseSymbol(raw) {
-  const text = decodeURIComponent(String(raw || '')).toUpperCase().replace('-', '/');
-  const [base, quote, ...rest] = text.split('/');
-  if (rest.length || !/^[A-Z0-9]{2,20}$/.test(base || '') || !/^[A-Z0-9]{2,20}$/.test(quote || '')) {
-    throw new DirectError('Direct mode supports spot pairs such as BTC/USDT only: ' + text, 404);
+  const text = decodeURIComponent(String(raw || '')).toUpperCase();
+  const [pairPart, settlePart, ...rest] = text.split(':');
+  const normalizedPair = pairPart.includes('/') ? pairPart : pairPart.replace('-', '/');
+  const [base, quote, ...pairRest] = normalizedPair.split('/');
+  const settle = settlePart || null;
+  if (rest.length || pairRest.length || !/^[A-Z0-9]{2,20}$/.test(base || '') || !/^[A-Z0-9]{2,20}$/.test(quote || '') || (settle && !/^[A-Z0-9]{2,20}$/.test(settle))) {
+    throw new DirectError('Invalid market symbol. Use BASE/QUOTE for spot or BASE/QUOTE:SETTLE for contracts.', 400);
   }
-  return { base, quote, symbol: base + '/' + quote };
+  return { base, quote, settle, symbol: base + '/' + quote + (settle ? ':' + settle : '') };
 }
 
 export const venueSymbol = (exchange, { base, quote }) => (exchange === 'okx' ? base + '-' + quote : base + quote);
+
+const BITGET_CATEGORIES = Object.freeze({
+  spot: 'SPOT', margin: 'MARGIN', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
+  'coin-futures': 'COIN-FUTURES', 'usdc-futures': 'USDC-FUTURES'
+});
+const BITGET_TIMEFRAMES = Object.freeze({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H','6h':'6H','8h':'8H','12h':'12H','1d':'1D','3d':'3D','1w':'1W','1M':'1M' });
+const marketTypeOf = (market) => market.contract ? (market.swap ? 'perpetual' : 'futures') : market.margin ? 'margin' : 'spot';
 
 // ---------------------------------------------------------------------------
 // Parsers (pure): venue payload -> JPTI API shape
@@ -74,10 +84,12 @@ const TICKER_PARSERS = {
   },
   bitget(p) {
     if (String(p?.code) !== '00000') throw new DirectError(p?.msg || 'Bitget rejected the request.', 404);
-    const t = p.data?.[0];
-    if (!t) throw new DirectError('Unknown market symbol.', 404);
-    const pct = num(t.change24h);
-    return { timestamp: num(t.ts), last: num(t.lastPr ?? t.close), bid: num(t.bidPr), ask: num(t.askPr), high: num(t.high24h), low: num(t.low24h), baseVolume: num(t.baseVolume), quoteVolume: num(t.quoteVolume), percentage: pct === null ? null : pct * 100 };
+    const t = Array.isArray(p.data) ? p.data[0] : p.data;
+    if (!t) throw new DirectError('Unknown Bitget market symbol.', 404);
+    const last = num(t.lastPrice ?? t.lastPr ?? t.close);
+    const open = num(t.openPrice24h ?? t.open24h);
+    const pct = num(t.price24hPcnt ?? t.change24h);
+    return { timestamp: num(t.ts ?? p.requestTime), last, bid: num(t.bid1Price ?? t.bidPr), ask: num(t.ask1Price ?? t.askPr), high: num(t.highPrice24h ?? t.high24h), low: num(t.lowPrice24h ?? t.low24h), baseVolume: num(t.volume24h ?? t.baseVolume), quoteVolume: num(t.turnover24h ?? t.quoteVolume), percentage: pct === null ? (last !== null && open ? ((last - open) / open) * 100 : null) : Math.abs(pct) <= 1 ? pct * 100 : pct };
   }
 };
 
@@ -110,7 +122,7 @@ const MARKET_PARSERS = {
   binance: (p) => (p?.symbols || []).filter((s) => s.status === 'TRADING').map((s) => ({ id: s.symbol, base: s.baseAsset, quote: s.quoteAsset })),
   bybit: (p) => (p?.result?.list || []).filter((s) => s.status === 'Trading').map((s) => ({ id: s.symbol, base: s.baseCoin, quote: s.quoteCoin })),
   okx: (p) => (p?.data || []).filter((s) => s.state === 'live').map((s) => ({ id: s.instId, base: s.baseCcy, quote: s.quoteCcy })),
-  bitget: (p) => (p?.data || []).filter((s) => s.status === 'online').map((s) => ({ id: s.symbol, base: s.baseCoin, quote: s.quoteCoin }))
+  bitget: (p) => (p?.data || []).filter((s) => s.status === 'online').map((s) => ({ id: s.symbol, base: s.baseCoin, quote: s.quoteCoin, category: s.category, contractType: s.type, settle: s.settleCoin || (s.category === 'COIN-FUTURES' ? s.baseCoin : s.quoteCoin), pricePrecision: s.pricePrecision, quantityPrecision: s.quantityPrecision, minOrderQty: s.minOrderQty, maxLeverage: s.maxLeverage, instrumentType: s.instrumentType }))
 };
 
 export const parsers = { ticker: TICKER_PARSERS, candles: CANDLE_PARSERS, markets: MARKET_PARSERS };
@@ -123,7 +135,8 @@ export function tickerUrl(exchange, sym) {
   if (exchange === 'binance') return HOSTS.binance + '/api/v3/ticker/24hr?symbol=' + s;
   if (exchange === 'bybit') return HOSTS.bybit + '/v5/market/tickers?category=spot&symbol=' + s;
   if (exchange === 'okx') return HOSTS.okx + '/api/v5/market/ticker?instId=' + s;
-  return HOSTS.bitget + '/api/v2/spot/market/tickers?symbol=' + s;
+  const category = BITGET_CATEGORIES[String(sym.marketType || 'spot').toLowerCase()] || 'SPOT';
+  return HOSTS.bitget + '/api/v3/market/tickers?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s);
 }
 
 export function candlesUrl(exchange, sym, timeframe, limit) {
@@ -133,14 +146,17 @@ export function candlesUrl(exchange, sym, timeframe, limit) {
   if (exchange === 'binance') return HOSTS.binance + '/api/v3/klines?symbol=' + s + '&interval=' + frame + '&limit=' + Math.min(limit, 1000);
   if (exchange === 'bybit') return HOSTS.bybit + '/v5/market/kline?category=spot&symbol=' + s + '&interval=' + frame + '&limit=' + Math.min(limit, 1000);
   if (exchange === 'okx') return HOSTS.okx + '/api/v5/market/candles?instId=' + s + '&bar=' + frame + '&limit=' + Math.min(limit, 300);
-  return HOSTS.bitget + '/api/v2/spot/market/candles?symbol=' + s + '&granularity=' + frame + '&limit=' + Math.min(limit, 1000);
+  const category = BITGET_CATEGORIES[String(sym.marketType || 'spot').toLowerCase()] || 'SPOT';
+  const bitgetFrame = BITGET_TIMEFRAMES[timeframe];
+  if (!bitgetFrame) throw new DirectError('Bitget does not support timeframe ' + timeframe + '.', 400);
+  return HOSTS.bitget + '/api/v3/market/history-candles?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s) + '&interval=' + encodeURIComponent(bitgetFrame) + '&limit=' + Math.min(limit, 100);
 }
 
 export function marketsUrl(exchange) {
   if (exchange === 'binance') return HOSTS.binance + '/api/v3/exchangeInfo';
   if (exchange === 'bybit') return HOSTS.bybit + '/v5/market/instruments-info?category=spot';
   if (exchange === 'okx') return HOSTS.okx + '/api/v5/public/instruments?instType=SPOT';
-  return HOSTS.bitget + '/api/v2/spot/public/symbols';
+  return HOSTS.bitget + '/api/v3/market/instruments?category=SPOT';
 }
 
 // ---------------------------------------------------------------------------
@@ -270,8 +286,10 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         } };
       }
       case 'ticker': {
+        const marketType = String(route.query.type || 'spot').toLowerCase();
         const sym = parseSymbol(route.symbol);
-        const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + sym.symbol, CACHE_TTL.ticker, async () => {
+        sym.marketType = marketType;
+        const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol, CACHE_TTL.ticker, async () => {
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
@@ -280,10 +298,12 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'ohlcv': {
+        const marketType = String(route.query.type || 'spot').toLowerCase();
         const sym = parseSymbol(route.symbol);
+        sym.marketType = marketType;
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
-        const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + sym.symbol + timeframe + limit, CACHE_TTL.ohlcv, async () => {
+        const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + timeframe + limit, CACHE_TTL.ohlcv, async () => {
           const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
           return rows.slice(-limit);
         }), signal);
@@ -294,10 +314,57 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         if (!DIRECT_EXCHANGES.includes(id)) throw new DirectError('Direct mode does not support ' + id + '.', 404);
         const type = String(route.query.type || 'all').toLowerCase();
         const search = String(route.query.search || '').trim().toLowerCase().slice(0, 60);
-        const all = await cached('m:' + id, CACHE_TTL.markets, async () => MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null })));
-        const wantsSpot = type === 'all' || type === 'spot';
-        const markets = wantsSpot ? all.filter((m) => !search || [m.symbol, m.base, m.quote].some((v) => String(v || '').toLowerCase().includes(search))) : [];
-        return { status: 200, body: { exchange: id, filter: type, count: markets.length, markets, totalMarkets: all.length, counts: { spot: all.length, futures: 0, perpetual: 0, margin: 0, cfd: 0, options: 0 }, timeframes: Object.keys(FRAMES[id]), capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: false, fetchFundingRate: false, fetchPositions: false, createOrder: false }, fetchedAt: new Date(now()).toISOString(), source: DIRECT_SOURCE, note: 'Spot markets only in direct mode.' } };
+        const all = await cached('m:' + id, CACHE_TTL.markets, async () => {
+          if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
+          const categories = Object.values(BITGET_CATEGORIES);
+          const responses = await Promise.all(categories.map(async (category) => {
+            const payload = await getJson(HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category), { ...opts, timeoutMs: 15000 });
+            if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget instrument catalogue failed for ' + category + '.', 502);
+            return (payload.data || []).filter((market) => market.status === 'online').map((market) => {
+              const isSpot = category === 'SPOT', isMargin = category === 'MARGIN';
+              const isCoin = category === 'COIN-FUTURES';
+              const isContract = !isSpot && !isMargin;
+              const settle = isContract ? (market.settleCoin || (isCoin ? market.baseCoin : market.quoteCoin)) : null;
+              const symbol = market.baseCoin + '/' + market.quoteCoin + (isContract ? ':' + settle : '');
+              const contractType = String(market.type || '').toLowerCase();
+              const perpetual = isContract && contractType === 'perpetual';
+              return {
+                symbol, id: market.symbol, base: market.baseCoin, quote: market.quoteCoin, settle,
+                active: true, type: isSpot ? 'spot' : isMargin ? 'margin' : perpetual ? 'perpetual' : 'futures',
+                categories: [isSpot ? 'spot' : isMargin ? 'margin' : perpetual ? 'perpetual' : 'futures'],
+                spot: isSpot, margin: isMargin, swap: perpetual, future: isContract && !perpetual,
+                option: false, cfd: false, contract: isContract, linear: !isCoin, inverse: isCoin,
+                precision: { price: Number(market.pricePrecision), amount: Number(market.quantityPrecision) },
+                limits: { amount: { min: Number(market.minOrderQty) || null }, leverage: { max: Number(market.maxLeverage) || null } },
+                productCategory: category, contractType: market.type || null, instrumentType: market.instrumentType || 'crypto'
+              };
+            });
+          }));
+          return responses.flat();
+        });
+        const normalizedType = type === 'all' ? 'all' : type;
+        const markets = all.filter((market) => {
+          const typeMatch = normalizedType === 'all' ||
+            (normalizedType === 'futures' && (market.future || market.swap)) ||
+            (normalizedType === 'perpetual' && market.swap) ||
+            (normalizedType === 'coin-futures' && market.productCategory === 'COIN-FUTURES') ||
+            (normalizedType === 'usdc-futures' && market.productCategory === 'USDC-FUTURES') ||
+            (normalizedType === 'margin' && market.margin) ||
+            (normalizedType === 'spot' && market.spot);
+          return typeMatch && (!search || [market.symbol, market.id, market.base, market.quote, market.settle].some((value) => String(value || '').toLowerCase().includes(search)));
+        });
+        const counts = {
+          spot: all.filter((market) => market.spot).length,
+          futures: all.filter((market) => market.future || market.swap).length,
+          perpetual: all.filter((market) => market.swap).length,
+          margin: all.filter((market) => market.margin).length,
+          cfd: 0, options: 0,
+          coinFutures: all.filter((market) => market.productCategory === 'COIN-FUTURES').length,
+          usdtFutures: all.filter((market) => market.productCategory === 'USDT-FUTURES').length,
+          usdcFutures: all.filter((market) => market.productCategory === 'USDC-FUTURES').length
+        };
+        const frames = id === 'bitget' ? Object.keys(BITGET_TIMEFRAMES) : Object.keys(FRAMES[id]);
+        return { status: 200, body: { exchange: id, filter: type, count: markets.length, markets, totalMarkets: all.length, counts, timeframes: frames, capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: true, fetchFundingRate: true, fetchPositions: false, createOrder: false }, unsupported: { cfd: 'Bitget does not list a native CFD product category in its public instruments API.', options: 'Options are not included in this Bitget public instrument catalogue.' }, fetchedAt: new Date(now()).toISOString(), source: DIRECT_SOURCE, note: id === 'bitget' ? 'Spot, margin, USDT-margined, USDC-margined and coin-margined public instruments are loaded from Bitget instrument categories.' : 'This venue direct adapter currently exposes spot markets only.' } };
       }
       default:
         throw new DirectError('Not available in direct mode.', 501);
