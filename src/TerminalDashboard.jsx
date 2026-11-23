@@ -499,7 +499,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
             </div>
           </div>
           <div className="td-chart-area">
-            <TerminalChart exchange={exchange} symbol={symbol} timeframe={timeframe} candles={candles} profile={profile} context={context} strip={strip}
+            <TerminalChart exchange={exchange} marketType={marketType} symbol={symbol} timeframe={timeframe} candles={candles} profile={profile} context={context} strip={strip}
               loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay}/>
           </div>
         </section>
