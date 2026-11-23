@@ -85,3 +85,11 @@ The current Pages edge runtime does not yet implement:
 Those features still exist in the legacy Node code and/or client-side analysis. To run them entirely on Cloudflare, they need explicit Cloudflare-native implementations using appropriate Workers, D1, Durable Objects, Queues, KV and secret bindings, followed by endpoint-level regression and live deployment tests.
 
 Cloudflare hosting cannot guarantee permanent uptime, and public exchange endpoints can rate-limit or fail independently. The app now removes the separate gateway dependency for supported public spot charts, but should not report unsupported services as operational.
+
+## D1/KV configuration update
+
+The supplied Cloudflare resource IDs have now been added to the root `wrangler.toml` using the server-side aliases `JPTI_DB` and `JPTI_KV`. A separate SQLite-compatible migration directory (`migrations/d1/`) has been added so Wrangler does not attempt to apply the legacy PostgreSQL/Supabase SQL files. The new D1 schema covers durable events, deduplication, sync cursors, scheduler lease metadata and a transactional outbox.
+
+A read-only Pages Function diagnostic is available at `/api/storage/health`. It checks that both bindings are present, queries the D1 schema, and performs a KV read. It reports `migration-required` until all expected tables exist. Focused tests cover missing bindings, successful D1/KV checks and missing migrations.
+
+This update configures the Cloudflare resources and creates the D1 schema foundation; it does not yet migrate every legacy Express service, private exchange operation, trading ledger consumer or background scheduler to Pages Functions. Those services remain explicitly out of scope until separately ported and verified.

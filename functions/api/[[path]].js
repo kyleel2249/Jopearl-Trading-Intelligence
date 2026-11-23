@@ -94,7 +94,7 @@ function json(status, body, request, extra = {}) {
 }
 
 export function createPagesApiHandler({ marketProvider = provider, now = () => new Date() } = {}) {
-  return async function onRequest({ request }) {
+  return async function onRequest({ request, env = {} }) {
     const url = new URL(request.url);
     if (url.href.length > MAX_URL_LENGTH) return json(414, { error: 'Request URL is too long.' }, request);
 
@@ -116,6 +116,38 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
     }
     if (!['GET', 'HEAD'].includes(request.method)) {
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
+    }
+
+    if (url.pathname.replace(/\/+$/, '') === '/api/storage/health') {
+      const missing = [];
+      if (!env.JPTI_DB) missing.push('JPTI_DB');
+      if (!env.JPTI_KV) missing.push('JPTI_KV');
+      if (missing.length) {
+        return json(503, { status: 'degraded', service: 'JPTI Cloudflare storage', missingBindings: missing }, request);
+      }
+      try {
+        const result = await env.JPTI_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'jpti_%' ORDER BY name").all();
+        const tables = (result?.results || []).map((row) => row.name);
+        const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors'];
+        const missingTables = requiredTables.filter((name) => !tables.includes(name));
+        // A read-only KV lookup exercises the binding without creating a public write surface.
+        await env.JPTI_KV.get('jpti:system:health');
+        const healthy = missingTables.length === 0;
+        return json(healthy ? 200 : 503, {
+          status: healthy ? 'ok' : 'migration-required',
+          service: 'JPTI Cloudflare storage',
+          d1: { connected: true, tables, missingTables },
+          kv: { connected: true, operation: 'read' },
+          timestamp: now().toISOString()
+        }, request);
+      } catch (error) {
+        return json(503, {
+          status: 'degraded',
+          service: 'JPTI Cloudflare storage',
+          error: 'Cloudflare storage health check failed.',
+          detail: String(error?.message || error).slice(0, 240)
+        }, request);
+      }
     }
 
     if (url.pathname.replace(/\/+$/, '') === '/api/health') {
