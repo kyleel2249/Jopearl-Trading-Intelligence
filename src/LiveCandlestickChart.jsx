@@ -137,9 +137,10 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [sessionClock, setSessionClock] = useState(Date.now());
   useEffect(() => {
     const syncSource = () => {
-      const direct = ['direct', 'cloudflare-edge'].includes(getApiSource().mode);
+      const mode = getApiSource().mode;
+      const direct = ['direct', 'cloudflare-edge'].includes(mode);
       setDirectMode(direct);
-      if (direct) setMarketType('spot');
+      if (mode === 'direct') setMarketType('spot');
     };
     syncSource();
     return subscribeApiSource(syncSource);
@@ -173,6 +174,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   useEffect(() => { if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
 
   useEffect(() => {
+    if (directMode && exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot');
     let active = true;
     const refreshCatalog = async () => {
       try {
@@ -373,9 +375,17 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       </div>})}
     </div>
     <div className="chart-toolbar">
-      <label>Type</label>
-      <select aria-label="Market type" value={marketType} onChange={(e) => setMarketType(e.target.value)}><option value="spot">Spot</option><option value="futures" disabled={directMode}>Futures / Perpetuals</option><option value="margin" disabled={directMode}>Margin-enabled</option><option value="cfd" disabled={directMode}>CFDs</option><option value="options" disabled={directMode}>Options</option><option value="all" disabled={directMode}>All instruments</option></select>
-      {directMode && <span className="subtle-note" role="status">Direct exchange mode: spot market data is active. Futures, private account data and server-side intelligence require the JPTI API.</span>}
+      <label>Product</label>
+      <select aria-label="Market type" value={marketType} onChange={(e) => setMarketType(e.target.value)}>
+        <option value="spot">Spot</option>
+        <option value="futures" disabled={directMode && exchange !== 'bitget'}>USDT-M Futures</option>
+        <option value="coin-futures" disabled={directMode && exchange !== 'bitget'}>Coin-M Futures</option>
+        <option value="usdc-futures" disabled={directMode && exchange !== 'bitget'}>USDC-M Futures</option>
+        <option value="margin" disabled={directMode && exchange !== 'bitget'}>Margin</option>
+        <option value="cfd" disabled>CFD (not offered by Bitget)</option>
+        <option value="options" disabled>Options (not enabled in this adapter)</option>
+      </select>
+      {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. Private account and order execution remain disabled.' : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives and margin markets.'}</span>}
       <input className="market-search" aria-label="Search markets" placeholder="Search pair…" value={marketSearch} onChange={(e) => setMarketSearch(e.target.value)} />
       <label htmlFor="jpti-symbol">Pair</label>
       <select id="jpti-symbol" value={symbol} onChange={(e) => onSymbolChange(e.target.value)}>
@@ -473,7 +483,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         </svg>
       </div>}
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />
-    <LiveOrderFlowPanel symbol={symbol} marketType={marketType} candles={candles} />
+    <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} candles={candles} />
     <div className="market-context-panel">
       <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
       {marketContext ? <>
