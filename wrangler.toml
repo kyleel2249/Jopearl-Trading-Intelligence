@@ -4,10 +4,10 @@ compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./dist"
 
 [[d1_databases]]
-binding = "jopearl-trading-intelligence-db"
+binding = "JPTI_DB"
 database_name = "jopearl-trading-intelligence-db"
 database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
 
 [[kv_namespaces]]
-binding = "jopearl-trading-intelligence-kv"
+binding = "JPTI_KV"
 id = "df173421174345f9a065b312082ba43d"
