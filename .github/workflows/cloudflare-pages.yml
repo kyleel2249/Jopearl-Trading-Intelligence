@@ -27,6 +27,8 @@ jobs:
         run: npm install --no-audit --no-fund
       - name: Run static and integration checks
         run: npm run check
+      - name: Verify live chart-intelligence engine
+        run: npm run verify:chart-intelligence
       - name: Run automated regression tests
         run: npm test
       - name: Build and verify Cloudflare Pages output
