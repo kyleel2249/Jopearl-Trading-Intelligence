@@ -25,6 +25,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Run static and integration checks
+        run: npm run check
       - name: Run automated regression tests
         run: npm test
       - name: Build and verify Cloudflare Pages output
