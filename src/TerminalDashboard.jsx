@@ -486,7 +486,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
             <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.filter(([v]) => exchange !== 'bitget' || ['1m', '5m', '15m', '1h', '4h', '1d'].includes(v)).map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
             <div className="td-menu-wrap">
               <button type="button" className="td-ghost" aria-expanded={menu === 'ind'} onClick={() => setMenu(menu === 'ind' ? null : 'ind')}>Indicators <ChevronDown size={12}/></button>
-              {menu === 'ind' && <div className="td-menu" role="menu">{[['smc', 'SMC - Liquidity'], ['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
+              {menu === 'ind' && <div className="td-menu" role="menu">{[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
             </div>
             <div className="td-toolbar-right">
               <button type="button" className="td-icon-btn" aria-label="Save chart image" title="Save chart as PNG" onClick={exportPng}><Camera size={15}/></button>
