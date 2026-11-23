@@ -252,6 +252,8 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
           publicTicker: true,
           publicCandlesticks: true,
           crossVenuePublicTicker: true,
+          bitgetProductTypes: ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures'],
+          bitgetCfd: false,
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
