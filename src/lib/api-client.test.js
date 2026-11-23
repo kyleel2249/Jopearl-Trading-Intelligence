@@ -19,12 +19,11 @@ test('browser mode resolves the serving origin and builds same-origin API URLs',
   assert.equal(apiUrl('/api/health'), 'https://jpti.example.com/api/health');
 }));
 
-test('a saved override and path prefix take effect and can be reset to auto-detect', () => withWindow({ location: new URL('https://app.example.com') }, () => {
-  setApiBaseUrl('https://api.example.com');
+test('external gateway overrides are rejected and the same-origin Cloudflare API remains canonical', () => withWindow({ location: new URL('https://app.example.com') }, () => {
+  assert.throws(() => setApiBaseUrl('https://api.example.com'), /External API gateway URLs are disabled/);
+  assert.equal(apiUrl('/api/health'), 'https://app.example.com/api/health');
+  assert.equal(resolveWebSocketUrl('/ws'), 'wss://app.example.com/ws');
   setApiPathPrefix('/jpti');
-  assert.equal(apiUrl('/api/health'), 'https://api.example.com/jpti/api/health');
-  assert.equal(resolveWebSocketUrl('/ws'), 'wss://api.example.com/jpti/ws');
-  setApiBaseUrl(''); setApiPathPrefix('');
   assert.equal(apiUrl('/api/health'), 'https://app.example.com/api/health');
   assert.throws(() => setApiBaseUrl('http://10.0.0.1:8787'));
   assert.throws(() => setApiPathPrefix('no-slash'));
@@ -42,11 +41,9 @@ test('Android Capacitor shell without an API address fails with a clear configur
   const direct = await (await apiFetch('/api/health')).json();
   assert.equal(direct.directMode, true);
   assert.notEqual(direct.status, 'ok');
-  setApiBaseUrl('https://api.example.com');
-  const previousFetch = globalThis.fetch;
-  let seen = '';
-  globalThis.fetch = async (url) => { seen = url; return json({ status: 'ok' }); };
-  try { await apiFetch('/api/health'); assert.equal(seen, 'https://api.example.com/api/health'); } finally { globalThis.fetch = previousFetch; }
+  assert.throws(() => setApiBaseUrl('https://api.example.com'), /External API gateway URLs are disabled/);
+  const directAgain = await (await apiFetch('/api/health')).json();
+  assert.equal(directAgain.directMode, true);
 }));
 
 test('apiRequest returns parsed JSON and latency, sending the saved token', () => withWindow({ location: new URL('https://app.example.com') }, async (store) => {
@@ -55,7 +52,7 @@ test('apiRequest returns parsed JSON and latency, sending the saved token', () =
   const result = await apiRequest('/api/health', { fetchImpl: async (url, init) => { captured = { url, init }; return json({ status: 'ok' }); } });
   assert.equal(result.data.status, 'ok');
   assert.equal(captured.url, 'https://app.example.com/api/health');
-  assert.equal(captured.init.headers.get('x-jpti-api-token'), 'tok');
+  assert.equal(captured.init.headers.has('x-jpti-api-token'), false, 'legacy user-supplied gateway tokens are ignored');
   assert.ok(result.requestId);
 }));
 
