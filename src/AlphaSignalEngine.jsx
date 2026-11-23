@@ -19,7 +19,7 @@ export default function AlphaSignalEngine(){
   const marketPath=normalized.replace('/','-');
   const [candleResponse,quoteResponse]=await Promise.all([
    apiFetch('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(marketPath)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=320&type='+encodeURIComponent(marketType),{cache:'no-store'}),
-   apiFetch('/api/exchanges/'+exchange+'/ticker/'+encodeURIComponent(marketPath),{cache:'no-store'})
+   apiFetch('/api/exchanges/'+exchange+'/ticker/'+encodeURIComponent(marketPath)+'?type='+encodeURIComponent(marketType),{cache:'no-store'})
   ]);
   const [candleData,quoteData]=await Promise.all([candleResponse.json(),quoteResponse.json()]);
   if(!candleResponse.ok)throw new Error(candleData.error||'OHLCV history unavailable.');
