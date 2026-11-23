@@ -398,6 +398,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const setExchange = (v) => { setExchangeState(v); store.set('jpti.terminal.exchange', v); if (v !== 'bitget' && marketType !== 'spot') setMarketType('spot'); };
   const setTimeframe = (v) => { setTimeframeState(v); store.set('jpti.terminal.timeframe', v); };
   const setMarketType = (v) => { setMarketTypeState(v); store.set('jpti.terminal.marketType', v); };
+  useEffect(() => { if (exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot'); }, [exchange, marketType]);
   const setSymbol = useCallback((raw) => {
     const next = String(raw || '').trim().toUpperCase().replace('-', '/');
     if (!/^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}$/.test(next)) return false;
