@@ -173,15 +173,15 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <button key={key} type="button" aria-pressed={overlays[key]} className={overlays[key] ? 'on' : ''} onClick={() => onOverlayChange(key)}><i/>{label}</button>)}
       <button type="button" aria-pressed={ga.settings.enabled} className={ga.settings.enabled ? 'on' : ''} onClick={() => ga.update({ enabled: !ga.settings.enabled })}><i/>GainzAlpha</button>
     </div>
-    <section className="ci-terminal-panel" aria-label="Smart Money Concepts chart intelligence">
-      <div className="ci-terminal-summary">
+    <details className="ci-terminal-panel" aria-label="Smart Money Concepts chart intelligence">
+      <summary className="ci-terminal-summary">
         <span className="ci-terminal-kicker">LIVE CHART INTELLIGENCE</span>
         <strong className={ci?.confluence?.direction > 0 ? 'bull' : ci?.confluence?.direction < 0 ? 'bear' : ''}>{ci?.display?.state || (ci?.status === 'insufficient' ? 'BUILDING HISTORY' : 'ANALYZING')}</strong>
         <span>Confluence {ci?.confluence?.score == null ? '—' : (ci.confluence.score * 100).toFixed(0) + '/100'}</span>
         <span>Regime {ci?.regime?.state || '—'}</span>
         <span>Grade {ci?.grade?.grade || '—'}</span>
         <span>MTF {ci?.mtf?.filter((m) => m.status === 'fresh').length || 0} active</span>
-      </div>
+      </summary>
       <div className="ci-terminal-layers">
         {[
           ['signals','Alpha Signals'],['plan','Trade Plan'],['structure','Structure'],['orderBlocks','Order Blocks'],['fvg','FVG / IFVG'],['liquidity','Liquidity'],['sweeps','Sweeps'],
@@ -194,7 +194,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <span>{ci.orderFlow?.basis === 'ohlcv-estimate' ? 'Order flow estimated from OHLCV' : ci.orderFlow?.basis || 'Order flow unavailable'}</span>
         <span>{ci.liquidation?.basis === 'estimated-model' ? 'Liquidation modelled' : ci.liquidation?.basis || 'Liquidation unavailable'}</span>
       </div>}
-    </section>
+    </details>
     <svg ref={svgRef} width={size.w} height={size.h} viewBox={'0 0 ' + size.w + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
       onMouseMove={onMove} onMouseLeave={() => setHover(null)} onWheel={onWheel} xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width={size.w} height={size.h} fill="#091221"/>
