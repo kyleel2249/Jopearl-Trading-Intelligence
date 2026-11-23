@@ -6,15 +6,15 @@ import { analyzeGainzAlpha } from '../gainz-alpha/engine.js';
 import { resolvePreset } from '../gainz-alpha/presets.js';
 import { summarize, evaluateOutcome } from '../gainz-alpha/learning.js';
 import { atrSeries, clamp, findSwings, normalizeCandles, splitClosed, structureEvents, timeframeMs } from '../gainz-alpha/indicators.js';
-import { profileLevels, supportResistance, reactionStats } from './levels.js';
+import { profileLevels, supportResistance, reactionStats, volumeProfile } from './levels.js';
 import { analyzeOrderFlow } from './orderflow.js';
 import { analyzeSmc } from './smc.js';
 import { analyzeLiquidation } from './liquidation.js';
 import { detectRegime, adaptiveConfig, mtfBias, scoreComponents, detectConflicts, gradeSetup } from './confluence.js';
 
 export const MODULE_VERSION = 'chart-intelligence-1.0.0';
-export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
-export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: false, vwap: true };
+export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
+export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, volumeNodes: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: true, vwap: true };
 const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
 
 export function createMemoryLedger() {
@@ -118,7 +118,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const lh = sw.highs[sw.highs.length - 1], ll = sw.lows[sw.lows.length - 1], le = st.events[st.events.length - 1];
   if (lh) anchors.push({ kind: 'swing-high', ts: lh.ts }); if (ll) anchors.push({ kind: 'swing-low', ts: ll.ts }); if (le) anchors.push({ kind: le.kind.toLowerCase(), ts: le.ts });
 
-  const profile = profileLevels(work, { timeframe, atr, anchors }), sr = supportResistance(work, { atr });
+  const profile = profileLevels(work, { timeframe, atr, anchors }), volume = volumeProfile(work.slice(-300), { bins: 64, valueAreaPct: 0.7 }), sr = supportResistance(work, { atr });
   const smc = analyzeSmc(work), of = analyzeOrderFlow(work, { flow }), liq = analyzeLiquidation(work, { feed: liquidationFeed });
   const regime = detectRegime(work, atrS), rcfg = adaptiveConfig(regime), mtf = mtfBias(higherTimeframes, now);
 
@@ -169,11 +169,23 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const cap = (arr, n) => arr.slice(-n);
   const L = {
     signals: trades.slice(-40).map((t) => ({ id: 'SIG|' + t.id, layer: 'signals', kind: t.signal, direction: t.signal === 'BUY' ? 'bullish' : 'bearish', ts: t.ts, price: t.signal === 'BUY' ? work.find((c) => c[0] === t.ts)?.[3] : work.find((c) => c[0] === t.ts)?.[2], label: t.signal + ' ' + t.confidence, confidence: t.confidence, outcome: t.trade.state, strength: t.confidence / 100, source: { module: 'gainz-alpha/engine', method: t.kind || 'confluence', basis: 'engine', inputs: { score: t.score, setupId: t.setupId } } })),
-    profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
+    profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), volumeNodes: [], vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
     sr: sr, liquidation: liq.items || [], orderflow: cap(of.items || [], 24),
     structure: cap(smc.items.filter((i) => i.layer === 'structure'), 14), orderBlocks: cap(smc.items.filter((i) => i.layer === 'orderBlocks' && i.status !== 'breaker-old'), 8),
     fvg: cap(smc.items.filter((i) => i.layer === 'fvg'), 10), liquidity: smc.items.filter((i) => i.layer === 'liquidity'), sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
   };
+  if (volume && volume.bins.length) {
+    const vols = volume.bins.map((b) => b.volume).filter((v) => v > 0).sort((a, b) => a - b);
+    const q25 = vols[Math.floor(Math.max(0, vols.length - 1) * 0.25)] || 0;
+    const q75 = vols[Math.floor(Math.max(0, vols.length - 1) * 0.75)] || 0;
+    L.volumeNodes = volume.bins.map((b, i, a) => {
+      const left = a[i - 1]?.volume ?? -1, right = a[i + 1]?.volume ?? -1;
+      const hvn = b.volume >= q75 && b.volume >= left && b.volume >= right;
+      const lvn = b.volume > 0 && b.volume <= q25 && b.volume <= left && b.volume <= right;
+      if (!hvn && !lvn) return null;
+      return { id: ['VP', hvn ? 'HVN' : 'LVN', i].join('|'), layer: 'volumeNodes', kind: hvn ? 'HVN' : 'LVN', direction: 'neutral', ts: work[Math.max(0, work.length - 300)][0], price: r8(b.price), label: hvn ? 'HVN' : 'LVN', strength: r8(b.volume / (volume.totalVolume || 1)), source: { module: 'chart-intelligence/volume-profile', method: 'local-volume-node-quantiles', basis: 'ohlcv-distributed', inputs: { bin: i, q25, q75 } } };
+    }).filter(Boolean).slice(-24);
+  }
   if (plan) L.plan = [{ id: 'PLAN|' + plan.signalTs, layer: 'plan', kind: 'PLAN', ts: plan.signalTs, price: plan.entry, label: 'Trade plan', direction: plan.direction === 'BUY' ? 'bullish' : 'bearish', source: plan.source }];
   else L.plan = [];
 
@@ -191,7 +203,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const provenance = LAYERS.map((l) => ({ layer: l, count: (L[l] || []).length, bases: [...new Set((L[l] || []).map((i) => i.source && i.source.basis).filter(Boolean))], methods: [...new Set((L[l] || []).map((i) => i.source && i.source.method).filter(Boolean))].slice(0, 6) }));
   return {
     status: 'ready', module: MODULE_VERSION, symbol, timeframe, exchange, asOf: lastTs, forming: forming ? forming[0] : null, atr: r8(atr), price,
-    layers: L, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
+    layers: L, volumeProfile: volume ? { poc: r8(volume.poc), vah: r8(volume.vah), val: r8(volume.val), totalVolume: r8(volume.totalVolume), low: r8(volume.low), high: r8(volume.high), bins: volume.bins.map((b) => ({ price: r8(b.price), volume: r8(b.volume) })) } : null, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
     confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
     liquidation: { basis: liq.basis, cascade: liq.cascade, heatmap: liq.heatmap }, expectancy, gainzStatus: gz ? { signal: gz.signal, confidence: gz.confidence, stage: gz.stage } : null, alerts, provenance, bases,
     method: 'Closed-candle analysis; signals frozen in a ledger so history never repaints. Estimated layers are labelled in provenance.'
