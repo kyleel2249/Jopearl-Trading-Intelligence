@@ -25,6 +25,8 @@ jobs:
           node-version: 22
       - name: Install dependencies
         run: npm install --no-audit --no-fund
+      - name: Run automated regression tests
+        run: npm test
       - name: Build and verify Cloudflare Pages output
         run: npm run build:pages
         env:
@@ -37,3 +39,8 @@ jobs:
           apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           command: pages deploy dist --project-name jpti
+
+      - name: Verify deployed Bitget markets, tickers, candles and symbol switching
+        run: npm run verify:bitget:live
+        env:
+          JPTI_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jpti.pages.dev' }}
