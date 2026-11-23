@@ -294,14 +294,16 @@ export default function ProDashboard({ symbol, onSymbolChange, health, operation
   const now = useNow(1000);
   const minute = Math.floor(now / 60000);
   const [exchange, setExchange] = useState('binance');
+  const [marketType, setMarketType] = useState('spot');
   const [showLiquidity, setShowLiquidity] = useState(true);
   const handleExchange = useCallback(id => setExchange(id), []);
   const snapshot = useMemo(() => getSessionSnapshot(now), [now]);
   const path = String(symbol || 'BTC/USDT').replace('/', '-');
 
-  const ticker = useApi('/api/exchanges/' + exchange + '/ticker/' + path, { intervalMs: 10000 });
-  const candles15 = useApi('/api/exchanges/' + exchange + '/ohlcv/' + path + '?timeframe=15m&limit=200', { intervalMs: 30000 });
-  const candles1h = useApi('/api/exchanges/' + exchange + '/ohlcv/' + path + '?timeframe=1h&limit=300', { intervalMs: 120000 });
+  const productQuery = '?type=' + encodeURIComponent(marketType);
+  const ticker = useApi('/api/exchanges/' + exchange + '/ticker/' + path + productQuery, { intervalMs: 10000 });
+  const candles15 = useApi('/api/exchanges/' + exchange + '/ohlcv/' + path + '?timeframe=15m&limit=200' + productQuery, { intervalMs: 30000 });
+  const candles1h = useApi('/api/exchanges/' + exchange + '/ohlcv/' + path + '?timeframe=1h&limit=300' + productQuery, { intervalMs: 120000 });
   const orderbook = useApi('/api/advanced/orderbook/' + exchange + '/' + path + '?limit=50', { intervalMs: 15000 });
   const derivs = useApi('/api/advanced/derivatives/' + exchange + '/' + path, { intervalMs: 60000 });
   const calendar = useApi('/api/institutional/calendar?symbol=' + encodeURIComponent(symbol || ''), { intervalMs: 300000 });
@@ -352,7 +354,7 @@ export default function ProDashboard({ symbol, onSymbolChange, health, operation
               <span className={'dp-live-chip ' + (ticker.data ? 'good' : ticker.loading ? 'idle' : 'bad')} title="Ticker refreshes every 10 seconds"><i/>{ticker.data ? 'Live' : ticker.loading ? 'Connecting' : 'Offline'}</span>
             </div>
           </div>
-          <div className="dp-chart-frame"><ExchangeConnectivity symbol={symbol} onSymbolChange={onSymbolChange} alphaLevels={levels} onExchangeChange={handleExchange} compact/></div>
+          <div className="dp-chart-frame"><ExchangeConnectivity symbol={symbol} onSymbolChange={onSymbolChange} alphaLevels={levels} onExchangeChange={handleExchange} onMarketTypeChange={setMarketType} compact/></div>
           <div className="dp-legend" aria-label="Chart overlay legend"><span><i className="bad"/>Buy-side liquidity {pools.buySide ? formatPrice(pools.buySide.price) : '—'}</span><span><i className="good"/>Sell-side liquidity {pools.sellSide ? formatPrice(pools.sellSide.price) : '—'}</span><small>Levels are inferred from equal highs/lows, not from stop orders.</small></div>
         </section>
       </section>
