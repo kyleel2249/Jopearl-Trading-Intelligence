@@ -1,0 +1,36 @@
+node_modules
+dist
+.env
+.env.*
+!.env.example
+*.log
+.DS_Store
+
+# Credential files that do not start with a dot (a committed copy of one of these
+# exposed live exchange and data-provider keys). Keep real values only in the host's
+# secret store or an untracked local file.
+env.local
+**/env.local
+*.pem
+*.key
+.dev.vars
+.wrangler/
+
+# Local durable transaction and operations event store
+/data/
+
+# Desktop/mobile build output
+release/
+android/.gradle/
+android/build/
+android/app/build/
+
+# Android signing material and Firebase Admin service-account credentials
+*.jks
+*.keystore
+*.p12
+*.pfx
+*service-account*.json
+*service_account*.json
+*serviceAccount*.json
+*firebase-adminsdk*.json

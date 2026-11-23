@@ -1,0 +1,18 @@
+# Cloudflare Pages response headers (copied to dist/ by Vite).
+/*
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()
+  X-Frame-Options: SAMEORIGIN
+
+# Hashed build output never changes, so it can be cached for a year.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The service worker and manifest must always be revalidated, otherwise a
+# stale worker can keep serving an old shell after a new deployment.
+/sw.js
+  Cache-Control: no-cache
+/manifest.webmanifest
+  Cache-Control: no-cache
+  Content-Type: application/manifest+json

@@ -1,0 +1,38 @@
+name: Sync T-Bots upstream
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 * * * *"
+permissions:
+  contents: write
+  pull-requests: write
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Fetch upstream T-Bots
+        run: |
+          git clone --depth 1 https://github.com/kyleel2249/T-Bots.git "$RUNNER_TEMP/T-Bots"
+          mkdir -p integrations/t-bots
+          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/T-Bots/" integrations/t-bots/
+      - name: Reapply JPTI integration adapter
+        run: node scripts/apply-tbots-adapter.mjs
+      - name: Open upstream synchronization pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: automation/sync-tbots-upstream
+          delete-branch: true
+          commit-message: "Sync T-Bots upstream into JPTI"
+          title: "Sync latest T-Bots upstream changes"
+          body: |
+            Automated hourly synchronization from https://github.com/kyleel2249/T-Bots.
+            The JPTI adapter overlay is reapplied. Review upstream architecture, strategy, risk and test changes before merging.
+          add-paths: |
+            integrations/t-bots/**

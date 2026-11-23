@@ -1,0 +1,232 @@
+name: JPTI Cross-Platform Builds
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jpti-cross-platform-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate application
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Run syntax and integration checks
+        run: npm run check
+      - name: Run automated tests
+        run: npm test
+      - name: Build web application
+        run: npm run build
+
+  android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    needs: validate
+    permissions:
+      contents: write
+    env:
+      JPTI_ANDROID_SIGNING_READY: ${{ secrets.JPTI_ANDROID_KEYSTORE_BASE64 != '' && secrets.JPTI_ANDROID_KEY_ALIAS != '' && secrets.JPTI_ANDROID_STORE_PASSWORD != '' && secrets.JPTI_ANDROID_KEY_PASSWORD != '' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          # The legacy `tools` package is no longer published by Google's SDK repository.
+          # Install the packages required by this app's compileSdk (35) explicitly.
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Build web assets
+        run: npm run build
+        env:
+          VITE_APP_NAME: JPTI
+          VITE_APP_ENV: production
+          # Native WebViews use the public Cloudflare Pages origin for the same Pages Functions API.
+          VITE_API_BASE_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jpti.pages.dev' }}
+      - name: Synchronize Capacitor Android project
+        run: npx cap sync android
+      - name: Prepare Android production signing key
+        if: ${{ env.JPTI_ANDROID_SIGNING_READY == 'true' }}
+        env:
+          KEYSTORE_BASE64: ${{ secrets.JPTI_ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          mkdir -p android/app
+          echo "$KEYSTORE_BASE64" | base64 --decode > android/app/jpti-release.keystore
+      - name: Build signed Android release APK and AAB
+        if: ${{ env.JPTI_ANDROID_SIGNING_READY == 'true' }}
+        working-directory: android
+        env:
+          JPTI_ANDROID_KEYSTORE_PATH: app/jpti-release.keystore
+          JPTI_ANDROID_KEY_ALIAS: ${{ secrets.JPTI_ANDROID_KEY_ALIAS }}
+          JPTI_ANDROID_STORE_PASSWORD: ${{ secrets.JPTI_ANDROID_STORE_PASSWORD }}
+          JPTI_ANDROID_KEY_PASSWORD: ${{ secrets.JPTI_ANDROID_KEY_PASSWORD }}
+          JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
+          JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
+        run: ./gradlew --no-daemon assembleRelease bundleRelease
+      - name: Build Android debug APK when production signing is not configured
+        if: ${{ env.JPTI_ANDROID_SIGNING_READY != 'true' }}
+        working-directory: android
+        env:
+          JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
+          JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
+        run: ./gradlew --no-daemon assembleDebug
+      - name: Stage Android packages in the Android project output folder
+        run: |
+          mkdir -p android/app/build/outputs/distribution build-downloads/android
+          if [ -f android/app/build/outputs/apk/release/app-release.apk ]; then
+            cp android/app/build/outputs/apk/release/app-release.apk android/app/build/outputs/distribution/JPTI-Android-release.apk
+            cp android/app/build/outputs/bundle/release/app-release.aab android/app/build/outputs/distribution/JPTI-Android-release.aab
+            cp android/app/build/outputs/distribution/JPTI-Android-release.apk build-downloads/android/
+            mkdir -p android/app/downloads
+            cp android/app/build/outputs/distribution/JPTI-Android-release.apk android/app/downloads/JPTI-Android-release.apk
+            cp android/app/build/outputs/distribution/JPTI-Android-release.aab build-downloads/android/
+          else
+            cp android/app/build/outputs/apk/debug/app-debug.apk android/app/build/outputs/distribution/JPTI-Android-debug.apk
+            cp android/app/build/outputs/distribution/JPTI-Android-debug.apk build-downloads/android/
+            mkdir -p android/app/downloads
+            cp android/app/build/outputs/distribution/JPTI-Android-debug.apk android/app/downloads/JPTI-Android-debug.apk
+          fi
+          test -s android/app/build/outputs/distribution/JPTI-Android-release.apk || test -s android/app/build/outputs/distribution/JPTI-Android-debug.apk
+          test -n "$(find build-downloads/android -maxdepth 1 -type f -name '*.apk' -print -quit)"
+          (cd android/app/build/outputs/distribution && sha256sum * > SHA256SUMS.txt)
+          cp android/app/build/outputs/distribution/SHA256SUMS.txt build-downloads/android/
+      - name: Verify production APK signature
+        if: ${{ env.JPTI_ANDROID_SIGNING_READY == 'true' }}
+        run: |
+          APK=android/app/build/outputs/distribution/JPTI-Android-release.apk
+          test -s "$APK"
+          apksigner verify --verbose --print-certs "$APK"
+      - name: Commit APK into the Android app downloads folder
+        if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+        run: |
+          APK=$(ls android/app/downloads/*.apk | head -n 1)
+          scripts/publish-apk.sh "$APK" "$(basename "$APK")"
+      - name: Upload Android APK and app bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: JPTI-Android-APK
+          path: build-downloads/android/*
+          if-no-files-found: error
+          retention-days: 90
+
+  desktop:
+    name: Build desktop - ${{ matrix.platform }}
+    needs: validate
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows
+            os: windows-latest
+          - platform: macos
+            os: macos-latest
+          - platform: linux
+            os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install Linux packaging dependencies
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+      - name: Stamp this build with a unique application version
+        run: npm version --no-git-tag-version --allow-same-version 0.2.${{ github.run_number }}
+      - name: Build web assets
+        run: npm run build
+      - name: Package desktop application
+        run: npx electron-builder --publish never
+      - name: Stage desktop packages
+        shell: bash
+        run: |
+          mkdir -p build-downloads/desktop
+          if [ "${{ matrix.platform }}" = "windows" ]; then
+            find release -maxdepth 1 -type f \( -name '*.exe' -o -name '*.msi' \) -exec cp {} build-downloads/desktop/ \;
+          elif [ "${{ matrix.platform }}" = "macos" ]; then
+            find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -exec cp {} build-downloads/desktop/ \;
+          else
+            find release -maxdepth 1 -type f \( -name '*.AppImage' -o -name '*.deb' \) -exec cp {} build-downloads/desktop/ \;
+          fi
+          test -n "$(find build-downloads/desktop -maxdepth 1 -type f -print -quit)"
+          cd build-downloads/desktop
+          sha256sum * > SHA256SUMS.txt
+      - name: Upload desktop packages
+        uses: actions/upload-artifact@v4
+        with:
+          name: JPTI-Desktop-${{ matrix.platform }}
+          path: build-downloads/desktop/*
+          if-no-files-found: error
+          retention-days: 30
+
+  publish-downloads:
+    name: Publish downloadable JPTI build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    needs: [android, desktop]
+    permissions:
+      contents: write
+    steps:
+      - name: Download all platform packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: JPTI-*
+          path: release-assets
+      - name: Create one combined SHA-256 checksum file for every release asset
+        shell: bash
+        run: |
+          # Each build job uploads its own SHA256SUMS.txt; publishing them all under one asset name made
+          # the last upload overwrite the others. Replace them with a single file covering every asset.
+          # GitHub turns spaces in asset names into dots, so the file names are listed the same way.
+          set -euo pipefail
+          cd release-assets
+          find . -type f -name 'SHA256SUMS.txt' -delete
+          SUMS="$RUNNER_TEMP/SHA256SUMS.txt"
+          : > "$SUMS"
+          while IFS= read -r -d '' file; do
+            name="$(basename "$file")"
+            printf '%s  %s\n' "$(sha256sum "$file" | cut -d' ' -f1)" "${name// /.}" >> "$SUMS"
+          done < <(find . -type f -print0 | sort -z)
+          test -s "$SUMS"
+          mv "$SUMS" ./SHA256SUMS.txt
+          cat ./SHA256SUMS.txt
+      - name: Publish GitHub prerelease
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.2.${{ github.run_number }}
+          name: JPTI v0.2.${{ github.run_number }}
+          prerelease: true
+          make_latest: false
+          generate_release_notes: true
+          files: release-assets/**/*

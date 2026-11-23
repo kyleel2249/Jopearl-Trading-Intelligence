@@ -1,0 +1,43 @@
+name: Windows desktop installers
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'api/**'
+      - 'desktop/**'
+      - 'integrations/t-bots/public/**'
+      - 'integrations/t-bots-adapter/**'
+      - 'scripts/**'
+      - 'capacitor.config.ts'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/desktop-windows.yml'
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'api/**'
+      - 'desktop/**'
+      - 'integrations/t-bots/public/**'
+      - 'package.json'
+      - '.github/workflows/desktop-windows.yml'
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm install
+      - name: Build Windows installer and portable app
+        # This workflow only builds and uploads artifacts. Publishing is handled elsewhere, and on pushes to main
+        # electron-builder would otherwise try to publish to GitHub and fail without GH_TOKEN.
+        run: npm run desktop:dist -- --publish never
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jpti-windows-desktop
+          path: release/*.exe
+          if-no-files-found: error

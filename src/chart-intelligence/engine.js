@@ -1,0 +1,224 @@
+// Chart Intelligence engine: one deterministic, closed-candle-only analysis that every chart consumes.
+// It does NOT mint a second BUY/SELL: signals come from the GainzAlpha engine (single source of truth). This layer
+// adds data-backed levels, SMC, order flow, liquidation, MTF, regime, confluence grading, conflict detection, the trade
+// plan (entry zone, TP1..TPn, SL, trailing stop) and a frozen signal ledger so markers never repaint.
+import { analyzeGainzAlpha } from '../gainz-alpha/engine.js';
+import { resolvePreset } from '../gainz-alpha/presets.js';
+import { summarize, evaluateOutcome } from '../gainz-alpha/learning.js';
+import { atrSeries, clamp, findSwings, normalizeCandles, splitClosed, structureEvents, timeframeMs } from '../gainz-alpha/indicators.js';
+import { profileLevels, supportResistance, reactionStats } from './levels.js';
+import { analyzeOrderFlow } from './orderflow.js';
+import { analyzeSmc } from './smc.js';
+import { analyzeLiquidation } from './liquidation.js';
+import { detectRegime, adaptiveConfig, mtfBias, scoreComponents, detectConflicts, gradeSetup } from './confluence.js';
+
+export const MODULE_VERSION = 'chart-intelligence-1.0.0';
+export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
+export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: false, vwap: true };
+const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
+
+export function createMemoryLedger() {
+  const m = new Map();
+  return { get: (k) => m.get(k) || null, put: (k, v) => { m.set(k, v); } };
+}
+export function createStorageLedger(storage, key = 'jpti.chart-intelligence.ledger.v1') {
+  let state = {};
+  try { state = JSON.parse(storage.getItem(key) || '{}') || {}; } catch { state = {}; }
+  return { get: (k) => state[k] || null, put: (k, v) => { state[k] = v; try { storage.setItem(key, JSON.stringify(state)); } catch { /* memory-only fallback */ } } };
+}
+
+function compactSignal(r) {
+  const p = r.riskPlan;
+  return { id: [r.symbol, r.timeframe, r.asOf, r.signal].join('|'), signal: r.signal, ts: r.asOf, confidence: r.confidence, score: r.score, setupId: r.setupId, kind: r.signalKind, riskPlan: p ? { entry: p.entry, stopLoss: p.stopLoss, takeProfit1: p.takeProfit1, takeProfit2: p.takeProfit2, takeProfit3: p.takeProfit3, rr1: p.rr1, risk: p.risk, costs: p.costs } : null, riskPlanFull: undefined };
+}
+
+/** Walk-forward over closed candles with no lookahead: the result at bar i only sees bars <= i. */
+export function walkForwardSignals(work, ctx, { fromIndex, gainzOptions = {} }) {
+  const tf = timeframeMs(ctx.timeframe), out = [];
+  if (!tf) return out;
+  for (let i = Math.max(60, fromIndex); i < work.length; i++) {
+    const slice = work.slice(Math.max(0, i - 299), i + 1);
+    let res; try { res = analyzeGainzAlpha(slice, { ...gainzOptions, symbol: ctx.symbol, exchange: ctx.exchange, timeframe: ctx.timeframe, now: work[i][0] + tf, mode: 'confirmed', outcomes: [], model: null, recentSignals: [] }); } catch { continue; }
+    if (res.status === 'ready' && (res.signal === 'BUY' || res.signal === 'SELL') && res.riskPlan) out.push(compactSignal(res));
+  }
+  return out;
+}
+
+/** Evaluate a recorded signal against the closed candles that followed it. Stop is checked before targets inside a bar. */
+export function evaluateTrade(sig, work, { expireBars = 40 } = {}) {
+  const dir = sig.signal === 'BUY' ? 1 : -1, p = sig.riskPlan, i0 = work.findIndex((c) => c[0] === sig.ts);
+  if (i0 < 0 || i0 + 1 >= work.length) return { state: 'open', tpsHit: 0, bars: 0 };
+  const entry = work[i0 + 1][1], tps = [p.takeProfit1, p.takeProfit2, p.takeProfit3].filter((x) => Number.isFinite(x)), risk = (entry - p.stopLoss) * dir;
+  let tpsHit = 0, state = 'open', exitTs = null, mfe = 0;
+  const horizon = Math.min(work.length - (i0 + 1), expireBars);
+  for (let k = 0; k < horizon; k++) {
+    const c = work[i0 + 1 + k];
+    if (dir > 0 ? c[3] <= p.stopLoss : c[2] >= p.stopLoss) { state = tpsHit > 0 ? 'tp' + tpsHit : 'stopped'; exitTs = c[0]; if (tpsHit > 0) state = 'stopped-after-tp' + tpsHit; break; }
+    while (tpsHit < tps.length && (dir > 0 ? c[2] >= tps[tpsHit] : c[3] <= tps[tpsHit])) tpsHit++;
+    mfe = Math.max(mfe, ((dir > 0 ? c[2] : c[3]) - entry) * dir / (risk || 1));
+    if (tpsHit === tps.length) { state = 'tp' + tpsHit; exitTs = c[0]; break; }
+  }
+  if (state === 'open') state = work.length - (i0 + 1) >= expireBars ? (tpsHit > 0 ? 'tp' + tpsHit : 'expired') : tpsHit > 0 ? 'tp' + tpsHit + '-open' : 'open';
+  const terminal = !['open'].includes(state) && !state.endsWith('-open');
+  return { state, terminal, tpsHit, exitTs, entry, mfeR: r8(mfe), bars: Math.min(horizon, work.length - 1 - i0) };
+}
+
+/** Chandelier-style trailing stop on closed candles after entry. Starts after +1R and only ever tightens. */
+export function trailingStop(work, sig, { atr, mult = 2.5 }) {
+  const dir = sig.signal === 'BUY' ? 1 : -1, p = sig.riskPlan, i0 = work.findIndex((c) => c[0] === sig.ts);
+  if (i0 < 0 || i0 + 1 >= work.length) return null;
+  const entry = work[i0 + 1][1], risk = (entry - p.stopLoss) * dir;
+  let extreme = entry, trail = null, armed = false;
+  for (let i = i0 + 1; i < work.length; i++) {
+    extreme = dir > 0 ? Math.max(extreme, work[i][2]) : Math.min(extreme, work[i][3]);
+    if (!armed && (extreme - entry) * dir >= risk) armed = true;
+    if (armed) { const cand = extreme - dir * atr * mult; trail = trail == null ? cand : dir > 0 ? Math.max(trail, cand) : Math.min(trail, cand); }
+  }
+  return trail == null ? { armed: false, price: null } : { armed: true, price: r8(dir > 0 ? Math.max(trail, p.stopLoss) : Math.min(trail, p.stopLoss)), multiple: mult };
+}
+
+function mergeNearLevels(items, atr, tolAtr = 0.06) {
+  const singles = items.filter((i) => i.top == null && Number.isFinite(i.price)).sort((a, b) => a.price - b.price), rest = items.filter((i) => !(i.top == null && Number.isFinite(i.price)));
+  const out = [];
+  for (const it of singles) {
+    const prev = out[out.length - 1];
+    if (prev && prev.layer === it.layer && Math.abs(prev.price - it.price) <= atr * tolAtr) { prev.label += ' / ' + it.label; prev.merged = [...(prev.merged || [prev.id]), it.id]; prev.strength = Math.max(prev.strength || 0, it.strength || 0); } else out.push({ ...it });
+  }
+  return [...out, ...rest];
+}
+
+function buildPlan(sig, state, work, atr, levelPool, cfg, trail) {
+  const dir = sig.signal === 'BUY' ? 1 : -1, p = sig.riskPlan, entry = p.entry, risk = Math.abs(entry - p.stopLoss);
+  const targets = [], pushT = (price, source) => { if (Number.isFinite(price) && (price - entry) * dir > 0 && !targets.some((t) => Math.abs(t.price - price) < atr * 0.3)) targets.push({ price: r8(price), rr: r8(((price - entry) * dir) / risk), source }); };
+  [[p.takeProfit1, 'gainz-tp1'], [p.takeProfit2, 'gainz-tp2'], [p.takeProfit3, 'gainz-tp3']].forEach(([x, s]) => pushT(x, s));
+  levelPool.filter((l) => (l.price - entry) * dir > risk * cfg.minRR && (l.strength || 0) >= 0.5).sort((a, b) => (a.price - b.price) * dir).forEach((l) => { if (targets.length < 5) pushT(l.price, 'level:' + l.label); });
+  targets.sort((a, b) => a.rr - b.rr).forEach((t, i) => { t.name = 'TP' + (i + 1); t.hit = i < state.tpsHit; });
+  const optimized = targets.find((t) => t.rr >= 2 && !t.source.startsWith('gainz')) || targets.find((t) => t.rr >= 2) || targets[0] || null;
+  const zoneBlock = work && levelPool.find((l) => l.top != null && l.direction === (dir > 0 ? 'bullish' : 'bearish') && Math.abs(l.price - entry) <= atr);
+  return {
+    direction: sig.signal, signalTs: sig.ts, entry: r8(entry), entryZone: { low: r8(entry - atr * 0.2), high: r8(entry + atr * 0.2), basis: '±0.2 ATR around the signal close' },
+    optimalEntry: zoneBlock ? { price: r8(zoneBlock.price), source: zoneBlock.label, zone: { low: zoneBlock.bottom, high: zoneBlock.top } } : null,
+    stopLoss: p.stopLoss, risk: r8(risk), riskAtr: r8(risk / atr), targets, rrOptimized: optimized ? { name: optimized.name, rr: optimized.rr } : null,
+    trailingStop: trail, invalidation: { price: p.stopLoss, reason: 'Close beyond the stop invalidates the setup' }, state: state.state, tpsHit: state.tpsHit,
+    source: { module: 'chart-intelligence/engine', method: 'gainz-risk-plan + level-derived targets', basis: 'engine', inputs: { atr: r8(atr), minRR: cfg.minRR } }
+  };
+}
+
+export function analyzeChartIntelligence(candles, opts = {}) {
+  const { exchange = 'unknown', symbol = 'unknown', timeframe = 'unknown', now = Date.now(), gainz = null, higherTimeframes = [], outcomes = [], flow = null, liquidationFeed = null, externalLevels = [], settings = {}, ledger = null, historyBars = 60, preset, overrides } = opts;
+  const rows = normalizeCandles(candles), { closed, forming } = splitClosed(rows, timeframe, now), work = closed.slice(-1000);
+  const base = { status: 'insufficient', module: MODULE_VERSION, symbol, timeframe, exchange, layers: {}, signals: [], plan: null, conflicts: [], alerts: [], provenance: [] };
+  if (work.length < 60) return { ...base, reason: 'Need 60 closed candles, have ' + work.length };
+  const atrS = atrSeries(work, 14), atr = atrS[work.length - 1], last = work.length - 1, price = work[last][4], tf = timeframeMs(timeframe);
+  if (!atr) return { ...base, reason: 'ATR unavailable' };
+  const cfg = resolvePreset(preset, overrides);
+
+  // Anchors for anchored VWAP / profile: last swing high, last swing low, last structure break.
+  const sw = findSwings(work, 3), st = structureEvents(work, sw), anchors = [];
+  const lh = sw.highs[sw.highs.length - 1], ll = sw.lows[sw.lows.length - 1], le = st.events[st.events.length - 1];
+  if (lh) anchors.push({ kind: 'swing-high', ts: lh.ts }); if (ll) anchors.push({ kind: 'swing-low', ts: ll.ts }); if (le) anchors.push({ kind: le.kind.toLowerCase(), ts: le.ts });
+
+  const profile = profileLevels(work, { timeframe, atr, anchors }), sr = supportResistance(work, { atr });
+  const smc = analyzeSmc(work), of = analyzeOrderFlow(work, { flow }), liq = analyzeLiquidation(work, { feed: liquidationFeed });
+  const regime = detectRegime(work, atrS), rcfg = adaptiveConfig(regime), mtf = mtfBias(higherTimeframes, now);
+
+  // Predictive level strength: shrink an a-priori strength toward the measured reaction rate of that very level.
+  const K = 4, strengthen = (it) => { if (it.top != null || !Number.isFinite(it.price)) return it; const idx = Math.max(0, work.findIndex((c) => c[0] >= it.ts)); const rs = reactionStats(work, it.price, atr, { fromIndex: idx }); const prior = it.strength ?? 0.5; const s = ((rs.reactions) + K * prior) / (rs.touches + K); return { ...it, strength: r8(s), reaction: { touches: rs.touches, reactions: rs.reactions, rate: r8(rs.rate) }, source: { ...it.source, inputs: { ...it.source.inputs, touches: rs.touches, reactions: rs.reactions } } }; };
+  const profileS = profile.map(strengthen);
+
+  const conf = scoreComponents({ price, atr, smc, levels: profileS, sr, flow: of, liq, mtf, regimeCfg: rcfg });
+  const scoreDir = Math.abs(conf.score) >= rcfg.minScore ? Math.sign(conf.score) : 0;
+
+  // Signals: ledger (frozen) + walk-forward for bars not yet recorded. The live bar uses the hub's confirmed result.
+  const ctxKey = [exchange, symbol, timeframe].join('|'), gopts = { preset, overrides };
+  let rec = ledger ? ledger.get(ctxKey) : null;
+  if (!rec) rec = { observedFrom: work[last][0], lastObserved: null, signals: {} };
+  const nextIdx = rec.lastObserved == null ? -1 : work.findIndex((c) => c[0] > rec.lastObserved);
+  const startIdx = rec.lastObserved == null ? Math.max(60, last - historyBars + 1) : nextIdx < 0 ? last + 1 : Math.max(60, nextIdx);
+  const fresh = startIdx <= last ? walkForwardSignals(work, { symbol, exchange, timeframe }, { fromIndex: startIdx, gainzOptions: gopts }) : [];
+  const live = gainz && gainz.confirmed && gainz.confirmed.status === 'ready' && ['BUY', 'SELL'].includes(gainz.confirmed.signal) && gainz.confirmed.riskPlan && gainz.confirmed.asOf === work[last][0] ? compactSignal(gainz.confirmed) : null;
+  const incoming = [...fresh.filter((s) => !(live && s.ts === live.ts)), ...(live ? [live] : [])].sort((a, b) => a.ts - b.ts);
+  const sigs = { ...rec.signals };
+  for (const s of incoming) {
+    if (sigs[s.ts]) continue;
+    const recentSame = Object.values(sigs).some((x) => x.signal === s.signal && tf && s.ts > x.ts && s.ts - x.ts < cfg.cooldownBars * tf);
+    if (recentSame && !(live && s.ts === live.ts)) continue;
+    sigs[s.ts] = s;
+  }
+  const keep = Object.values(sigs).sort((a, b) => a.ts - b.ts).slice(-400);
+  rec = { observedFrom: rec.observedFrom, lastObserved: work[last][0], signals: Object.fromEntries(keep.map((s) => [s.ts, s])) };
+  if (ledger) ledger.put(ctxKey, rec);
+  const trades = keep.map((s) => ({ ...s, trade: evaluateTrade(s, work, { expireBars: cfg.expireBars * 3 }) }));
+  const active = [...trades].reverse().find((t) => !t.trade.terminal) || null;
+
+  // Conflicts + grade use the latest active signal's direction (or the confluence direction when there is no signal).
+  const sigDir = active ? (active.signal === 'BUY' ? 1 : -1) : 0;
+  const ext = (() => { const e = externalLevels.find((l) => /entry/i.test(l.label)), s = externalLevels.find((l) => /stop/i.test(l.label)); return e && s && Number.isFinite(+e.price) && Number.isFinite(+s.price) ? { direction: +e.price > +s.price ? 1 : -1 } : null; })();
+  const cf = detectConflicts({ signalDir: sigDir, score: conf.score, minScore: rcfg.minScore, mtf, flow: of, dealing: smc.dealingRange, external: ext });
+  const agreeing = conf.components.filter((c) => c.available && c.value * (sigDir || scoreDir || 1) >= 0.25).length, total = conf.components.filter((c) => c.available).length;
+  const gz = gainz && gainz.confirmed && gainz.confirmed.status === 'ready' ? gainz.confirmed : null;
+  const expectancy = summarize(outcomes, { symbol, timeframe, preset: cfg.id });
+  const grade = sigDir ? gradeSetup({ score: conf.score * sigDir, agreeing, total, mtf, conflictSeverity: cf.severity, confidence: active.confidence, expectancy }) : null;
+  const severe = cf.severity >= 3;
+  const display = !active ? { state: scoreDir ? 'WATCH-' + (scoreDir > 0 ? 'BUY' : 'SELL') : 'NEUTRAL', note: scoreDir ? 'Confluence leans ' + (scoreDir > 0 ? 'bullish' : 'bearish') + ' but the signal engine has not confirmed an entry' : 'No directional edge' } : severe ? { state: 'CONFLICT', note: cf.conflicts.map((c) => c.detail).join('; ') } : { state: active.signal, note: null };
+
+  const trail = active && !severe ? trailingStop(work, active, { atr }) : null;
+  const plan = active && !severe ? buildPlan(active, active.trade, work, atr, [...profileS, ...sr, ...smc.items.filter((i) => i.layer === 'liquidity')], cfg, trail) : null;
+
+  // Layer assembly with caps, merging and stable ids.
+  const cap = (arr, n) => arr.slice(-n);
+  const L = {
+    signals: trades.slice(-40).map((t) => ({ id: 'SIG|' + t.id, layer: 'signals', kind: t.signal, direction: t.signal === 'BUY' ? 'bullish' : 'bearish', ts: t.ts, price: t.signal === 'BUY' ? work.find((c) => c[0] === t.ts)?.[3] : work.find((c) => c[0] === t.ts)?.[2], label: t.signal + ' ' + t.confidence, confidence: t.confidence, outcome: t.trade.state, strength: t.confidence / 100, source: { module: 'gainz-alpha/engine', method: t.kind || 'confluence', basis: 'engine', inputs: { score: t.score, setupId: t.setupId } } })),
+    profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
+    sr: sr, liquidation: liq.items || [], orderflow: cap(of.items || [], 24),
+    structure: cap(smc.items.filter((i) => i.layer === 'structure'), 14), orderBlocks: cap(smc.items.filter((i) => i.layer === 'orderBlocks' && i.status !== 'breaker-old'), 8),
+    fvg: cap(smc.items.filter((i) => i.layer === 'fvg'), 10), liquidity: smc.items.filter((i) => i.layer === 'liquidity'), sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
+  };
+  if (plan) L.plan = [{ id: 'PLAN|' + plan.signalTs, layer: 'plan', kind: 'PLAN', ts: plan.signalTs, price: plan.entry, label: 'Trade plan', direction: plan.direction === 'BUY' ? 'bullish' : 'bearish', source: plan.source }];
+  else L.plan = [];
+
+  // Alerts: derived only from events on the latest closed bar; ids are stable so consumers can dedupe.
+  const alerts = [], lastTs = work[last][0], A = (type, id, message, severity = 'info') => alerts.push({ id: [symbol, timeframe, type, id].join('|'), type, message, severity, ts: lastTs });
+  if (active && active.ts === lastTs && !severe) A('signal', active.id, active.signal + ' signal at ' + active.riskPlan.entry + ' (grade ' + (grade ? grade.grade : 'n/a') + ')', 'signal');
+  if (severe && active && active.ts === lastTs) A('conflict', active.id, 'Signal conflicted: ' + cf.conflicts[0].detail, 'warning');
+  trades.filter((t) => t.trade.exitTs === lastTs).forEach((t) => A('trade-exit', t.id + '|' + t.trade.state, t.signal + ' signal ' + t.trade.state, t.trade.state.startsWith('stopped') ? 'warning' : 'signal'));
+  smc.items.filter((i) => i.ts === lastTs && ['MSS', 'CHoCH', 'BOS', 'LIQUIDITY_SWEEP'].includes(i.kind)).forEach((i) => A('structure', i.id, i.label + ' ' + i.direction));
+  const key = [...profileS, ...sr].filter((l) => l.top == null || l.kind === 'POC').filter((l) => ['POC', 'VWAP', 'PD_POC', 'VAH', 'VAL', 'PDH', 'PDL'].includes(l.kind));
+  key.forEach((l) => { const pc = work[last - 1][4]; if ((pc - l.price) * (price - l.price) < 0) A('level-cross', l.id + '|' + lastTs, 'Price crossed ' + l.label + ' (' + l.price + ')'); });
+  if (liq.cascade && liq.cascade.level === 'elevated') A('liquidation-risk', liq.cascade.exposedSide, 'Elevated liquidation cascade risk on the ' + liq.cascade.exposedSide + ' side (' + liq.cascade.basis + ')', 'warning');
+
+  const bases = { liquidation: liq.basis, orderflow: of.basis };
+  const provenance = LAYERS.map((l) => ({ layer: l, count: (L[l] || []).length, bases: [...new Set((L[l] || []).map((i) => i.source && i.source.basis).filter(Boolean))], methods: [...new Set((L[l] || []).map((i) => i.source && i.source.method).filter(Boolean))].slice(0, 6) }));
+  return {
+    status: 'ready', module: MODULE_VERSION, symbol, timeframe, exchange, asOf: lastTs, forming: forming ? forming[0] : null, atr: r8(atr), price,
+    layers: L, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
+    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
+    liquidation: { basis: liq.basis, cascade: liq.cascade, heatmap: liq.heatmap }, expectancy, gainzStatus: gz ? { signal: gz.signal, confidence: gz.confidence, stage: gz.stage } : null, alerts, provenance, bases,
+    method: 'Closed-candle analysis; signals frozen in a ledger so history never repaints. Estimated layers are labelled in provenance.'
+  };
+}
+
+/** Walk-forward evaluation of the engine's own signals and grades (no lookahead, outcomes not fed back into the signals). */
+export function runChartIntelligenceBacktest(candles, opts = {}) {
+  const rows = normalizeCandles(candles), tf = timeframeMs(opts.timeframe), cfg = resolvePreset(opts.preset, opts.overrides);
+  const sigs = walkForwardSignals(rows, { symbol: opts.symbol || 'unknown', exchange: opts.exchange || 'unknown', timeframe: opts.timeframe }, { fromIndex: 60, gainzOptions: { preset: opts.preset, overrides: opts.overrides } });
+  const accepted = [];
+  for (const s of sigs) if (!accepted.some((x) => x.signal === s.signal && tf && s.ts - x.ts < cfg.cooldownBars * tf)) accepted.push(s);
+  const resolved = accepted.map((s) => ({ s, o: evaluateOutcome({ signal: s.signal, riskPlan: s.riskPlan }, rows.filter((c) => c[0] > s.ts), { window: cfg.expireBars * 3, costPct: 0 }) })).filter((x) => x.o.status === 'resolved');
+  const R = resolved.map((x) => x.o.returnR), wins = resolved.filter((x) => x.o.returnR > 0).length;
+  return { signals: accepted.length, resolved: resolved.length, wins, winRate: resolved.length ? r8(wins / resolved.length) : null, expectancyR: R.length ? r8(R.reduce((a, b) => a + b, 0) / R.length) : null, totalR: R.length ? r8(R.reduce((a, b) => a + b, 0)) : null, note: 'Entry at next open; stop checked before targets in a bar; outcomes do not influence signals.' };
+}
+
+/** Replay: the analysis exactly as it would have been displayed after bar `index` closed. */
+export function analyzeAt(candles, index, opts = {}) {
+  const rows = normalizeCandles(candles), tf = timeframeMs(opts.timeframe) || 0;
+  if (index < 0 || index >= rows.length) throw new Error('index out of range');
+  return analyzeChartIntelligence(rows.slice(0, index + 1), { ...opts, now: rows[index][0] + tf, gainz: null, ledger: null });
+}
+
+/** Structured evidence for the JPTI Alpha ensemble, risk engine and scanner. Pure mapping. */
+export function toChartEvidence(r) {
+  if (!r || r.status !== 'ready') return { source: 'chart-intelligence', available: false, reason: r?.reason || 'unavailable' };
+  const a = r.active, dir = a && r.display.state === a.signal ? (a.signal === 'BUY' ? 1 : -1) : 0;
+  return { source: 'chart-intelligence', available: true, version: r.module, direction: dir, state: r.display.state, grade: r.grade ? r.grade.grade : null, gradePoints: r.grade ? r.grade.points : null, confluenceScore: r.confluence.score, regime: r.regime.state, conflicts: r.conflicts.map((c) => c.id), conflictSeverity: r.conflictSeverity, cascadeRisk: r.liquidation.cascade ? r.liquidation.cascade.level : null, plan: r.plan ? { entry: r.plan.entry, stopLoss: r.plan.stopLoss, targets: r.plan.targets.map((t) => ({ price: t.price, rr: t.rr })) } : null, bases: r.bases };
+}

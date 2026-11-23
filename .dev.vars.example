@@ -1,0 +1,5 @@
+# Cloudflare Pages Functions local development variables.
+# Public exchange market data does not need API keys or a separate gateway.
+JPTI_TRADING_MODE=paper
+JPTI_ENABLE_LIVE_TRADING=false
+# Native app CORS is restricted in the Pages Function to standard Capacitor origins.

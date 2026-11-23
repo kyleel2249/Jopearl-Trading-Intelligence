@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="theme-color" content="#080d18" />
+    <meta name="color-scheme" content="dark" />
+    <meta name="description" content="JPTI — Jopearl Trading Intelligence: market research, signals, risk management and portfolio operations." />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <link rel="icon" href="%BASE_URL%jpti-icon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="%BASE_URL%jpti-icon.svg" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" media="print" onload="this.media='all'" />
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" /></noscript>
+    <title>JPTI — Jopearl Trading Intelligence</title>
+    <style>
+      html,body{margin:0;min-height:100%;background:#080d18;color:#e8edf6;font:14px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-text-size-adjust:100%}
+      #startup-status{box-sizing:border-box;max-width:620px;margin:12vh auto;padding:28px;border:1px solid #26364d;border-radius:14px;background:#101b2b}
+      #startup-status h1{margin:0 0 10px;font-size:20px}
+      #startup-status p{color:#a8b8cc;line-height:1.6}
+      #startup-status.failed{border-color:#633d49}
+      #startup-error{display:none;white-space:pre-wrap;overflow-wrap:anywhere;color:#ffb7a9;font-size:12px}
+      #startup-retry{display:none;margin-top:12px;padding:11px 18px;border:0;border-radius:8px;background:#53c5d5;color:#07121e;font-weight:700;font-size:14px;cursor:pointer}
+      #startup-retry:focus-visible{outline:3px solid #fff;outline-offset:2px}
+      .startup-spinner{display:inline-block;width:14px;height:14px;margin-right:8px;vertical-align:-2px;border:2px solid #26364d;border-top-color:#53c5d5;border-radius:50%;animation:startup-spin .9s linear infinite}
+      @keyframes startup-spin{to{transform:rotate(360deg)}}
+      @media (prefers-reduced-motion:reduce){.startup-spinner{animation:none}}
+    </style>
+  </head>
+  <body>
+    <div id="root">
+      <section id="startup-status" role="status" aria-live="polite">
+        <h1><span class="startup-spinner" aria-hidden="true"></span><span id="startup-title">JPTI is starting</span></h1>
+        <p id="startup-message">The trading workspace is loading.</p>
+        <pre id="startup-error"></pre>
+        <button id="startup-retry" type="button">Reload JPTI</button>
+        <noscript><p>JPTI requires JavaScript. Enable JavaScript in your browser or WebView and reload.</p></noscript>
+      </section>
+    </div>
+    <script>
+      (function () {
+        var SLOW_MS = 15000;   // soft notice: still loading, offer a reload
+        var WATCHDOG_MS = 90000; // hard failure: nothing mounted for 90 seconds
+        var failed = false;
+        function byId(id) { return document.getElementById(id); }
+        function stillStarting() { return !!byId('startup-status'); }
+        function fail(message) {
+          if (failed || !stillStarting()) return;
+          failed = true;
+          var panel = byId('startup-status');
+          var details = byId('startup-error');
+          var retry = byId('startup-retry');
+          panel.className = 'failed';
+          byId('startup-title').textContent = 'JPTI could not load';
+          byId('startup-message').textContent = 'The frontend did not start. Check your connection and reload. If the problem persists, report the diagnostic below (it contains no credentials).';
+          var spinner = panel.querySelector('.startup-spinner');
+          if (spinner) spinner.style.display = 'none';
+          details.style.display = 'block';
+          details.textContent = String(message || 'Unknown frontend startup error').slice(0, 1500);
+          retry.style.display = 'inline-block';
+          panel.setAttribute('role', 'alert');
+        }
+        byId('startup-retry').addEventListener('click', function () { window.location.reload(); });
+        window.addEventListener('error', function (event) {
+          var target = event && event.target;
+          if (target && target !== window && (target.src || target.href)) {
+            var url = String(target.src || target.href);
+            var sameOrigin = false;
+            try { sameOrigin = new URL(url, window.location.href).origin === window.location.origin; } catch (e) { sameOrigin = true; }
+            // Optional third-party resources (web fonts) must never turn startup into a failure.
+            if (sameOrigin) fail('Failed to load resource: ' + url);
+          } else if (event) {
+            fail(event.message || 'A JavaScript error occurred before the interface mounted.');
+          }
+        }, true);
+        window.addEventListener('unhandledrejection', function (event) {
+          var reason = event && event.reason;
+          // Optional third-party resources reject with a bare Event; they must never block startup.
+          if (typeof Event !== 'undefined' && reason instanceof Event) return;
+          fail('Unhandled startup rejection: ' + ((reason && (reason.stack || reason.message)) || reason));
+        });
+        window.setTimeout(function () {
+          if (!stillStarting() || failed) return;
+          // Slow phones and mobile data can legitimately need more than 15 seconds.
+          // Keep loading, say so, and offer a reload instead of declaring failure.
+          byId('startup-message').textContent = 'JPTI is still loading. This is taking longer than usual on a slow connection or device. You can keep waiting or reload.';
+          byId('startup-retry').style.display = 'inline-block';
+        }, SLOW_MS);
+        window.setTimeout(function () {
+          if (stillStarting()) fail('Startup timed out after ' + (WATCHDOG_MS / 1000) + ' seconds without the interface mounting.');
+        }, WATCHDOG_MS);
+      })();
+    </script>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

@@ -1,0 +1,73 @@
+name: Bootstrap Android platform project
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'capacitor.config.ts'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: bootstrap-android-platform
+  cancel-in-progress: false
+
+jobs:
+  generate-android:
+    name: Generate and commit Capacitor Android project
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Install Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build web application
+        run: npm run build
+
+      - name: Generate native Android project
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+          npx cap sync android
+
+      - name: Validate native Android configuration
+        run: |
+          test -f android/settings.gradle
+          test -f android/build.gradle
+          test -f android/app/build.gradle
+          test -f android/gradlew
+          grep -R "com.jopearl.jpti" android/app/build.gradle android/app/src/main/AndroidManifest.xml
+
+      - name: Commit Android platform project
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add android
+          if git diff --cached --quiet; then
+            echo "Android platform project is already committed."
+          else
+            git commit -m "chore(android): add generated Capacitor platform project"
+            git push origin HEAD:main
+          fi

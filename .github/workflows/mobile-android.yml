@@ -1,0 +1,80 @@
+name: Android debug APK build
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-debug:
+    name: Build JPTI Android APK
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools platforms;android-35 build-tools;35.0.0'
+
+      - name: Install Node dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Validate frontend environment configuration
+        run: npm run env:check
+
+      - name: Build web application
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jpti.pages.dev' }}
+
+      - name: Ensure Android project exists
+        run: |
+          if [ ! -d android ]; then
+            npx cap add android
+          fi
+
+      - name: Synchronize Capacitor Android
+        run: npx cap sync android
+
+      - name: Build Android debug and release variants
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug assembleRelease
+
+      - name: Verify Android APK outputs
+        run: |
+          test -s android/app/build/outputs/apk/debug/app-debug.apk
+          test -s android/app/build/outputs/apk/release/app-release-unsigned.apk
+
+      - name: Upload debug APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: jpti-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      # The APK is published as a GitHub Actions artifact. Production web hosting remains Cloudflare Pages.
+      - name: Publish APK into android/app/downloads (opt-in, main only)
+        if: ${{ github.ref == 'refs/heads/main' && github.event_name != 'pull_request' && vars.JPTI_ANDROID_PUBLISH_FROM_DEBUG_WORKFLOW == 'true' }}
+        run: scripts/publish-apk.sh android/app/build/outputs/apk/debug/app-debug.apk JPTI-Android-debug.apk
+

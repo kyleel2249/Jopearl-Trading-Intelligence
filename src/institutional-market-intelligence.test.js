@@ -1,0 +1,5 @@
+import test from 'node:test';import assert from 'node:assert/strict';import analyzeIMI from './institutional-market-intelligence.js';
+function candles(n=100){let rows=[],price=100;for(let i=0;i<n;i++){price+=Math.sin(i/4)*.8+.05;let o=price-.2,c=price+.3;rows.push([Date.now()-((n-i)*3600000),o,price+1,price-1,c,100+i]);}return rows;}
+test('IMI returns explicit insufficient data for short series',()=>assert.equal(analyzeIMI(candles(20)).status,'insufficient'));
+test('IMI calculates separated evidence domains on sufficient candle data',()=>{const s=analyzeIMI(candles(100));assert.equal(s.status,'ready');assert.ok(Number.isFinite(s.scores.MIS));assert.ok(s.domains.derivatives.status==='unavailable');assert.ok(s.dataQuality.missingDomains.includes('macro'));assert.ok(s.levels.length>0);});
+test('technical flow is clearly marked as proxy and never claims direct institutional flow',()=>{const s=analyzeIMI(candles());assert.match(s.domains.flow.method,/not exchange aggressor/);assert.match(s.domains.accumulationDistribution.disclaimer,/not verified/);});
