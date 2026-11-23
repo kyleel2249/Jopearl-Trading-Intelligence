@@ -388,14 +388,16 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const [exchange, setExchangeState] = useState(() => store.get('jpti.terminal.exchange', 'binance'));
   const [symbol, setSymbolState] = useState(() => store.get('jpti.terminal.symbol', 'EUR/USDT'));
   const [timeframe, setTimeframeState] = useState(() => store.get('jpti.terminal.timeframe', '15m'));
+  const [marketType, setMarketTypeState] = useState(() => store.get('jpti.terminal.marketType', 'spot'));
   const [overlays, setOverlays] = useState(() => ({ ...DEFAULT_OVERLAYS, ...store.get('jpti.terminal.overlays', {}) }));
   const [live, setLive] = useState(true);
   const [classicOpen, setClassicOpen] = useState(false);
   const [menu, setMenu] = useState(null);
   const [symbolDraft, setSymbolDraft] = useState(symbol);
   const svgRef = useRef(null);
-  const setExchange = (v) => { setExchangeState(v); store.set('jpti.terminal.exchange', v); };
+  const setExchange = (v) => { setExchangeState(v); store.set('jpti.terminal.exchange', v); if (v !== 'bitget' && marketType !== 'spot') setMarketType('spot'); };
   const setTimeframe = (v) => { setTimeframeState(v); store.set('jpti.terminal.timeframe', v); };
+  const setMarketType = (v) => { setMarketTypeState(v); store.set('jpti.terminal.marketType', v); };
   const setSymbol = useCallback((raw) => {
     const next = String(raw || '').trim().toUpperCase().replace('-', '/');
     if (!/^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}$/.test(next)) return false;
@@ -405,10 +407,11 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
 
   const pair = symbol.replace('/', '-');
   const exchanges = usePoll((s) => getJson('/api/exchanges', s), [], 0);
-  const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300', s), [exchange, pair, timeframe], 20000, live);
-  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair, s), [exchange, pair], 10000, live);
-  const contextState = usePoll((s) => getJson('/api/institutional/context/' + exchange + '/' + pair + '?timeframe=' + timeframe, s), [exchange, pair, timeframe], 60000, live);
-  const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500', s), [exchange, pair], 300000, live);
+  const marketCatalog = usePoll((s) => getJson('/api/exchanges/' + exchange + '/markets?type=' + encodeURIComponent(marketType), s), [exchange, marketType], 300000, live);
+  const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300&type=' + encodeURIComponent(marketType), s), [exchange, pair, timeframe, marketType], 20000, live);
+  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType), s), [exchange, pair, marketType], 10000, live);
+  const contextState = usePoll((s) => getJson('/api/institutional/context/' + exchange + '/' + pair + '?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType), s), [exchange, pair, timeframe, marketType], 60000, live);
+  const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500&type=' + encodeURIComponent(marketType), s), [exchange, pair, marketType], 300000, live);
   const calendarState = usePoll((s) => getJson('/api/institutional/calendar?symbol=' + encodeURIComponent(compactSymbol(symbol)), s), [symbol], 120000, live);
   const journalState = usePoll((s) => getJson('/api/session/memory', s), [], 60000, live);
 
@@ -458,7 +461,8 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
 
   const online = Boolean(health) && !loadError;
   const exchangeList = exchanges.data?.exchanges?.length ? exchanges.data.exchanges : [{ id: 'binance', name: 'Binance' }];
-  const symbolOptions = SYMBOL_PRESETS.includes(symbol) ? SYMBOL_PRESETS : [symbol, ...SYMBOL_PRESETS];
+  const catalogSymbols = (marketCatalog.data?.markets || []).map((market) => market.symbol).filter(Boolean);
+  const symbolOptions = [...new Set([symbol, ...catalogSymbols, ...SYMBOL_PRESETS])];
 
   return <div className="td-root">
     <Header page={page} onNavigate={onNavigate} onOpenMenu={onOpenMenu} online={online} bellCount={bell} onBell={() => onNavigate('News & Events')}/>
@@ -476,8 +480,9 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               <input list="td-symbols" value={symbolDraft} onChange={(e) => setSymbolDraft(e.target.value)} onBlur={() => { if (!setSymbol(symbolDraft)) setSymbolDraft(symbol); }} aria-label="Market symbol" spellCheck="false"/>
               <datalist id="td-symbols">{symbolOptions.map((s) => <option key={s} value={s}/>)}</datalist><ChevronDown size={13}/>
             </form>
+            <label className="td-market-product"><span>Product</span><select aria-label="Market product" value={marketType} onChange={(e) => setMarketType(e.target.value)}><option value="spot">Spot</option><option value="margin" disabled={exchange !== 'bitget'}>Margin</option><option value="futures" disabled={exchange !== 'bitget'}>USDT-M Futures</option><option value="coin-futures" disabled={exchange !== 'bitget'}>Coin-M Futures</option><option value="usdc-futures" disabled={exchange !== 'bitget'}>USDC-M Futures</option><option value="cfd" disabled>CFD (not offered by Bitget)</option></select></label>
             <span className="td-tf-current" aria-hidden="true">{timeframe.replace(/m$/, '')}</span>
-            <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
+            <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.filter(([v]) => exchange !== 'bitget' || ['1m', '5m', '15m', '1h', '4h', '1d'].includes(v)).map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
             <div className="td-menu-wrap">
               <button type="button" className="td-ghost" aria-expanded={menu === 'ind'} onClick={() => setMenu(menu === 'ind' ? null : 'ind')}>Indicators <ChevronDown size={12}/></button>
               {menu === 'ind' && <div className="td-menu" role="menu">{[['smc', 'SMC - Liquidity'], ['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
@@ -487,7 +492,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               <div className="td-menu-wrap">
                 <button type="button" className="td-icon-btn" aria-label="Chart settings" aria-expanded={menu === 'set'} title="Chart settings" onClick={() => setMenu(menu === 'set' ? null : 'set')}><Settings2 size={15}/></button>
                 {menu === 'set' && <div className="td-menu right" role="menu"><label className="col"><span>Exchange</span><select value={exchange} onChange={(e) => setExchange(e.target.value)}>{exchangeList.map((x) => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}</select></label>
-                  <p className="td-foot">Candles, ticker, liquidity and event context all follow the selected exchange. Scroll over the chart to zoom.</p></div>}
+                  <p className="td-foot">Candles, ticker and the market list follow the selected exchange and product. Bitget supports spot, margin, USDT-M, Coin-M and USDC-M public markets here. CFD feeds are unavailable from Bitget.</p></div>}
               </div>
               <button type="button" className={'td-realtime' + (live ? '' : ' paused')} aria-pressed={live} onClick={() => setLive((v) => !v)} title={live ? 'Click to pause auto-refresh' : 'Click to resume auto-refresh'}><i/>{live ? 'Real-Time' : 'Paused'}</button>
             </div>
