@@ -15,6 +15,60 @@ const JSON_HEADERS = {
 const MAX_URL_LENGTH = 2048;
 
 
+async function sha256Hex(value) {
+  const bytes = new TextEncoder().encode(String(value));
+  const digest = await crypto.subtle.digest('SHA-256', bytes);
+  return Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, '0')).join('');
+}
+
+function marketCacheTtl(path) {
+  if (/\/markets(?:\/|$)/i.test(path)) return 300;
+  if (/\/ohlcv(?:\/|$)/i.test(path)) return 20;
+  return 8;
+}
+
+async function readMarketCache(env, routeKey) {
+  if (!env.JPTI_KV) return null;
+  try {
+    const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
+    const cached = await env.JPTI_KV.get(key, 'json');
+    return cached && Number.isInteger(cached.status) && cached.body ? { ...cached, key } : null;
+  } catch {
+    return null;
+  }
+}
+
+async function persistMarketSnapshot(env, routeKey, body, occurredAt) {
+  if (!env.JPTI_DB) return;
+  try {
+    const routeHash = await sha256Hex(routeKey);
+    const minuteBucket = Math.floor(Date.parse(occurredAt) / 60000);
+    const id = 'market:' + routeHash + ':' + minuteBucket;
+    await env.JPTI_DB.prepare(
+      "INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, occurred_at, payload) VALUES (?, 'market-snapshot', 'cloudflare-edge', ?, ?, ?)"
+    ).bind(id, routeKey.slice(0, 500), occurredAt, JSON.stringify(body)).run();
+  } catch {
+    // Public market delivery must remain available if optional snapshot persistence is degraded.
+  }
+}
+
+async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
+  const ttl = marketCacheTtl(routeKey);
+  if (env.JPTI_KV) {
+    try {
+      const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
+      const value = JSON.stringify({ status, body, cachedAt: occurredAt });
+      // KV values have a finite size limit. Skip oversized market catalogs rather than fail the API.
+      if (new TextEncoder().encode(value).byteLength <= 900000) {
+        await env.JPTI_KV.put(key, value, { expirationTtl: ttl });
+      }
+    } catch {
+      // Cache failures must not make live exchange data unavailable.
+    }
+  }
+  await persistMarketSnapshot(env, routeKey, body, occurredAt);
+}
+
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
   const rows = (Array.isArray(candles) ? candles : [])
     .filter((row) => Array.isArray(row) && row.length >= 6 && row.slice(0, 6).every((value) => Number.isFinite(Number(value))))
@@ -118,6 +172,18 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
     }
 
+    const isMarketDataRoute =
+      /^\/api\/exchanges\/[^/]+\/(?:markets|ticker\/[^/]+|ohlcv\/[^/]+)(?:\/|$)/i.test(url.pathname) ||
+      /^\/api\/exchanges\/compare\/ticker$/i.test(url.pathname) ||
+      /^\/api\/intelligence\/market\/[^/]+\/[^/]+\/context$/i.test(url.pathname);
+    const marketRouteKey = url.pathname + url.search;
+    if (isMarketDataRoute) {
+      const cached = await readMarketCache(env, marketRouteKey);
+      if (cached) {
+        return json(cached.status, cached.body, request, { 'x-jpti-cache': 'hit', 'x-jpti-runtime': 'cloudflare-edge' });
+      }
+    }
+
     if (url.pathname.replace(/\/+$/, '') === '/api/storage/health') {
       const missing = [];
       if (!env.JPTI_DB) missing.push('JPTI_DB');
@@ -197,8 +263,10 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       if (!candlesResult || candlesResult.status !== 200) {
         return json(candlesResult?.status || 502, candlesResult?.body || { error: 'Market candles are unavailable for context analysis.' }, request);
       }
-      const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, now().toISOString());
-      return json(context.status, context.body, request);
+      const generatedAt = now().toISOString();
+      const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
+      if (context.status === 200) await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
+      return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
     }
 
     const result = await marketProvider.request(url.pathname + url.search, {
@@ -223,7 +291,10 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
     }
 
     const body = { ...result.body, source: 'cloudflare-edge' };
-    return json(result.status, body, request);
+    if (isMarketDataRoute && result.status >= 200 && result.status < 300) {
+      await cacheMarketResponse(env, marketRouteKey, result.status, body, now().toISOString());
+    }
+    return json(result.status, body, request, isMarketDataRoute ? { 'x-jpti-cache': 'miss' } : {});
   };
 }
 
