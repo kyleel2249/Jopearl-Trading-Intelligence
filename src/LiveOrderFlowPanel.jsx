@@ -39,6 +39,8 @@ export default function LiveOrderFlowPanel({
 
     const connect = () => {
       if (!alive) return;
+      setTrades([]);
+      setError('');
       if (exchange !== 'bitget') { setState('unsupported'); setError('Native trade stream is currently wired to Bitget only.'); return; }
 
       setState('connecting');
