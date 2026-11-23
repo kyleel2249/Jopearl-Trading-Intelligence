@@ -4,12 +4,13 @@ import { apiFetch } from './lib/api.js';
 
 const NO_LEVELS = [];
 
-export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLevels = NO_LEVELS, onExchangeChange, compact = false }) {
+export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLevels = NO_LEVELS, onExchangeChange, onMarketTypeChange, compact = false }) {
   const [health, setHealth] = useState(null);
   const [exchanges, setExchanges] = useState([]);
   const [exchange, setExchange] = useState('binance');
   const [marketType, setMarketType] = useState('spot');
   useEffect(() => { if (typeof onExchangeChange === 'function') onExchangeChange(exchange); }, [exchange, onExchangeChange]);
+  useEffect(() => { if (typeof onMarketTypeChange === 'function') onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
   const [ticker, setTicker] = useState(null);
   const [error, setError] = useState('');
 
