@@ -28,7 +28,7 @@ const FRAMES = {
   binance: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h', '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M' },
   bybit: { '1m': '1', '3m': '3', '5m': '5', '15m': '15', '30m': '30', '1h': '60', '2h': '120', '4h': '240', '6h': '360', '12h': '720', '1d': 'D', '1w': 'W', '1M': 'M' },
   okx: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '12h': '12H', '1d': '1D', '1w': '1W', '1M': '1M' },
-  bitget: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '2h': '2H', '4h': '4H', '6h': '6H', '8h': '8H', '12h': '12H', '1d': '1D', '3d': '3D', '1w': '1W', '1M': '1M' }
+  bitget: { '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m', '1h': '1H', '4h': '4H', '6h': '6H', '12h': '12H', '1d': '1D' }
 };
 
 const num = (value) => {
@@ -52,10 +52,10 @@ export function parseSymbol(raw) {
 export const venueSymbol = (exchange, { base, quote }) => (exchange === 'okx' ? base + '-' + quote : base + quote);
 
 const BITGET_CATEGORIES = Object.freeze({
-  spot: 'SPOT', margin: 'MARGIN', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
+  spot: 'SPOT', margin: 'SPOT', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
   'coin-futures': 'COIN-FUTURES', 'usdc-futures': 'USDC-FUTURES'
 });
-const BITGET_TIMEFRAMES = Object.freeze({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','2h':'2H','4h':'4H','6h':'6H','8h':'8H','12h':'12H','1d':'1D','3d':'3D','1w':'1W','1M':'1M' });
+const BITGET_TIMEFRAMES = Object.freeze({ '1m':'1m','3m':'3m','5m':'5m','15m':'15m','30m':'30m','1h':'1H','4h':'4H','6h':'6H','12h':'12H','1d':'1D' });
 const marketTypeOf = (market) => market.contract ? (market.swap ? 'perpetual' : 'futures') : market.margin ? 'margin' : 'spot';
 
 // ---------------------------------------------------------------------------
