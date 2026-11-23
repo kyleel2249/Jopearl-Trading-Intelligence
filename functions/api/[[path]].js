@@ -264,16 +264,15 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
     }
 
     const requestedType = String(url.searchParams.get('type') || 'spot').toLowerCase();
-    if (!['spot', 'all'].includes(requestedType) && (
-      /\/api\/exchanges\/[^/]+\/(?:markets|ticker|ohlcv)(?:\/|$)/i.test(url.pathname) ||
-      /\/api\/intelligence\/market\/[^/]+\/[^/]+\/context$/i.test(url.pathname)
-    )) {
-      return json(501, {
-        error: 'The Cloudflare edge market-data adapter currently supports spot markets only.',
-        code: 'CLOUDFLARE_SPOT_ONLY',
-        requestedType,
-        supportedTypes: ['spot']
-      }, request);
+    const supportedBitgetTypes = ['spot', 'margin', 'futures', 'perpetual', 'coin-futures', 'usdc-futures', 'all'];
+    const isExchangeMarketRoute = /\/api\/exchanges\/([a-z0-9_]+)\/(?:markets|ticker\/[^/]+|ohlcv\/[^/]+)$/i.test(url.pathname);
+    const exchangeMatch = url.pathname.match(/\/api\/exchanges\/([a-z0-9_]+)\//i);
+    const requestedExchange = exchangeMatch?.[1]?.toLowerCase();
+    if (isExchangeMarketRoute && requestedExchange !== 'bitget' && !['spot', 'all'].includes(requestedType)) {
+      return json(501, { error: 'This direct market adapter currently exposes spot markets for this exchange.', code: 'EXCHANGE_PRODUCT_TYPE_UNAVAILABLE', requestedExchange, requestedType, supportedTypes: ['spot'] }, request);
+    }
+    if (isExchangeMarketRoute && requestedExchange === 'bitget' && !supportedBitgetTypes.includes(requestedType)) {
+      return json(400, { error: 'Unsupported Bitget market category.', code: 'BITGET_CATEGORY_UNSUPPORTED', requestedType, supportedTypes: supportedBitgetTypes }, request);
     }
 
     const contextRoute = url.pathname.match(/^\/api\/intelligence\/market\/([a-z0-9_]+)\/([^/]+)\/context$/i);
@@ -282,7 +281,7 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       const symbol = contextRoute[2];
       const timeframe = String(url.searchParams.get('timeframe') || '1h');
       const candleUrl = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) +
-        '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200';
+        '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200&type=' + encodeURIComponent(url.searchParams.get('type') || 'spot');
       const candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
       if (!candlesResult || candlesResult.status !== 200) {
         const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
