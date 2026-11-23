@@ -14,7 +14,9 @@ One closed-candle analysis (`src/chart-intelligence/engine.js`) feeds every live
 |---|---|---|
 | signals | BUY/SELL arrows, confidence, outcome | Gainz engine + ledger |
 | plan | entry zone, ENTRY, SL, TP1..n (RR), trailing stop, invalidation | Gainz risk plan + level-derived targets; chandelier trail (2.5 ATR, armed at +1R, only tightens) |
-| profile | POC (composite/session/daily/developing/anchored), VAH/VAL, PDH/PDL, day range, opening range | Candle volume spread over its high–low bins; 70% value area |
+| profile | POC (composite/session/daily/developing/anchored), VAH/VAL, PDH/PDL, day range, opening range and visible 64-bin distribution | Candle volume spread over its high–low bins; 70% value area |
+| volumeNodes | HVN / LVN local nodes | Local maxima/minima ranked against the 25th/75th volume quantiles |
+| smc additions | Displacement and bullish/bearish OTE zones | Closed impulse body, close location, relative volume; 62–79% dealing-range retracement zones |
 | vwap | session VWAP ±1σ, anchored VWAPs | Volume-weighted typical price |
 | sr | multi-strength zones | Clustered swings (0.35 ATR); strength from touches, measured hold-rate, recency |
 | structure | BOS, CHoCH, MSS (CHoCH with ≥1 ATR displacement) | Close beyond confirmed swing |
@@ -27,6 +29,9 @@ One closed-candle analysis (`src/chart-intelligence/engine.js`) feeds every live
 
 ## Intelligence
 Regime (efficiency ratio + ATR vs own median) → adaptive minimum score and weights; MTF bias from fetched higher timeframes; confluence score from 8 traceable components; level strength shrunk toward measured reaction rate; conflict detection (confluence, MTF, flow, location, Alpha Signal Engine levels); grade A+…D (confluence quality, **not** a win probability); expectancy from recorded outcomes; severe conflicts withhold the plan and show `CONFLICT`.
+
+## Live candlestick integration
+`TerminalChart.jsx` now consumes `useChartIntelligence` directly. The same closed-candle result drives on-chart BOS/CHoCH/MSS, order blocks, breakers, FVG/IFVG, liquidity pools and sweeps, premium/discount and OTE zones, volume-profile histogram/POC/VAH/VAL, HVN/LVN, VWAP, Alpha signal markers, trade-plan entry/stop/targets, order-flow markers and liquidation clusters. Each layer has an independent visibility control. The chart panel reports regime, confluence, grade, MTF freshness, evidence count and whether order-flow/liquidation inputs are estimated.
 
 ## Integration
 - `toChartEvidence(result)` — evidence for Alpha, scanner and risk consumers.
