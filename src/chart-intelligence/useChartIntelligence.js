@@ -43,7 +43,7 @@ export function useChartIntelligence({ exchange, symbol, timeframe, marketType =
     if (!settings.enabled || !exchange || !symbol || !timeframe) return undefined;
     const ctl = new AbortController(), key = [exchange, symbol, timeframe, marketType].join('|');
     loadHtf(exchange, symbol, timeframe, marketType, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); });
-    const timer = setInterval(() => loadHtf(exchange, symbol, timeframe, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); }), HTF_TTL);
+    const timer = setInterval(() => loadHtf(exchange, symbol, timeframe, marketType, ctl.signal).then((data) => { if (!ctl.signal.aborted) setHtf({ key, data }); }), HTF_TTL);
     return () => { ctl.abort(); clearInterval(timer); };
   }, [exchange, symbol, timeframe, marketType, settings.enabled]);
 
