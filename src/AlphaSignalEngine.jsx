@@ -8,7 +8,7 @@ import './AlphaSignalEngine.css';
 const fmt=(v,d=4)=>v==null||!Number.isFinite(Number(v))?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:d});
 const options={exchange:['binance','bitget','bybit','okx'],timeframe:['5m','15m','1h','4h','1d']};
 export default function AlphaSignalEngine(){
- const [exchange,setExchange]=useState('binance'),[symbol,setSymbol]=useState('BTC/USDT'),[timeframe,setTimeframe]=useState('1h');
+ const [exchange,setExchange]=useState('binance'),[symbol,setSymbol]=useState('BTC/USDT'),[timeframe,setTimeframe]=useState('1h'),[marketType,setMarketType]=useState('spot');
  const [equity,setEquity]=useState('10000'),[dailyPnl,setDailyPnl]=useState('0'),[riskPercent,setRiskPercent]=useState('0.5'),[maxNotional,setMaxNotional]=useState('2000'),[apiToken,setApiToken]=useState(''),[inventoryConfirmed,setInventoryConfirmed]=useState(false),[exposuresJson,setExposuresJson]=useState('');
  const [result,setResult]=useState(null),[replay,setReplay]=useState(null),[ledger,setLedger]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[paperBusy,setPaperBusy]=useState(false),[markBusy,setMarkBusy]=useState(false),[promotion,setPromotion]=useState(null),[promotionBusy,setPromotionBusy]=useState(false);
  const headers=()=>apiToken?{'x-jpti-api-token':apiToken}:{};
@@ -18,15 +18,15 @@ export default function AlphaSignalEngine(){
   const normalized=symbol.trim().toUpperCase();if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(normalized))throw new Error('Enter a normalized BASE/QUOTE symbol such as BTC/USDT.');
   const marketPath=normalized.replace('/','-');
   const [candleResponse,quoteResponse]=await Promise.all([
-   apiFetch('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(marketPath)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=320',{cache:'no-store'}),
+   apiFetch('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(marketPath)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=320&type='+encodeURIComponent(marketType),{cache:'no-store'}),
    apiFetch('/api/exchanges/'+exchange+'/ticker/'+encodeURIComponent(marketPath),{cache:'no-store'})
   ]);
   const [candleData,quoteData]=await Promise.all([candleResponse.json(),quoteResponse.json()]);
   if(!candleResponse.ok)throw new Error(candleData.error||'OHLCV history unavailable.');
   if(!quoteResponse.ok)throw new Error(quoteData.error||'A fresh exchange quote is required.');
   const timestamp=quoteData.timestamp?new Date(quoteData.timestamp).toISOString():quoteData.datetime;
-  return {symbol:normalized,candles:candleData.candles,quote:{last:quoteData.last,timestamp}};
- },[exchange,symbol,timeframe]);
+  return {symbol:normalized,marketType,candles:candleData.candles,quote:{last:quoteData.last,timestamp}};
+ },[exchange,symbol,timeframe,marketType]);
  const run=useCallback(async()=>{
   setBusy(true);setError('');setReplay(null);
   try{let exposures;try{exposures=JSON.parse(exposuresJson);}catch{throw new Error('Existing exposure inventory must be valid JSON. Enter [] only after confirming that the account has no open positions.');}if(!Array.isArray(exposures))throw new Error('Existing exposure inventory must be a JSON array.');if(!inventoryConfirmed)throw new Error('Confirm that the exposure inventory includes every current open position before requesting paper eligibility.');const market=await getMarketData();let sessionMemory=[];try{const memoryResponse=await apiFetch('/api/session/memory',{cache:'no-store'});if(memoryResponse.ok){const memoryData=await memoryResponse.json();sessionMemory=Array.isArray(memoryData.records)?memoryData.records:[];}}catch{}const payload={...market,sessionMemory,exchange,timeframe,account:{equity:Number(equity),currency:symbol.split('/')[1],dailyPnl:Number(dailyPnl),exposures},
@@ -49,7 +49,7 @@ export default function AlphaSignalEngine(){
  const markOpenPositions=useCallback(async()=>{
   const open=(ledger?.trades||[]).filter(t=>t.status==='open');if(!open.length)return;setMarkBusy(true);setError('');
   const outcomes=await Promise.allSettled(open.map(async trade=>{
-   const path=trade.market.symbol.replace('/','-'),q=await apiFetch('/api/exchanges/'+trade.market.exchange+'/ticker/'+encodeURIComponent(path),{cache:'no-store'}),quote=await q.json();if(!q.ok)throw new Error(trade.market.symbol+': '+(quote.error||'ticker unavailable'));
+   const path=trade.market.symbol.replace('/','-'),product=trade.market.marketType||marketType,q=await apiFetch('/api/exchanges/'+trade.market.exchange+'/ticker/'+encodeURIComponent(path)+'?type='+encodeURIComponent(product),{cache:'no-store'}),quote=await q.json();if(!q.ok)throw new Error(trade.market.symbol+': '+(quote.error||'ticker unavailable'));
    const timestamp=quote.timestamp?new Date(quote.timestamp).toISOString():quote.datetime;
    const response=await apiFetch('/api/alpha/paper/mark',{method:'POST',headers:{...headers(),'Content-Type':'application/json'},body:JSON.stringify({tradeId:trade.tradeId,markPrice:quote.last,quoteTimestamp:timestamp})});
    const data=await response.json();if(!response.ok)throw new Error(data.error||'Paper mark failed for '+trade.market.symbol);return data;
@@ -79,7 +79,7 @@ export default function AlphaSignalEngine(){
    <div className="alpha-result-grid"><div className="alpha-direction"><span>ENSEMBLE DIRECTION</span><b className={side==='buy'?'up':side==='sell'?'down':''}>{side==='buy'?'BUY':side==='sell'?'SELL':'NEUTRAL'}</b><small>{result.market.symbol} · {result.market.timeframe} · {result.market.exchange}</small></div>
     <div className="alpha-metric"><span>HEURISTIC CONFIDENCE</span><b>{fmt(result.confidence,1)}%</b><small>Not a calibrated win probability</small></div><div className="alpha-metric"><span>MODEL AGREEMENT</span><b>{fmt(result.modelAgreement*100,1)}%</b><small>Active directional models</small></div><div className="alpha-metric"><span>MARKET REGIME</span><b>{result.marketRegime.replaceAll('_',' ')}</b><small>{result.market.completedCandles} completed bars</small></div></div>
    <div className="alpha-levels"><div><span>REFERENCE ENTRY</span><b>{fmt(result.levels.entry)}</b></div><div><span>STOP LOSS</span><b className="down">{fmt(result.levels.stopLoss)}</b></div><div><span>TAKE PROFIT 1</span><b className="up">{fmt(result.levels.takeProfitOne)}</b></div><div><span>TAKE PROFIT 2</span><b className="up">{fmt(result.levels.takeProfitTwo)}</b></div><div><span>RISK BUDGET</span><b>{fmt(result.sizing.riskBudget)}</b></div><div><span>PROPOSED QUANTITY</span><b>{fmt(result.sizing.quantity,6)}</b></div></div>
-   <h4>Signal levels on live chart</h4><LiveCandlestickChart exchange={exchange} symbol={symbol} onSymbolChange={setSymbol} initialTimeframe={timeframe} onTimeframeChange={setTimeframe} alphaLevels={result ? [{label:'ENTRY',price:result.levels.entry,color:'#e5b85c'},{label:'STOP',price:result.levels.stopLoss,color:'#f07883'},{label:'TP1',price:result.levels.takeProfitOne,color:'#20c997'},{label:'TP2',price:result.levels.takeProfitTwo,color:'#20c997'}] : []}/>
+   <h4>Signal levels on live chart</h4><LiveCandlestickChart exchange={exchange} symbol={symbol} onSymbolChange={setSymbol} initialTimeframe={timeframe} onTimeframeChange={setTimeframe} onMarketTypeChange={setMarketType} alphaLevels={result ? [{label:'ENTRY',price:result.levels.entry,color:'#e5b85c'},{label:'STOP',price:result.levels.stopLoss,color:'#f07883'},{label:'TP1',price:result.levels.takeProfitOne,color:'#20c997'},{label:'TP2',price:result.levels.takeProfitTwo,color:'#20c997'}] : []}/>
    <h4>Specialist evidence</h4><div className="alpha-models">{result.evidence.models.map(m=><article key={m.id}><div><b>{m.label}</b><span className={m.direction===1?'up':m.direction===-1?'down':''}>{m.direction===1?'BULLISH':m.direction===-1?'BEARISH':'NEUTRAL'} · {Math.round(m.weight*100)}%</span></div><p>{m.evidence}</p></article>)}</div>
    <h4>Quality and risk gates</h4><div className="alpha-checks">{[...result.qualityChecks,...result.riskChecks].map(c=><div key={c.id}><span>{c.passed?<CheckCircle2 className="up" size={15}/>:<XCircle className="down" size={15}/>}<b>{c.id.replaceAll('_',' ')}</b></span><small>{c.detail}</small></div>)}</div>
    <div className="alpha-actions"><button className="alpha-primary" disabled={!eligible||paperBusy} onClick={createPaper}>{paperBusy?'Recording…': 'Create paper-only intent'}</button><span className="alpha-footnote">Signal fingerprint · {result.evidence.signalFingerprint.slice(0,24)}…</span></div>
