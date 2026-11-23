@@ -1,14 +1,20 @@
-name = "jpti"
+name = "jopearl-trading-intelligence"
 compatibility_date = "2026-11-23"
 compatibility_flags = ["nodejs_compat"]
 pages_build_output_dir = "./dist"
 
+<<<<<<< HEAD
 # Cloudflare Pages Functions bindings. These aliases are server-side only.
+=======
+>>>>>>> origin/main
 [[d1_databases]]
 binding = "JPTI_DB"
 database_name = "jopearl-trading-intelligence-db"
 database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
+<<<<<<< HEAD
 migrations_dir = "migrations/d1"
+=======
+>>>>>>> origin/main
 
 [[kv_namespaces]]
 binding = "JPTI_KV"
