@@ -47,7 +47,7 @@ function timeLabel(ts, timeframe) {
   return hhmm(utcMinuteOfDay(ts));
 }
 
-export default function TerminalChart({ exchange = 'bitget', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
+export default function TerminalChart({ exchange = 'bitget', marketType = 'spot', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
   const wrapRef = useRef(null);
   const [size, setSize] = useState({ w: 820, h: 400 });
   const [count, setCount] = useState(96);
@@ -66,7 +66,7 @@ export default function TerminalChart({ exchange = 'bitget', symbol, timeframe, 
 
   const valid = useMemo(() => (candles || []).filter((c) => Array.isArray(c) && c.length >= 6 && c.slice(0, 6).every((v) => Number.isFinite(Number(v)))).map((c) => c.slice(0, 6).map(Number)), [candles]);
   const ga = useGainzAlpha({ exchange: exchange || (context && context.exchange) || 'bitget', symbol, timeframe, candles: valid });
-  const chartIntel = useChartIntelligence({ exchange: exchange || 'bitget', symbol, timeframe, candles: valid, ga });
+  const chartIntel = useChartIntelligence({ exchange: exchange || 'bitget', marketType, symbol, timeframe, candles: valid, ga });
   const ci = chartIntel.result;
   const ciLayers = chartIntel.settings.layers;
   const visible = Math.max(30, Math.min(count, valid.length));
