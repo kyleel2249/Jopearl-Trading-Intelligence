@@ -15,6 +15,7 @@ const fmt = (value) =>
     : Number(value).toLocaleString(undefined, { maximumFractionDigits: 4 });
 
 export default function LiveOrderFlowPanel({
+  exchange = 'bitget',
   symbol = 'BTC/USDT',
   marketType = 'spot',
   candles = []
@@ -38,6 +39,7 @@ export default function LiveOrderFlowPanel({
 
     const connect = () => {
       if (!alive) return;
+      if (exchange !== 'bitget') { setState('unsupported'); setError('Native trade stream is currently wired to Bitget only.'); return; }
 
       setState('connecting');
 
@@ -53,7 +55,7 @@ export default function LiveOrderFlowPanel({
           ws.send(JSON.stringify({
             op: 'subscribe',
             args: [{
-              instType: marketType === 'spot' ? 'SPOT' : 'USDT-FUTURES',
+              instType: ({ spot: 'SPOT', margin: 'SPOT', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES', 'coin-futures': 'COIN-FUTURES', 'usdc-futures': 'USDC-FUTURES' })[marketType] || 'SPOT',
               channel: 'trade',
               instId: pair(symbol)
             }]
@@ -127,7 +129,7 @@ export default function LiveOrderFlowPanel({
         // The socket may already have closed during component teardown.
       }
     };
-  }, [symbol, marketType]);
+  }, [exchange, symbol, marketType]);
 
   const flow = useMemo(
     () => aggregateTrades(trades, clock),
@@ -159,7 +161,7 @@ export default function LiveOrderFlowPanel({
       <header>
         <div>
           <b>LIVE ORDER FLOW / LIQUIDITY</b>
-          <small>{symbol} · Bitget public trades · rolling 60 seconds</small>
+          <small>{symbol} · {exchange.toUpperCase()} public trades · rolling 60 seconds</small>
         </div>
         <span className={'jpti-flow-state ' + state}>
           <i /> {state.toUpperCase()}
