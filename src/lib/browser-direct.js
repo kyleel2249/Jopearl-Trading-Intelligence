@@ -5,7 +5,7 @@
 // Scope (deliberately limited, never pretending to be the full API):
 //   GET /api/health                              -> a "direct mode" status (never claims the API is up)
 //   GET /api/exchanges                           -> catalog of the supported venues
-//   GET /api/exchanges/:id/markets               -> spot markets (cached)
+//   GET /api/exchanges/:id/markets               -> public instrument catalog (Bitget spot/margin/derivatives; spot for other direct venues)
 //   GET /api/exchanges/:id/ticker/:symbol        -> same fields as the API
 //   GET /api/exchanges/:id/ohlcv/:symbol         -> same fields as the API
 // Everything else (ledger, trading, private/signed calls, analytics) still requires the real API.
@@ -241,7 +241,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       case 'health':
         return { status: 200, body: { status: 'degraded', service: 'JPTI Browser Direct', directMode: true, source: DIRECT_SOURCE, mode: 'direct', liveTradingEnabled: false, localPrivateAccess: false, desktopInstanceId: null, note: 'The JPTI API is unreachable. Showing public exchange market data directly. Trading, ledger and analytics need the API.', timestamp: new Date(now()).toISOString() } };
       case 'catalog':
-        return { status: 200, body: { adapter: 'browser-direct', source: DIRECT_SOURCE, count: DIRECT_EXCHANGES.length, exchanges: DIRECT_EXCHANGES.map((id) => ({ id, name: NAMES[id], configured: false, capabilities: { ticker: true, orderBook: false, ohlcv: true, balance: false, createOrder: false, fetchMarkets: true, fetchFundingRate: false, fetchPositions: false, fetchLeverage: false, fetchMarginMode: false } })) } };
+        return { status: 200, body: { adapter: 'browser-direct', source: DIRECT_SOURCE, count: DIRECT_EXCHANGES.length, exchanges: DIRECT_EXCHANGES.map((id) => ({ id, name: NAMES[id], configured: false, capabilities: { ticker: true, orderBook: false, ohlcv: true, balance: false, createOrder: false, fetchMarkets: true, fetchFundingRate: false, fetchPositions: false, fetchLeverage: false, fetchMarginMode: false }, productTypes: id === 'bitget' ? ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures'] : ['spot'], unsupportedProductTypes: id === 'bitget' ? ['cfd', 'options'] : ['futures', 'margin', 'cfd', 'options'] })) } };
       case 'compare': {
         const sym = parseSymbol(route.query.symbol || 'BTC/USDT');
         const requested = String(route.query.exchanges || DIRECT_EXCHANGES.join(',')).split(',').map((id) => id.trim().toLowerCase()).filter(Boolean);
