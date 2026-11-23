@@ -55,7 +55,7 @@ const BITGET_MARKET_TYPE_ALIASES = Object.freeze({
   spot: 'spot',
   margin: 'margin',
   futures: 'futures', perpetual: 'perpetual',
-  'usdt-m': 'futures', 'usdt-m-futures': 'futures', 'usdt-futures': 'futures',
+  'usdt-m': 'usdt-futures', 'usdt-m-futures': 'usdt-futures', 'usdt-futures': 'usdt-futures',
   'coin-m': 'coin-futures', 'coin-m-futures': 'coin-futures',
   'usdc-m': 'usdc-futures', 'usdc-m-futures': 'usdc-futures',
   'coin-futures': 'coin-futures', 'usdc-futures': 'usdc-futures',
@@ -68,7 +68,7 @@ export function normalizeBitgetMarketType(value = 'spot') {
 const BITGET_CATEGORIES = Object.freeze({
   spot: 'SPOT', margin: 'SPOT',
   futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES',
-  'usdt-m': 'USDT-FUTURES', 'usdt-m-futures': 'USDT-FUTURES', 'usdt-futures': 'USDT-FUTURES',
+  'usdt-futures': 'USDT-FUTURES', 'usdt-m': 'USDT-FUTURES', 'usdt-m-futures': 'USDT-FUTURES',
   'coin-futures': 'COIN-FUTURES', 'coin-m': 'COIN-FUTURES', 'coin-m-futures': 'COIN-FUTURES',
   'usdc-futures': 'USDC-FUTURES', 'usdc-m': 'USDC-FUTURES', 'usdc-m-futures': 'USDC-FUTURES'
 });
@@ -383,6 +383,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const markets = all.filter((market) => {
           const typeMatch = normalizedType === 'all' ||
             (normalizedType === 'futures' && (market.future || market.swap)) ||
+            (normalizedType === 'usdt-futures' && market.productCategory === 'USDT-FUTURES') ||
             (normalizedType === 'perpetual' && market.swap) ||
             (normalizedType === 'coin-futures' && market.productCategory === 'COIN-FUTURES') ||
             (normalizedType === 'usdc-futures' && market.productCategory === 'USDC-FUTURES') ||
