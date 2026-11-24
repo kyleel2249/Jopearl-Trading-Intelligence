@@ -112,7 +112,7 @@ export function calibrate(confidence, table) {
  */
 export function adaptModel(model, records, { minSample = MIN_SAMPLE, lr = 0.1, maxStep = 0.05, floor = 0.6, cap = 1.4, dispStep = 0.02 } = {}) {
   const base = model || createModel();
-  const rows = (Array.isArray(records) ? records : []).filter((r) => Number.isFinite(Number(r.returnR)) && r.factors && typeof r.factors === 'object' && !Array.isArray(r.factors));
+  const rows = (Array.isArray(records) ? records : []).filter((r) => r.returnR !== null && r.returnR !== undefined && r.returnR !== '' && Number.isFinite(Number(r.returnR)) && r.factors && typeof r.factors === 'object' && !Array.isArray(r.factors));
   if (rows.length < minSample) return { model: base, changed: false, reason: 'insufficient-sample', n: rows.length };
   const R = (r) => clamp(Number(r.returnR), -3, 5);
   const weights = { ...base.weights }, deltas = {};
