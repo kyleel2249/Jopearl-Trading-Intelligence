@@ -86,7 +86,16 @@ const pct = (n) => (Number(n) > 0 ? '+' : '') + Number(n).toFixed(2) + '%';
 const safeLoad = () => {
   try {
     const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    return Array.isArray(parsed) && parsed.length ? parsed : [INITIAL_ENTRY];
+    if (!Array.isArray(parsed) || !parsed.length) return [INITIAL_ENTRY];
+    return parsed.map(entry => entry?.id === INITIAL_ENTRY.id ? {
+      ...INITIAL_ENTRY, ...entry,
+      liquidationPrice: entry.liquidationPrice ?? INITIAL_ENTRY.liquidationPrice,
+      institutionalLiquidityLevel: entry.institutionalLiquidityLevel ?? INITIAL_ENTRY.institutionalLiquidityLevel,
+      institutionalLiquidityHypothesis: entry.institutionalLiquidityHypothesis || INITIAL_ENTRY.institutionalLiquidityHypothesis,
+      researchSnapshot: entry.researchSnapshot || INITIAL_ENTRY.researchSnapshot,
+      rules: Array.isArray(entry.rules) ? entry.rules : INITIAL_ENTRY.rules,
+      reflection: Array.isArray(entry.reflection) ? entry.reflection : []
+    } : entry);
   } catch { return [INITIAL_ENTRY]; }
 };
 const riskScenarios = (notional) => [-1, -2, -3, -4, -5].map(move => ({ move, pnl: notional * move / 100 }));
