@@ -88,7 +88,8 @@ export async function runCycle(db,symbol){
  await ensureAgents(db);
  const market=await marketSnapshot(symbol);
  const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
- for(const agent of PAPER_AGENTS){
+ for(const agent of await loadAgents(db)){
+  if(agent.status!=='active'&&agent.status!=='live_ready')continue;
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
   if(open){
@@ -107,30 +108,26 @@ export async function runCycle(db,symbol){
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});
    }
   }
-  const signal=derivePaperSignal(market.candles,market.ticker,agent.id);
+  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id);
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
-  const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
+  const metrics=calculatePaperMetrics(current,agent.virtualEquityUsd||PAPER_POLICY.initialEquityUsd);
   const outOfSampleCount=current.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSampleCount);
-  const tierRow=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
-  if(kpi.eligibleForPromotion&&tierRow?.tier==='RESEARCH'){
-   const promotedAt=iso(),promotion={tier:'PRO',promotedAt,reason:'All promotion gates passed on persisted paper-trade outcomes.',resources:['Expanded strategy sandbox','Adaptive virtual capital allocation','Advanced market replay and parameter research','Additional walk-forward evaluation budget']};
-   await db.prepare("UPDATE jpti_paper_agents SET tier='PRO',promoted_at=?,updated_at=?,payload=json_set(payload,'$.promotion',json(?),'$.resources',json(?)) WHERE agent_id=?")
-    .bind(promotedAt,promotedAt,JSON.stringify(promotion),JSON.stringify([...agent.resources,...promotion.resources]),agent.id).run();
-   report.agents.push({agentId:agent.id,promotion:'PRO',promotedAt});
-  }
-  const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closed_at||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.net_pnl_usd)),0);
+  const lifecycle=await promoteOrRetire(db,agent,metrics,kpi);
+  if(lifecycle)report.agents.push({agentId:agent.id,lifecycle});
+  await saveAgent(db,agent.id,metrics,kpi,agent.tier||'RESEARCH');
+  const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps/2)/10000);
-   const quantity=Math.min(riskUsd/allInRiskPerUnit,metrics.equityUsd/price);
+   const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    if(quantity>0&&Number.isFinite(quantity)){
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
     const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
     const tradeId=crypto.randomUUID(),openedAt=iso();
-    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',outOfSample:current.filter(t=>t.status==='closed').length>=150};
+    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
     try{
      await db.prepare("INSERT INTO jpti_paper_trades(trade_id,agent_id,symbol,direction,status,opened_at,entry_price,quantity,stop_price,target_price,risk_usd,entry_fee_usd,regime,source_candle_at,payload) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)")
       .bind(tradeId,agent.id,market.symbol,signal.direction,openedAt,fill.entryPrice,quantity,stop,target,riskUsd,fill.entryFeeUsd,signal.features.regime,signal.features.closedCandleAt,JSON.stringify(trade)).run();
