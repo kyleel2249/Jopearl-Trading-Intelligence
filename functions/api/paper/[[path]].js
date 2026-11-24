@@ -102,7 +102,7 @@ export async function runCycle(db,symbol){
    if(hitStop||hitTarget||timed||dailyCircuit){
     const reason=dailyCircuit?'daily-loss-circuit-breaker':hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
     const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last);
-    const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price'};
+    const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});
@@ -111,7 +111,7 @@ export async function runCycle(db,symbol){
   const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id);
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
-  const metrics=calculatePaperMetrics(current,agent.virtualEquityUsd||PAPER_POLICY.initialEquityUsd);
+  const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
   const outOfSampleCount=current.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSampleCount);
   const lifecycle=await promoteOrRetire(db,agent,metrics,kpi);
