@@ -139,7 +139,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const onNativeWheel = (event) => {
       event.preventDefault();
       const box = wrapEl.getBoundingClientRect();
-      if (edgeRef.current && event.clientX - box.left > edgeRef.current) setPriceZoom((v) => Math.max(0.5, Math.min(12, v * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
+      if (edgeRef.current && event.clientX - box.left + wrapEl.scrollLeft > edgeRef.current) setPriceZoom((v) => Math.max(0.5, Math.min(12, v * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
       else setCount((c) => Math.max(40, Math.min(maxCountRef.current, c + (event.deltaY > 0 ? 8 : -8))));
     };
     wrapEl.addEventListener('wheel', onNativeWheel, { passive: false });
