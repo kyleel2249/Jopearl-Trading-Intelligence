@@ -31,6 +31,8 @@ jobs:
         run: npm run verify:chart-intelligence
       - name: Run automated regression tests
         run: npm test
+      - name: Validate scheduled paper trading Worker bundle
+        run: npx --no-install wrangler deploy --dry-run --config workers/wrangler.toml
       - name: Build and verify Cloudflare Pages output
         run: npm run build:pages
         env:
