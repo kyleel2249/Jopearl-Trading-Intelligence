@@ -104,6 +104,7 @@ for (const [id, hasPassword] of EXCHANGES) {
   if (hasPassword) add(secret('JPTI_' + id + '_PASSWORD', 'Trading Exchanges', label, label + ' API passphrase.', { test: 'exchange', exchangeId: id }));
 }
 add(
+  secret('JPTI_BITGET_API_PASSPHRASE', 'Trading Exchanges', 'Bitget CFD market data', 'Bitget UTA API passphrase for the signed Cloudflare CFD market-data service. Use a read-only key; this secret is consumed only by the Cloudflare Pages Function.', { dependencies: ['JPTI_BITGET_API_KEY', 'JPTI_BITGET_API_SECRET'] }),
   E('JPTI_EXCHANGE_TIMEOUT_MS', 'Trading Exchanges', 'CCXT gateway', 'Per-request exchange timeout in milliseconds.', { format: 'integer', min: 1000, max: 120000, defaultValue: '15000' }),
   E('JPTI_RECONCILE_EXCHANGES', 'Trading Exchanges', 'Reconciliation', 'Comma-separated exchange IDs for read-only balance reconciliation.', { format: 'csv-ids' }),
   E('JPTI_RECONCILE_OPENING_BALANCES_JSON', 'Trading Exchanges', 'Reconciliation', 'JSON object keyed by exchange then currency; verified opening balances only.', { format: 'json-object', defaultValue: '{}' }),
