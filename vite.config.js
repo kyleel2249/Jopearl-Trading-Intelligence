@@ -19,6 +19,19 @@ function resolveBase(value) {
 export default defineConfig({
   base: resolveBase(process.env.JPTI_BASE_PATH),
   plugins: [react()],
+  build: {
+    // Keep third-party code in stable, cacheable vendor chunks so the app entry stays small.
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return undefined;
+          if (/node_modules\/(react|react-dom|scheduler)\//.test(id)) return 'vendor-react';
+          if (id.includes('lucide-react')) return 'vendor-icons';
+          return undefined;
+        }
+      }
+    }
+  },
   server: {
     host: '0.0.0.0',
     proxy: { '/api': { target: 'http://127.0.0.1:8787', changeOrigin: true } }
