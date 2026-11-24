@@ -34,7 +34,48 @@ const INITIAL_ENTRY = {
   openingNarrative: 'Today I have decided to start anew in my trading journey. Today is to mark the solid day of trade transformation based on how often I could have started long ago but didn\\u2019t. I have heard of a lot of stories that are so fearful but I have decided to risk it starting from today with experience, strategy, curious and continuous learning, implementing other techniques, rewinding, adapting and becoming better. My objective is to be a pro trader and that journey starts today.',
   reflection: [],
   tags: ['first-trade', 'limit-order', 'high-leverage', 'no-stop-loss', 'learning'],
-  assessment: { process: 'incomplete', risk: 'high', confidence: 'unverified' }
+  assessment: { process: 'incomplete', risk: 'high', confidence: 'unverified' },
+  researchSnapshot: {
+    asOf: '2026-11-24',
+    projectFundamentals: {
+      finding: 'Sophon announced a wind-down of its own Layer 2 chain and a strategic shift toward consumer applications built on Base. SOPH remains an Ethereum-native token; its former chain gas, staking and node-reward utility is changing. The project states a product-revenue-funded buyback-and-burn thesis.',
+      source: 'Official Sophon token update',
+      url: 'https://sophon.com/content/soph-token/',
+      confidence: 'official-project-statement'
+    },
+    chainMigration: {
+      finding: 'The chain migration guide describes the wind-down and instructs users holding assets on Sophon Chain to bridge them out. This is a chain-infrastructure change, not proof that the SOPH token itself is discontinued.',
+      source: 'Official Sophon migration guide',
+      url: 'https://sophon.com/content/sophon-migration/',
+      confidence: 'official-project-statement'
+    },
+    unlockWatch: {
+      finding: 'One tokenomics tracker reports 169.45 million SOPH scheduled for 28 November 2026, about 1.7% of maximum supply. Other trackers report different vesting states and cliff data; treat the event amount and circulating-supply impact as unconfirmed until reconciled with official vesting data.',
+      source: 'Tokenomics.com unlock tracker',
+      url: 'https://app.tokenomics.com/tokenomics/sophon/unlocks',
+      confidence: 'third-party-data-conflict'
+    },
+    derivativesSnapshot: {
+      venue: 'Binance USDT perpetual — not the user-confirmed execution venue',
+      observedAt: '2026-11-24T13:45:00Z',
+      price: 0.000886,
+      priceChange24hPct: 1.4,
+      openInterestUsd: 3900000,
+      openInterestChange24hPct: -5.7,
+      fundingRate: 0.00005,
+      longAccountsPct: 51,
+      topTradersLongBySizePct: 64,
+      source: 'Seandra public derivatives snapshot',
+      url: 'https://seandra.ai/perp/soph',
+      confidence: 'timestamped-third-party-market-snapshot'
+    },
+    caveats: [
+      'Cross-venue market prices, funding rates and open interest are not interchangeable.',
+      'The Binance derivatives snapshot is not a Bitget quote and does not prove the order venue.',
+      'Token unlock trackers disagree on vesting and supply figures; preserve source and timestamp.',
+      'Fundamental transition risk can affect liquidity, sentiment and volatility, but does not determine the next candle direction.'
+    ]
+  }
 };
 
 const money = (n, digits = 2) => Number.isFinite(Number(n)) ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
@@ -246,6 +287,17 @@ export default function ReflectiveJournal() {
           <span className="rj-eyebrow">OPENING STATEMENT</span>
           <h3>Your trading commitment</h3>
           <blockquote>{active.openingNarrative}</blockquote>
+          <div className="rj-divider"/>
+          <span className="rj-eyebrow">PAIR-SPECIFIC FUNDAMENTAL RESEARCH</span>
+          <h3>SOPH research snapshot</h3>
+          <p className="rj-footnote">Recorded 24 November 2026. This is a dated research snapshot, not a live feed.</p>
+          <ul className="rj-research-list">
+            <li><b>Project transition:</b> Sophon is winding down its own L2 chain and shifting toward consumer applications on Base. SOPH itself is not described as discontinued.</li>
+            <li><b>Token value thesis:</b> the project describes product-revenue-funded buybacks and burns. Execution and revenue traction remain to be verified.</li>
+            <li><b>Unlock watch:</b> a third-party tracker reports 169.45M SOPH on 28 November; other trackers disagree on vesting figures.</li>
+            <li><b>Derivatives:</b> Binance snapshot showed $3.9M OI, down 5.7% in 24h, with positive funding. This is not an execution-venue quote.</li>
+          </ul>
+          <div className="rj-source-links"><a href="https://sophon.com/content/soph-token/" target="_blank" rel="noreferrer">Official SOPH token update</a><a href="https://sophon.com/content/sophon-migration/" target="_blank" rel="noreferrer">Official chain migration guide</a><a href="https://app.tokenomics.com/tokenomics/sophon/unlocks" target="_blank" rel="noreferrer">Unlock tracker</a><a href="https://seandra.ai/perp/soph" target="_blank" rel="noreferrer">Derivatives snapshot</a></div>
           <div className="rj-divider"/>
           <span className="rj-eyebrow">PROFIT ALLOCATION POLICY</span>
           <div className="rj-split"><div><b>50%</b><span>Withdraw</span></div><div><b>50%</b><span>Retain in account</span></div></div>
