@@ -171,6 +171,65 @@ function json(status, body, request, extra = {}) {
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(body), { status, headers });
 }
 
+
+async function verifyJournalToken(request, env) {
+  const expected = String(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN || '');
+  const provided = String(request.headers.get('x-jpti-api-token') || request.headers.get('authorization')?.replace(/^Bearer\\s+/i, '') || '');
+  if (!expected) return { ok: false, status: 503, error: 'Private journal storage is not configured. Set the JPTI_JOURNAL_TOKEN Cloudflare secret.' };
+  const [a,b] = await Promise.all([
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(expected)),
+    crypto.subtle.digest('SHA-256', new TextEncoder().encode(provided))
+  ]);
+  const left = new Uint8Array(a), right = new Uint8Array(b);
+  let difference = 0;
+  for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
+  return difference === 0 ? { ok: true } : { ok: false, status: 401, error: 'Private journal authorization failed.' };
+}
+
+async function handleJournalRoute(request, env, url) {
+  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
+  const auth = await verifyJournalToken(request, env);
+  if (!auth.ok) return json(auth.status, { error: auth.error }, request);
+  const ownerKey = 'primary';
+  if (request.method === 'GET') {
+    try {
+      const result = await env.JPTI_DB.prepare(
+        'SELECT payload, updated_at FROM jpti_journal_entries WHERE owner_key = ? ORDER BY updated_at DESC LIMIT 200'
+      ).bind(ownerKey).all();
+      const entries = (result.results || []).map(row => {
+        try { return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { return null; }
+      }).filter(Boolean);
+      return json(200, { entries, count: entries.length, storage: 'cloudflare-d1', durable: true }, request);
+    } catch (error) {
+      return json(500, { error: 'Could not read journal records from D1.', detail: String(error?.message || error).slice(0, 180) }, request);
+    }
+  }
+  if (request.method === 'POST') {
+    const length = Number(request.headers.get('content-length') || 0);
+    if (length > 512000) return json(413, { error: 'Journal record exceeds the 512 KB request limit.' }, request);
+    let body;
+    try { body = await request.json(); } catch { return json(400, { error: 'A valid JSON journal record is required.' }, request); }
+    const entry = body?.entry;
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json(400, { error: 'Send one journal entry in the entry field.' }, request);
+    const id = String(entry.id || '').trim();
+    const symbol = String(entry.symbol || '').trim().toUpperCase();
+    if (!/^[a-zA-Z0-9_-]{1,100}$/.test(id) || !/^[A-Z0-9._/-]{3,40}$/.test(symbol)) {
+      return json(400, { error: 'Journal entry id or symbol is invalid.' }, request);
+    }
+    const payload = JSON.stringify(entry);
+    if (new TextEncoder().encode(payload).byteLength > 500000) return json(413, { error: 'Journal record exceeds the 500 KB storage limit.' }, request);
+    try {
+      await env.JPTI_DB.prepare(
+        "INSERT INTO jpti_journal_entries (owner_key, entry_id, symbol, payload) VALUES (?, ?, ?, ?) ON CONFLICT(owner_key, entry_id) DO UPDATE SET symbol = excluded.symbol, payload = excluded.payload, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ','now')"
+      ).bind(ownerKey, id, symbol, payload).run();
+      return json(200, { ok: true, id, symbol, storage: 'cloudflare-d1', durable: true }, request);
+    } catch (error) {
+      return json(500, { error: 'Could not save journal record to D1.', detail: String(error?.message || error).slice(0, 180) }, request);
+    }
+  }
+  return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+}
+
 export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProvider = createBitgetCfdProvider(), now = () => new Date() } = {}) {
   return async function onRequest({ request, env = {} }) {
     const url = new URL(request.url);
@@ -181,8 +240,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const sameOrigin = (() => { try { return origin && new URL(origin).origin === url.origin; } catch { return false; } })();
       const allowedOrigin = sameOrigin || ['capacitor://localhost', 'https://localhost', 'http://localhost'].includes(origin);
       const headers = {
-        allow: 'GET, HEAD, OPTIONS',
-        'access-control-allow-methods': 'GET, HEAD, OPTIONS',
+        allow: 'GET, HEAD, POST, OPTIONS',
+        'access-control-allow-methods': 'GET, HEAD, POST, OPTIONS',
         'access-control-allow-headers': 'content-type, authorization, x-jpti-api-token',
         'cache-control': 'no-store'
       };
@@ -191,6 +250,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         headers.vary = 'Origin';
       }
       return new Response(null, { status: 204, headers });
+    }
+    if (url.pathname.replace(/\\/+$/, '') === '/api/journal/entries') {
+      if (!['GET', 'HEAD', 'POST'].includes(request.method)) return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, HEAD, POST, OPTIONS' });
+      if (request.method === 'HEAD') return json(200, { status: 'available' }, request);
+      return handleJournalRoute(request, env, url);
     }
     if (!['GET', 'HEAD'].includes(request.method)) {
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
@@ -218,7 +282,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       try {
         const result = await env.JPTI_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'jpti_%' ORDER BY name").all();
         const tables = (result?.results || []).map((row) => row.name);
-        const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors'];
+        const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors', 'jpti_journal_entries'];
         const missingTables = requiredTables.filter((name) => !tables.includes(name));
         const snapshotIndex = await env.JPTI_DB.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
