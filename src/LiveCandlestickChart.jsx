@@ -114,6 +114,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [showEma50, setShowEma50] = useState(false);
   const [showBollinger, setShowBollinger] = useState(false);
   const [zoom, setZoom] = useState(1);
+  const [followLatest, setFollowLatest] = useState(true);
   const [candleSpacing, setCandleSpacing] = useState(1.35);
   const [candleBodyPct, setCandleBodyPct] = useState(88);
   const [priceZoom, setPriceZoom] = useState(1);
@@ -436,7 +437,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     return () => wrapEl.removeEventListener('wheel', onWheel);
   }, [wrapEl]);
   // Keep the newest candles in view after the visible history expands or contracts.
-  useEffect(() => { if (wrapEl) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [zoom]);
+  useEffect(() => { if (wrapEl && followLatest) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [zoom, liveCandles.length, liveCandles.at(-1)?.[0], followLatest]);
   useEffect(() => {
     if (!expanded) return undefined;
     const onKey = (event) => { if (event.key === 'Escape') setExpanded(false); };
@@ -525,7 +526,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       <div className="chart-actions">
         <button onClick={() => setZoom((v) => Math.min(4, v * 1.35))} title="Zoom in">＋</button>
         <button onClick={() => setZoom((v) => Math.max(0.5, v / 1.35))} title="Zoom out">－</button>
-        <button onClick={() => setZoom(1)} title="Fit all candles">Fit</button>
+        <button onClick={() => setZoom(1)} title="Fit the default candle range">Fit</button>
+        <button type="button" aria-pressed={followLatest} className={followLatest ? 'active' : ''} onClick={() => setFollowLatest(value => !value)} title="Automatically keep the newest candle in view">{followLatest ? 'Following' : 'Follow'}</button>
         <button onClick={() => setPriceZoom((v) => Math.min(12, v * 1.25))} title="Zoom the price scale in (more pips visible per label)">Pip ＋</button>
         <button onClick={() => setPriceZoom((v) => Math.max(0.5, v / 1.25))} title="Zoom the price scale out">Pip －</button>
         <button onClick={() => setPriceZoom(1)} title="Auto-fit the price scale">Auto</button>
