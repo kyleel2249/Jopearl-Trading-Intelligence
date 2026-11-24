@@ -9,7 +9,7 @@ const INITIAL_ENTRY = {
   date: '2026-11-24',
   createdAt: '2026-11-24T00:00:00.000Z',
   symbol: 'SOPH/USDT',
-  exchange: 'Bitget (reported; not exchange-verified)',
+  exchange: 'Not specified by user',
   marketType: 'USDT-M Futures',
   direction: 'long',
   timeframe: '15m',
@@ -165,7 +165,7 @@ export default function ReflectiveJournal() {
           <div className="rj-scenario-list">{scenarios.map(s => <div className="rj-scenario" key={s.move}><span>{s.move}% price move</span><div className="rj-bar"><i style={{ width: Math.min(100, Math.abs(s.pnl) / Math.max(active.margin || 1, 1) * 100) + '%' }}/></div><b className="negative">{money(s.pnl)}</b></div>)}</div>
           <div className="rj-footnote">Assumes a linear USDT-margined position with unchanged quantity. It does not model liquidation fees, maintenance margin tiers, funding or exchange-specific rules.</div>
           <div className="rj-market-box">
-            <div className="rj-panel-title"><div><span className="rj-eyebrow">LIVE MARKET CHECK</span><h4>Bitget public futures data</h4></div><button className="rj-secondary" onClick={checkMarket} disabled={marketState === 'loading'}><RefreshCw size={14}/>{marketState === 'loading' ? 'Checking…' : 'Check now'}</button></div>
+            <div className="rj-panel-title"><div><span className="rj-eyebrow">LIVE MARKET CHECK</span><h4>Public futures market-data cross-check (Bitget adapter; execution venue not confirmed)</h4></div><button className="rj-secondary" onClick={checkMarket} disabled={marketState === 'loading'}><RefreshCw size={14}/>{marketState === 'loading' ? 'Checking…' : 'Check now'}</button></div>
             {marketState === 'live' && market && <div className="rj-live-result"><b>Market response received</b><span>Checked {new Date(market.checkedAt).toLocaleString()}</span><pre>{JSON.stringify({ ticker: market.ticker, latestCandles: Array.isArray(market.candles?.data) ? market.candles.data.slice(-3) : market.candles?.data || market.candles }, null, 2).slice(0, 1800)}</pre></div>}
             {marketState === 'unavailable' && <p className="rj-footnote">{marketError}. The public-data adapter may not support this symbol format or product category. No market values have been invented.</p>}
             {marketState === 'not-checked' && <p className="rj-footnote">Live quote and candles have not yet been checked from this screen. Use the main JPTI chart to confirm the exact contract and product category.</p>}
