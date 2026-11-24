@@ -16,7 +16,7 @@ test('Bitget product types are selectable across the shared chart and terminal',
 test('Bitget futures selection is not reset to Spot when browser-direct mode activates', () => {
   const chart = read('../src/LiveCandlestickChart.jsx');
   assert.match(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget' \? 'spot' : current\)/);
-  assert.match(chart, /if \(directMode && exchange !== 'bitget' && marketType !== 'spot'\) setMarketType\('spot'\)/);
+  assert.match(chart, /if \(\(directMode && exchange !== 'bitget' && marketType !== 'spot'\) \|\| \(exchange !== 'bitget' && marketType === 'cfd'\)\) setMarketType\('spot'\)/);
   assert.doesNotMatch(chart, /if \(mode === 'direct'\) setMarketType\('spot'\)/);
   assert.doesNotMatch(chart, /if \(directMode\) setMarketType\('spot'\)/);
 });

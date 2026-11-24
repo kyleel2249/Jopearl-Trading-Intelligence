@@ -3,6 +3,7 @@ import LiveCandlestickChart from './LiveCandlestickChart.jsx';
 import { apiFetch } from './lib/api.js';
 
 const NO_LEVELS = [];
+const FALLBACK_EXCHANGES = [{ id: 'binance', name: 'Binance' }, { id: 'bitget', name: 'Bitget' }, { id: 'bybit', name: 'Bybit' }, { id: 'okx', name: 'OKX' }];
 
 export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLevels = NO_LEVELS, onExchangeChange, onMarketTypeChange, initialExchange = 'binance', initialMarketType = 'spot', compact = false }) {
   const [health, setHealth] = useState(null);
@@ -17,6 +18,12 @@ export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLeve
   const [error, setError] = useState('');
 
   const selected = useMemo(() => exchanges.find((item) => item.id === exchange), [exchanges, exchange]);
+  // Never let the select silently display a different venue than the active one (for example
+  // when the gateway is offline on the Futures page, which starts on Bitget).
+  const exchangeOptions = useMemo(() => {
+    const base = exchanges.length ? exchanges : FALLBACK_EXCHANGES;
+    return base.some((item) => item.id === exchange) ? base : [...base, { id: exchange, name: exchange }];
+  }, [exchanges, exchange]);
 
   useEffect(() => {
     let active = true;
@@ -64,7 +71,7 @@ export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLeve
       <div className="exchange-selectors">
         <label htmlFor="jpti-exchange">EXCHANGE</label>
         <select id="jpti-exchange" value={exchange} onChange={(e) => setExchange(e.target.value)}>
-          {(exchanges.length ? exchanges : [{id:'binance',name:'Binance'}]).map((item) =>
+          {exchangeOptions.map((item) =>
             <option key={item.id} value={item.id}>{item.name || item.id}</option>
           )}
         </select>
