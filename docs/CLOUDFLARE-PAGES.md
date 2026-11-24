@@ -1,6 +1,6 @@
 # JPTI — Cloudflare-only deployment
 
-JPTI's supported web host is **Cloudflare Pages**. The frontend and its same-origin `/api/*` market-data functions deploy together. The Pages Function calls public exchange REST endpoints from Cloudflare's edge; the browser does not need a separately hosted API gateway URL or token.
+JPTI's supported web host is **Cloudflare Pages**. The frontend and its same-origin `/api/*` market-data functions deploy together. The Pages Function normally calls public exchange REST endpoints from Cloudflare's edge. If an exchange rejects a particular edge region, the frontend's tested browser-direct fallback requests public data from the user's browser. Neither path requires a separately hosted API gateway URL or token.
 
 ## Cloudflare Pages project
 
@@ -13,7 +13,7 @@ JPTI's supported web host is **Cloudflare Pages**. The frontend and its same-ori
 | Build output directory | `dist` |
 | Node version | `22` |
 
-The root `wrangler.toml` contains the Pages output directory and Workers compatibility settings. The `.github/workflows/cloudflare-pages.yml` workflow deploys on pushes to `main`.
+The root `wrangler.toml` contains the Pages output directory and Workers compatibility settings. Wrangler CLI `4.167.0` is pinned in `package.json`; the `.github/workflows/cloudflare-pages.yml` workflow uses that local CLI for D1 migrations and Pages deployment on pushes to `main`. GitHub Actions checkout and Node setup use current Node 24-compatible action releases.
 
 ## GitHub Actions secrets
 
@@ -34,7 +34,7 @@ Optional repository variable for native Android builds:
 - `.dev.vars` — local Cloudflare Pages Functions runtime variables. Copy `.dev.vars.example` to `.dev.vars` when needed.
 - Cloudflare dashboard Variables and Secrets — server-side values only. Never put private exchange credentials, signing secrets, or tokens in `VITE_*` variables.
 
-The current Cloudflare edge API provides public spot market catalogs, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget additionally exposes public Margin, USDT-M, Coin-M and USDC-M instrument catalogs, tickers and candles. Cross-venue ticker comparison and a limited single-timeframe OHLCV context score are also available. These public feeds require no exchange API keys and no separate API gateway. The live post-deploy workflow checks the five Bitget categories against the deployed Pages origin.
+The current Cloudflare edge API provides public spot market catalogs, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget additionally exposes public Margin, USDT-M, Coin-M and USDC-M instrument catalogs, tickers and candles. Exact Bitget instrument IDs are carried through chart, ticker, candle and context requests, including contract IDs that differ from a reconstructed base/quote symbol. Cross-venue ticker comparison and a limited single-timeframe OHLCV context score are also available. These public feeds require no exchange API keys and no separate API gateway. The live post-deploy workflow checks all five Bitget categories; if Bitget returns HTTP 403 from the runner's region, it reports a regional warning and verifies direct public endpoints where that region permits.
 
 ## Runtime capability boundary
 
