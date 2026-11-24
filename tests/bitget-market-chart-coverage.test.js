@@ -15,8 +15,10 @@ test('Bitget product types are selectable across the shared chart and terminal',
 
 test('Bitget futures selection is not reset to Spot when browser-direct mode activates', () => {
   const chart = read('../src/LiveCandlestickChart.jsx');
-  assert.match(chart, /if \(mode === 'direct' && exchange !== 'bitget'\) setMarketType\('spot'\)/);
+  assert.match(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget' \? 'spot' : current\)/);
+  assert.match(chart, /if \(directMode && exchange !== 'bitget' && marketType !== 'spot'\) setMarketType\('spot'\)/);
   assert.doesNotMatch(chart, /if \(mode === 'direct'\) setMarketType\('spot'\)/);
+  assert.doesNotMatch(chart, /if \(directMode\) setMarketType\('spot'\)/);
 });
 
 test('exact Bitget instrument IDs and CFD side selection reach every candle consumer', () => {
@@ -58,8 +60,11 @@ test('Cloudflare Pages has a dedicated signed Bitget CFD market route', () => {
 test('Futures workspace initializes the shared chart with Futures instead of Spot', () => {
   const app = read('../src/App.jsx');
   const connectivity = read('../src/ExchangeConnectivity.jsx');
-  assert.match(app, /initialExchange=\{page === 'Futures' \? 'bitget' : 'binance'\}/);\n  assert.match(app, /initialMarketType=\{page === 'Futures' \? 'futures' : 'spot'\}/);
-  assert.match(connectivity, /initialExchange = 'binance'/);\n  assert.match(connectivity, /initialMarketType = 'spot'/);\n  assert.match(connectivity, /useState\(initialExchange \|\| 'binance'\)/);
+  assert.match(app, /initialExchange=\{page === 'Futures' \? 'bitget' : 'binance'\}/);
+  assert.match(app, /initialMarketType=\{page === 'Futures' \? 'futures' : 'spot'\}/);
+  assert.match(connectivity, /initialExchange = 'binance'/);
+  assert.match(connectivity, /initialMarketType = 'spot'/);
+  assert.match(connectivity, /useState\(initialExchange \|\| 'binance'\)/);
   assert.match(connectivity, /useState\(initialMarketType \|\| 'spot'\)/);
 });
 
