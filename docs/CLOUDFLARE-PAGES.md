@@ -63,6 +63,9 @@ In Cloudflare Dashboard → Workers & Pages → the `jpti` Pages project → Set
 - `JPTI_BITGET_API_SECRET`
 - `JPTI_BITGET_API_PASSPHRASE`
 
-Create the Bitget key with **Read-only** permission for UTA market data. Do not grant Trade, Transfer or Withdraw permissions for chart access. Keep the key IP restriction aligned with the egress/IP policy you choose; Cloudflare Pages egress IPs are not a fixed single IP range, so do not bind the key to a guessed IP address. The CFD market-data endpoints require authenticated UTA access; the browser never receives the key or secret.
+Create the Bitget key with permission type **Read-only** and include **UTA trade read-only** (`uta_trade`) access. Do not grant read/write trade, Transfer or Withdraw permissions for chart access. Keep the key IP restriction aligned with the egress/IP policy you choose; Cloudflare Pages egress IPs are not a fixed single IP range, so do not bind the key to a guessed IP address. The CFD market-data endpoints require authenticated UTA access; the browser never receives the key or secret.
 
 The CFD product selector is available for Bitget only. Supported CFD chart intervals are 1m, 15m, 1h, 4h and 1d. Buy/Ask and Sell/Bid candles are separate series; the adapter reports zero volume availability rather than inventing CFD volume. CFD ticker `last` is explicitly marked as the bid/ask midpoint because the documented endpoint returns bid and ask rather than a last-trade field.
+
+
+The deployed diagnostic endpoint `/api/exchanges/bitget/cfd/diagnostics` performs a signed, read-only account-info check and returns only the permission type, permission names, whether UTA trade read-only is present, and whether an IP whitelist is configured. It never returns the API key, secret, passphrase, user ID or actual IP addresses. Use it to distinguish a missing UTA permission from a Cloudflare egress/IP-allowlist restriction. Bitget's CFD instruments endpoint also requires the account's CFD access to be enabled; complete the CFD account opening process in Bitget if that account feature has not been activated.
