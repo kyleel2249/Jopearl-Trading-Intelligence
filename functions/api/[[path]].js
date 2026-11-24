@@ -258,7 +258,11 @@ async function handleSessionMemoryRoute(request,env,url){
  if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
  try{
   const records=await loadD1OutcomeRecords(env,'session-outcome',MAX_SESSION_OUTCOMES);
-  if(request.method==='GET')return json(200,{records,summary:summarizeSessionOutcomes(records),count:records.length,backend:true,storage:'cloudflare-d1'},request);
+  if(request.method==='GET'){
+   const requested=Number(url.searchParams.get('limit')||1000),limit=Number.isFinite(requested)?Math.min(5000,Math.max(1,Math.floor(requested))):1000;
+   const recent=records.slice(-limit);
+   return json(200,{records:recent,summary:summarizeSessionOutcomes(recent),count:records.length,returned:recent.length,backend:true,storage:'cloudflare-d1'},request);
+  }
   if(request.method!=='POST')return json(405,{error:'Session memory supports GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
   if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'Session outcome request exceeds the 512 KB limit.'},request);
   let body;try{body=await request.json();}catch{return json(400,{error:'A valid JSON outcome record is required.'},request);}

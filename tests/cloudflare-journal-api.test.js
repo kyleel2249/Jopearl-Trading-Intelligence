@@ -99,7 +99,7 @@ test('Cloudflare session memory API persists, summarizes and de-duplicates outco
  const saved=await handler(db)({request:privateRequest('/api/session/memory','POST',{id:'session-1',session:'London',symbol:'BTC/USDT',strategy:'liquidity reclaim',volatility:'normal',outcome:'win',returnR:1.75}),env});
  assert.equal(saved.status,201);assert.equal((await saved.json()).storage,'cloudflare-d1');
  const duplicate=await handler(db)({request:privateRequest('/api/session/memory','POST',{id:'session-1',session:'London',symbol:'BTC/USDT',outcome:'win',returnR:1.75}),env});assert.equal((await duplicate.json()).duplicate,true);
- const loaded=await handler(db)({request:privateRequest('/api/session/memory','GET'),env}),data=await loaded.json();assert.equal(data.count,1);assert.equal(data.summary[0].winRate,100);
+ const loaded=await handler(db)({request:privateRequest('/api/session/memory','GET'),env}),data=await loaded.json();assert.equal(data.count,1);assert.equal(data.returned,1);assert.equal(data.summary[0].winRate,100);
 });
 test('Cloudflare session memory batch imports idempotently and validates outcomes',async()=>{
  const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'},records=[{id:'b1',session:'Asia',symbol:'ETH/USDT',outcome:'loss',returnR:-1},{id:'b2',session:'London',symbol:'BTC/USDT',outcome:'breakeven',returnR:0}];
