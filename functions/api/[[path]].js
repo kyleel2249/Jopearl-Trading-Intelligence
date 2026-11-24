@@ -285,8 +285,10 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       const exchange = contextRoute[1].toLowerCase();
       const symbol = contextRoute[2];
       const timeframe = String(url.searchParams.get('timeframe') || '1h');
+      const instrumentId = String(url.searchParams.get('instrumentId') || '').trim();
+      const instrumentQuery = instrumentId ? '&instrumentId=' + encodeURIComponent(instrumentId) : '';
       const candleUrl = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) +
-        '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200&type=' + encodeURIComponent(url.searchParams.get('type') || 'spot');
+        '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200&type=' + encodeURIComponent(url.searchParams.get('type') || 'spot') + instrumentQuery;
       const candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
       if (!candlesResult || candlesResult.status !== 200) {
         const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
