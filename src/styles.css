@@ -199,3 +199,60 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 
 /* JPTI icon lockup: preserve crisp scaling in every shared dashboard shell. */
 .brand-mark{overflow:hidden;padding:0}.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;border-radius:10px}
+
+
+/* Dedicated full-screen Market Chart Terminal */
+.jpti-market-fullscreen{height:100dvh;min-height:100dvh;overflow:hidden;background:#050b17}
+.jpti-market-fullscreen .command-sidebar,
+.jpti-market-fullscreen .command-topbar,
+.jpti-market-fullscreen .page-heading,
+.jpti-market-fullscreen .command-footer,
+.jpti-market-fullscreen .connection-warning{display:none!important}
+.jpti-market-fullscreen .command-main{height:100dvh;min-height:0;margin:0!important;width:100%;overflow:hidden}
+.jpti-market-fullscreen .page-content{height:calc(100dvh - 52px);max-width:none;margin:0;padding:0!important;overflow:auto;display:flex;flex-direction:column}
+.jpti-market-fullscreen .page-content>div:has(.exchange-workspace){flex:1;min-height:0}
+.jpti-market-terminal-bar{height:52px;min-height:52px;display:flex;align-items:center;justify-content:space-between;gap:14px;padding:0 18px;background:linear-gradient(90deg,#071326,#0b1b32 55%,#071326);border-bottom:1px solid #1b3554;box-shadow:0 5px 22px #0005;position:relative;z-index:40}
+.jpti-market-terminal-brand{display:flex;align-items:center;gap:9px;min-width:0}
+.jpti-market-terminal-brand img{width:32px;height:32px;border-radius:8px}
+.jpti-market-terminal-brand span,.jpti-market-terminal-brand b,.jpti-market-terminal-brand small{display:block}
+.jpti-market-terminal-brand b{font:700 11px 'Space Grotesk',sans-serif;letter-spacing:1.3px;color:#eff6ff}
+.jpti-market-terminal-brand small{font:600 7px 'DM Sans',sans-serif;letter-spacing:1.4px;color:#7794b8;margin-top:3px}
+.jpti-market-terminal-switch{display:flex;gap:5px;padding:3px;border:1px solid #203b5d;border-radius:7px;background:#071326}
+.jpti-market-terminal-switch button{border:0;border-radius:5px;padding:7px 12px;background:transparent;color:#829bb9;font:700 8px 'DM Sans',sans-serif;letter-spacing:.7px}
+.jpti-market-terminal-switch button.active{background:linear-gradient(135deg,#1762b7,#123d7c);color:#fff;box-shadow:0 3px 12px #087bff33}
+.jpti-market-terminal-actions{display:flex;align-items:center;gap:15px}
+.jpti-market-terminal-actions>span{font:700 8px 'DM Sans',sans-serif;letter-spacing:1px;color:#45d8a2;white-space:nowrap}
+.jpti-market-terminal-actions>span i{display:inline-block;width:6px;height:6px;border-radius:50%;background:#2bd99b;box-shadow:0 0 8px #2bd99b;margin-right:6px}
+.jpti-market-terminal-actions button{border:1px solid #294362;border-radius:6px;background:#10223a;color:#c6d8ee;padding:7px 10px;font:700 8px 'DM Sans',sans-serif;letter-spacing:.6px;white-space:nowrap}
+.jpti-market-terminal-actions button:hover{background:#17365b;border-color:#3977bb}
+.jpti-market-terminal-actions button b{margin-left:8px;color:#718aa9;font-size:7px}
+.jpti-market-fullscreen .exchange-workspace{height:100%;min-height:0;margin:0;display:flex;flex-direction:column}
+.jpti-market-fullscreen .exchange-statusbar{border-radius:0;padding:7px 14px;min-height:42px}
+.jpti-market-fullscreen .exchange-market-strip{padding:7px 14px;gap:8px;min-height:55px}
+.jpti-market-fullscreen .exchange-market-strip span strong{font-size:12px;margin-top:2px}
+.jpti-market-fullscreen .trading-chart-panel{flex:1;min-height:0;display:flex;flex-direction:column;border-radius:0!important;padding:10px 13px!important;overflow:hidden}
+.jpti-market-fullscreen .trading-chart-panel .chart-toolbar{margin-bottom:6px;gap:7px}
+.jpti-market-fullscreen .trading-chart-panel .chart-indicator-controls{padding:6px 0;gap:12px}
+.jpti-market-fullscreen .trading-chart-panel .chart-ohlc-strip{padding:6px 0}
+.jpti-market-fullscreen .trading-chart-panel .candlestick-svg-wrap{height:calc(100dvh - 365px)!important;min-height:280px;max-height:none;flex:1}
+.jpti-market-fullscreen .trading-chart-panel .chart-footer{padding-top:5px}
+@media(max-width:760px){
+ .jpti-market-terminal-bar{height:48px;min-height:48px;padding:0 8px;gap:5px}
+ .jpti-market-terminal-brand img{width:27px;height:27px}
+ .jpti-market-terminal-brand b{font-size:9px;letter-spacing:.7px}
+ .jpti-market-terminal-brand small{font-size:6px;letter-spacing:.7px}
+ .jpti-market-terminal-switch{gap:1px}
+ .jpti-market-terminal-switch button{padding:7px 6px;font-size:7px}
+ .jpti-market-terminal-actions{gap:0}
+ .jpti-market-terminal-actions>span{display:none}
+ .jpti-market-terminal-actions button{padding:7px 7px;font-size:7px}
+ .jpti-market-terminal-actions button b{display:none}
+ .jpti-market-fullscreen .page-content{height:calc(100dvh - 48px)}
+ .jpti-market-fullscreen .exchange-statusbar{padding:6px 8px}
+ .jpti-market-fullscreen .exchange-market-strip{padding:7px 8px;gap:6px}
+ .jpti-market-fullscreen .trading-chart-panel{padding:8px!important;overflow:visible}
+ .jpti-market-fullscreen .trading-chart-panel .candlestick-svg-wrap{height:calc(100dvh - 410px)!important;min-height:240px}
+}
+@media(max-height:700px){
+ .jpti-market-fullscreen .trading-chart-panel .candlestick-svg-wrap{height:calc(100dvh - 315px)!important;min-height:220px}
+}

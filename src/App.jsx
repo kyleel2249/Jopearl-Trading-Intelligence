@@ -673,9 +673,18 @@ function App() {
   };
 
   const groups = [...new Set(navigation.map((item) => item.group))];
-  return <div className={'jpti-shell' + (page === 'Overview' ? ' terminal-mode' : '')}>
+  const marketTerminalMode = page === 'Spot & Markets' || page === 'Futures';
+  return <div className={'jpti-shell' + (page === 'Overview' ? ' terminal-mode' : '') + (marketTerminalMode ? ' jpti-market-fullscreen' : '')}>
     {page === 'Overview' && mobileOpen && <button type="button" className="td-drawer-scrim" aria-label="Close workspace menu" onClick={() => setMobileOpen(false)}/>}
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
+    {marketTerminalMode && <div className="jpti-market-terminal-bar">
+      <div className="jpti-market-terminal-brand"><img src={`${import.meta.env.BASE_URL}jpti-icon.svg`} alt="JPTI"/><span><b>JPTI MARKET TERMINAL</b><small>FULL-SCREEN CHART WORKSTATION</small></span></div>
+      <div className="jpti-market-terminal-switch" aria-label="Market terminal mode">
+        <button type="button" className={page === 'Spot & Markets' ? 'active' : ''} onClick={() => activeNav('Spot & Markets')}>SPOT MARKETS</button>
+        <button type="button" className={page === 'Futures' ? 'active' : ''} onClick={() => activeNav('Futures')}>DERIVATIVES</button>
+      </div>
+      <div className="jpti-market-terminal-actions"><span><i/> CHART WORKSPACE</span><button type="button" onClick={() => activeNav('Overview')}>EXIT TERMINAL <b>ESC</b></button></div>
+    </div>}
     <aside className={'command-sidebar ' + (mobileOpen ? 'mobile-open' : '')}>
       <div className="brand-lockup"><div className="brand-mark"><img src={`${import.meta.env.BASE_URL}jpti-icon.svg`} alt="JPTI" /></div><div><b>JOPEARL</b><small>TRADING INTELLIGENCE</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={17}/></button></div>
       <div className="workspace-pill"><span className="workspace-avatar">JP</span><span><b>JPTI COMMAND</b><small>Personal workspace</small></span><ChevronRight size={14}/></div>
