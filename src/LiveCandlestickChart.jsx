@@ -82,7 +82,7 @@ const timeLabel = (stamp, timeframe) => {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, onExchangeChange, alphaLevels = [] }) {
+export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, onExchangeChange, alphaLevels = [], synchronizedCrosshair = null, onCrosshairChange }) {
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
@@ -580,12 +580,15 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     </div>
     {error ? <div className="chart-error">{error}</div> : !geometry ? <div className="chart-wait">{loading ? 'Loading live OHLC candles…' : 'Waiting for exchange candle data…'}</div> :
       <div className={'candlestick-svg-wrap' + (expanded ? ' chart-expanded' : '')} ref={setWrapEl}>
-        <svg width={geometry.width} height={geometry.height} viewBox={'0 0 ' + geometry.width + ' ' + geometry.height} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => setCrosshair(null)} onMouseMove={(event) => {
+        <svg width={geometry.width} height={geometry.height} viewBox={'0 0 ' + geometry.width + ' ' + geometry.height} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => { setCrosshair(null); onCrosshairChange?.(null); }} onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const px = event.clientX - rect.left, py = event.clientY - rect.top;
-          if (px > geometry.right || px < geometry.left) { setCrosshair(null); return; }
+          if (px > geometry.right || px < geometry.left) { setCrosshair(null); onCrosshairChange?.(null); return; }
           const index = Math.max(0, Math.min(geometry.count - 1, Math.floor((px - geometry.left) / (geometry.right - geometry.left) * geometry.count)));
           setCrosshair({ i: index, py });
+          const candle = geometry.rows[index];
+          const price = geometry.max - (py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
+          onCrosshairChange?.({ timestamp: candle?.[0] ?? null, price: Number.isFinite(price) ? price : null });
         }}>
           {geometry.axis.minor.map((price) => <line key={'minor-' + price} x1={geometry.left} y1={geometry.y(price)} x2={geometry.right} y2={geometry.y(price)} stroke="#18243a" strokeWidth="0.6"/>)}
           {geometry.axis.ticks.map((tick) => {
@@ -625,11 +628,15 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
             const tagY = Math.max(geometry.top + 9, Math.min(geometry.bottom - 9, yLast)), tagW = geometry.axisW - 2;
             return <g pointerEvents="none"><line x1={geometry.left} y1={yLast} x2={geometry.right} y2={yLast} stroke={tint} strokeDasharray="2 3" strokeOpacity=".85"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY - 9) + ')'}><rect width={tagW} height="18" rx="3" fill={tint}/><text x={tagW / 2} y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(lastRow[4], precisionMeta, { maximumFractionDigits: 12 })}</text></g>{countdown && !countdown.expired && <g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY + 10) + ')'}><rect width={tagW} height="15" rx="3" fill="#152238" stroke="#2c3f5c"/><text x={tagW / 2} y="11" textAnchor="middle" fill="#b8c7dc" fontSize="9.5">{countdown.label}</text></g>}</g>;
           })()}
-          {crosshair !== null && geometry.rows[crosshair.i] && (() => {
-            const hoverPrice = geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
-            const inside = crosshair.py >= geometry.top && crosshair.py <= geometry.priceBottom, tagW = geometry.axisW - 2;
+          {(synchronizedCrosshair?.timestamp != null || crosshair !== null) && (() => {
+            const sharedIndex = synchronizedCrosshair?.timestamp != null
+              ? geometry.rows.reduce((best, candle, index, rows) => Math.abs(candle[0] - synchronizedCrosshair.timestamp) < Math.abs(rows[best][0] - synchronizedCrosshair.timestamp) ? index : best, 0)
+              : crosshair.i;
+            const hoverPrice = synchronizedCrosshair?.price != null ? synchronizedCrosshair.price : geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
+            const yPrice = geometry.y(hoverPrice);
+            const inside = yPrice >= geometry.top && yPrice <= geometry.priceBottom, tagW = geometry.axisW - 2;
             const pips = pipDistance(geometry.rows[geometry.rows.length - 1][4], hoverPrice, geometry.pip);
-            return <g pointerEvents="none"><line x1={geometry.x(crosshair.i)} y1={geometry.top} x2={geometry.x(crosshair.i)} y2={geometry.bottom} stroke="#a9b7c9" strokeDasharray="3 4"/>{inside && <><line x1={geometry.left} y1={crosshair.py} x2={geometry.right} y2={crosshair.py} stroke="#a9b7c9" strokeDasharray="3 4"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (crosshair.py - 15) + ')'}><rect width={tagW} height="30" rx="3" fill="#24344d" stroke="#4a6385"/><text x={tagW / 2} y="12" textAnchor="middle" fill="#e6eefb" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(hoverPrice, precisionMeta, { maximumFractionDigits: 12 })}</text><text x={tagW / 2} y="25" textAnchor="middle" fill={pips != null && pips < 0 ? '#f07883' : '#20c997'} fontSize="9.5">{pips == null ? '' : (pips > 0 ? '+' : '') + pips + ' pips'}</text></g></>}</g>;
+            return <g pointerEvents="none"><line x1={geometry.x(sharedIndex)} y1={geometry.top} x2={geometry.x(sharedIndex)} y2={geometry.bottom} stroke="#a9b7c9" strokeDasharray="3 4"/>{inside && <><line x1={geometry.left} y1={yPrice} x2={geometry.right} y2={yPrice} stroke="#a9b7c9" strokeDasharray="3 4"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (yPrice - 15) + ')'}><rect width={tagW} height="30" rx="3" fill="#24344d" stroke="#4a6385"/><text x={tagW / 2} y="12" textAnchor="middle" fill="#e6eefb" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(hoverPrice, precisionMeta, { maximumFractionDigits: 12 })}</text><text x={tagW / 2} y="25" textAnchor="middle" fill={pips != null && pips < 0 ? '#f07883' : '#20c997'} fontSize="9.5">{pips == null ? '' : (pips > 0 ? '+' : '') + pips + ' pips'}</text></g></>}</g>;
           })()}
         </svg>
       </div>}
