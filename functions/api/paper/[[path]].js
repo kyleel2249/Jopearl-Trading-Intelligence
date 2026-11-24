@@ -105,7 +105,7 @@ export async function runCycle(db,symbol){
    const timed=Date.now()-Date.parse(open.opened_at)>60*60*1000;
    if(hitStop||hitTarget||timed||dailyCircuit){
     const reason=dailyCircuit?'daily-loss-circuit-breaker':hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
-    const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last);
+    const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
     const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
@@ -126,7 +126,7 @@ export async function runCycle(db,symbol){
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
-   const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps/2)/10000);
+   const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
    const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    if(quantity>0&&Number.isFinite(quantity)){
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
