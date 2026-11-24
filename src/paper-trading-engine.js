@@ -31,7 +31,7 @@ export const PAPER_AGENTS=Object.freeze(definitions.map(([id,name,role,responsib
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
-export function derivePaperSignal(candles,ticker={},agentId='ensemble'){
+export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={}){
  const rows=(Array.isArray(candles)?candles:[]).filter(r=>Array.isArray(r)&&r.length>=6&&r.slice(0,6).every(v=>Number.isFinite(Number(v)))).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
  if(rows.length<35)return{action:'WAIT',reason:'At least 35 valid candles are required.',features:null};
  const closed=rows.slice(0,-1),closes=closed.map(r=>r[4]),volumes=closed.map(r=>r[5]),last=closed.at(-1);
@@ -43,21 +43,23 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble'){
  const breakout=last[4]>Math.max(...closed.slice(-21,-1).map(r=>r[2]))?1:last[4]<Math.min(...closed.slice(-21,-1).map(r=>r[3]))?-1:0;
  const spreadPct=n(ticker.bid)>0&&n(ticker.ask)>n(ticker.bid)?(n(ticker.ask)-n(ticker.bid))/((n(ticker.ask)+n(ticker.bid))/2)*100:null;
  const regime=atrPct>2.5?'high-volatility':Math.abs(momentum)<.25?'range':'trend';
+ const timeframeBias={};for(const [label,series] of Object.entries(context.timeframes||{})){const bars=(Array.isArray(series)?series:[]).filter(r=>Array.isArray(r)&&r.length>=5).slice(0,-1);if(bars.length>=25){const values=bars.map(r=>Number(r[4]));const avg=(a)=>a.reduce((s,v)=>s+v,0)/a.length;const ema=(a,p)=>{const k=2/(p+1);return a.slice(1).reduce((v,x)=>x+k*(v-x),a[0]);};timeframeBias[label]=ema(values.slice(-40),9)>ema(values.slice(-60),21)?1:-1;}else timeframeBias[label]=0;}
+ const timeframeAgreement=Object.values(timeframeBias).filter(v=>v!==0).length?Object.values(timeframeBias).filter(v=>v===Math.sign(momentum)).length:0;
  const hour=new Date(last[0]).getUTCHours(),session=hour>=13&&hour<16?'London-New York overlap':hour>=7&&hour<16?'London':hour>=13&&hour<22?'New York':'Asia-Pacific';
  const sessionWeight=session==='London-New York overlap'?1:session==='London'||session==='New York'?.75:.4;
  const strategy=String(agentId).replace(/^.*:/,'');
  const score=strategy==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5)
  :strategy==='breakout'?breakout
  :strategy==='volume'?Math.sign(momentum)*(rvol>=1.25?1:0)
- :strategy==='trend'?trend
+ :strategy==='trend'?(trend*.4+Math.sign(momentum)*.2+Math.sign(momentum)*timeframeAgreement*.13)
  :strategy==='risk'?0
  :strategy==='microstructure'?(spreadPct!==null&&spreadPct<=.12?Math.sign(momentum):0)
  :strategy==='session'?(trend===Math.sign(momentum)?Math.sign(momentum)*sessionWeight:0)
  :strategy==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend)
  :strategy==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2)
- :clamp(trend*.35+Math.sign(momentum)*.35+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0),-1,1);
+ :clamp(trend*.25+Math.sign(momentum)*.2+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0)+Math.sign(momentum)*timeframeAgreement*.15,-1,1);
  const direction=score>.25?'LONG':score<-.25?'SHORT':'FLAT';
- return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,closedBars:closed.length}};
+ return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,timeframeBias,timeframeAgreement,closedBars:closed.length}};
 }
 export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.initialEquityUsd,now=Date.now()){
  const closed=trades.filter(t=>t.status==='closed'),wins=closed.filter(t=>n(t.netPnlUsd)>0),losses=closed.filter(t=>n(t.netPnlUsd)<0);
