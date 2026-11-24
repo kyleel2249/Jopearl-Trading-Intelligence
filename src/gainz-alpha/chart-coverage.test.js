@@ -25,3 +25,12 @@ test('known chart components are detected by the guard', () => {
   const names = walk(root).filter((f) => drawsCandles(readFileSync(f, 'utf8'))).map((f) => relative(root, f).replaceAll('\\', '/'));
   assert.ok(names.includes('LiveCandlestickChart.jsx')); assert.ok(names.includes('TerminalChart.jsx'));
 });
+
+test('live chart price axis consumes provider instrument precision metadata', () => {
+  const chart = readFileSync(join(root, 'LiveCandlestickChart.jsx'), 'utf8');
+  assert.match(chart, /chart-intelligence\/precision\.js/);
+  assert.match(chart, /setMarketPrecisionMetadata/);
+  assert.match(chart, /marketPrecisionMetadata\[symbol\]/);
+  assert.match(chart, /calibratedPriceTicks\(geometry\.min, geometry\.max, symbol, marketPrecisionMetadata/);
+  assert.match(chart, /formatInstrumentPrice\(value, marketPrecisionMetadata/);
+});
