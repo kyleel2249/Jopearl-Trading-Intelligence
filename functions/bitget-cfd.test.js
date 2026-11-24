@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createBitgetCfdProvider } from './bitget-cfd.js';
 
-const ok = (data) => ({ ok: true, status: 200, json: async () => ({ code: '00000', msg: 'success', requestTime: 1700000000000, data }) });
+const ok = (data) => { const body = JSON.stringify({ code: '00000', msg: 'success', requestTime: 1700000000000, data }); return { ok: true, status: 200, headers: { get: () => 'application/json' }, text: async () => body }; };
 const env = { JPTI_BITGET_API_KEY: 'test-key', JPTI_BITGET_API_SECRET: 'test-secret', JPTI_BITGET_API_PASSPHRASE: 'test-passphrase' };
 
 test('Bitget CFD provider requires credentials only on the Cloudflare server', async () => {
