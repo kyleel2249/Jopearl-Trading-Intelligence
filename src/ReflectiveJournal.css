@@ -6,3 +6,5 @@
 .rj-token-input{width:100%;margin:10px 0;padding:10px;border:1px solid rgba(130,160,200,.23);border-radius:8px;background:var(--input,rgba(5,15,29,.5));color:var(--text,#e8eef8);font-size:11px}
 
 .rj-research-list{padding-left:18px;margin:12px 0;color:var(--muted,#b1bfd1);font-size:11px;line-height:1.7}.rj-research-list li{margin:7px 0}.rj-research-list b{color:var(--text,#e8eef8)}.rj-source-links{display:flex;flex-direction:column;gap:8px;margin:12px 0}.rj-source-links a{color:#79baff;font-size:10px;text-decoration:none}.rj-source-links a:hover{text-decoration:underline}
+
+.rj-ai-actions{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:14px 0}.rj-ai-report{margin:14px 0;padding:14px;border:1px solid rgba(100,160,220,.24);border-radius:12px;background:rgba(40,90,145,.07)}.rj-ai-report pre{white-space:pre-wrap;overflow-wrap:anywhere;max-height:760px;overflow:auto;font:11px/1.7 ui-monospace,SFMono-Regular,monospace;color:var(--text,#dbe6f5);margin:12px 0 0}.rj-ai-report .rj-panel-title{align-items:flex-start}
