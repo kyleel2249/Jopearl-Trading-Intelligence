@@ -10,7 +10,11 @@ export function createApiRemote(apiFetch) {
     async save(records) {
       const r = await apiFetch('/api/alpha/gainz/outcomes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ records }) });
       if (!r.ok) throw new Error('outcome save failed (HTTP ' + r.status + ')');
-      return r.json();
+      const data = await r.json();
+      if (Array.isArray(data.rejected) && data.rejected.length) throw new Error('outcome rejected: ' + (data.rejected[0].error || 'invalid record'));
+      const accepted = Number(data.saved || 0) + Number(data.duplicates || 0);
+      if (accepted < records.length) throw new Error('backend acknowledged only ' + accepted + ' of ' + records.length + ' outcome records');
+      return data;
     }
   };
 }
