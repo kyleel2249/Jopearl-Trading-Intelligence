@@ -15,12 +15,13 @@ function LevelCard({label,level,side}) {
  </article>;
 }
 
-export default function SessionLiquidityIntelligence({exchange,symbol,marketType='spot',timeframe='1h',candles=[]}) {
+export default function SessionLiquidityIntelligence({exchange,symbol,marketType='spot',timeframe='1h',candles=[],tickerSnapshot=null,fetchTicker=true}) {
  const [ticker,setTicker]=useState(null);
  const [tickerState,setTickerState]=useState('loading');
  const [refresh,setRefresh]=useState(0);
  useEffect(()=>{
   let alive=true;
+  if(!fetchTicker){setTicker(tickerSnapshot);setTickerState(tickerSnapshot?'live ticker':'candle fallback');return()=>{alive=false;};}
   const load=async()=>{
    if(marketType==='cfd'){setTicker(null);setTickerState('candle fallback');return;}
    try{
@@ -33,7 +34,7 @@ export default function SessionLiquidityIntelligence({exchange,symbol,marketType
   load();
   const timer=setInterval(load,30000);
   return()=>{alive=false;clearInterval(timer);};
- },[exchange,symbol,marketType,refresh]);
+ },[exchange,symbol,marketType,refresh,fetchTicker,tickerSnapshot]);
  const analytics=useMemo(()=>analyze24hLiquidity(candles,{timeframe,ticker}),[candles,timeframe,ticker]);
  const change=analytics.change24h;
  return <section className="glass-panel sli-panel" aria-label="24-hour high low and session liquidity intelligence">
