@@ -47,7 +47,7 @@ test('Cloudflare storage health verifies the event-time index required for outco
   const db = fakeDb();
   const response = await handler(db)({ request: new Request('https://jpti.example/api/storage/health'), env: { JPTI_DB: db, JPTI_KV: { async get() { return null; } } } });
   const data = await response.json();
-  assert.equal(response.status, 200);
+  assert.equal(response.status, 200, JSON.stringify(data));
   assert.deepEqual(data.d1.indexes.sort(), ['jpti_events_kind_time', 'jpti_events_market_snapshot_lookup']);
 });
 test('Cloudflare health reports private service readiness without exposing secrets', async () => {
