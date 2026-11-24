@@ -52,7 +52,7 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble'){
  :strategy==='trend'?trend
  :strategy==='risk'?0
  :strategy==='microstructure'?(spreadPct!==null&&spreadPct<=.12?Math.sign(momentum):0)
- :strategy==='session'?trend*Math.sign(momentum)*sessionWeight
+ :strategy==='session'?(trend===Math.sign(momentum)?Math.sign(momentum)*sessionWeight:0)
  :strategy==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend)
  :strategy==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2)
  :clamp(trend*.35+Math.sign(momentum)*.35+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0),-1,1);
