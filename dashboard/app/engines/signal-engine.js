@@ -79,7 +79,9 @@ export function analyzeSignal(candles, { symbol = 'BTC/USDT', exchange = 'bitget
   const bearScore = evidence.reduce((sum, item) => sum + item.bearish, 0);
   const direction = bullScore === bearScore ? 'neutral' : bullScore > bearScore ? 'long' : 'short';
   const score = Math.max(bullScore, bearScore);
-  const sideScore = direction === 'long' ? bullScore : direction === 'short' ? bearScore : 0;
+  const rawEvidenceScore = direction === 'long' ? bullScore : direction === 'short' ? bearScore : 0;
+  // Current implemented evidence set has 65 available points; normalize it to a stable 0–100 display scale.
+  const sideScore = Math.round((rawEvidenceScore / 65) * 100);
   const entry = Number(last[4]);
   const stopDistance = volatility ? volatility * 1.5 : entry * 0.01;
   const stopLoss = direction === 'long' ? entry - stopDistance : direction === 'short' ? entry + stopDistance : null;
