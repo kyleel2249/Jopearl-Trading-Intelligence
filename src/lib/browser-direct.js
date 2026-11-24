@@ -210,8 +210,13 @@ async function getJson(url, { fetchImpl, signal, timeoutMs = 7000 }) {
   if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', onAbort, { once: true }); }
   try {
     const response = await fetchImpl(url, { method: 'GET', cache: 'no-store', signal: controller.signal, headers: { accept: 'application/json' } });
-    if (!response.ok) throw new DirectError('Exchange answered HTTP ' + response.status + '.', response.status === 404 ? 404 : 502);
-    return await response.json();
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = String(payload?.msg || payload?.message || payload?.error || '').trim().slice(0, 180);
+      throw new DirectError('Exchange answered HTTP ' + response.status + (detail ? ': ' + detail : '.') , response.status === 404 ? 404 : 502);
+    }
+    if (payload === null) throw new DirectError('Exchange returned an invalid JSON response.', 502);
+    return payload;
   } catch (error) {
     if (error instanceof DirectError) throw error;
     throw new DirectError(error && error.name === 'AbortError' ? 'The exchange did not answer in time.' : 'The exchange could not be reached from this browser.', 502);
@@ -375,8 +380,14 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
             }) };
           }));
           const successful = categoryResults.filter((result) => result.status === 'fulfilled').map((result) => result.value);
-          if (!successful.length) throw new DirectError('Bitget instrument catalog is unavailable for every product category.', 502);
-          const failedCategories = categoryResults.map((result, index) => ({ result, category: categories[index] })).filter(({ result }) => result.status === 'rejected').map(({ result, category }) => ({ category, error: result.reason?.message || 'Category unavailable' }));
+          const failedCategories = categoryResults
+            .map((result, index) => ({ result, category: categories[index] }))
+            .filter(({ result }) => result.status === 'rejected')
+            .map(({ result, category }) => ({ category, error: String(result.reason?.message || 'Category unavailable').slice(0, 220) }));
+          if (!successful.length) {
+            const detail = failedCategories.map(({ category, error }) => category + ': ' + error).join('; ');
+            throw new DirectError('Bitget instrument catalog is unavailable for every product category. ' + detail, 502);
+          }
           return successful.flatMap((result) => result.markets).map((market) => ({ ...market, categoryErrors: failedCategories }));
         });
         const normalizedType = normalizeBitgetMarketType(type);
