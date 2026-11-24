@@ -108,7 +108,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [supportedTimeframes, setSupportedTimeframes] = useState(null);
   const [marketType, setMarketType] = useState(initialMarketType || 'futures');
   const [marketSide, setMarketSide] = useState('buy');
-  const [directMode, setDirectMode] = useState(() => getApiSource().mode === 'direct');
+  const [directMode, setDirectMode] = useState(() => ['direct', 'cloudflare-edge'].includes(getApiSource().mode));
+  const [cloudflareMode, setCloudflareMode] = useState(() => getApiSource().mode === 'cloudflare-edge');
   const [marketSearch, setMarketSearch] = useState('');
   const [catalogError, setCatalogError] = useState('');
   const [marketCounts, setMarketCounts] = useState(null);
@@ -143,6 +144,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       const mode = getApiSource().mode;
       const direct = ['direct', 'cloudflare-edge'].includes(mode);
       setDirectMode(direct);
+      setCloudflareMode(mode === 'cloudflare-edge');
       if (mode === 'direct') setMarketType('spot');
     };
     syncSource();
@@ -404,10 +406,10 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <option value="coin-futures" disabled={directMode && exchange !== 'bitget'}>Coin-M Futures</option>
         <option value="usdc-futures" disabled={directMode && exchange !== 'bitget'}>USDC-M Futures</option>
         <option value="margin" disabled={directMode && exchange !== 'bitget'}>Margin</option>
-        <option value="cfd" disabled={exchange !== 'bitget' || !directMode}>CFD · Bitget UTA read-only key required</option>
+        <option value="cfd" disabled={exchange !== 'bitget' || !cloudflareMode}>CFD · Cloudflare UTA read-only key required</option>
         <option value="options" disabled>Options (not enabled in this adapter)</option>
       </select>
-      {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? (marketType === 'cfd' ? 'Bitget CFD chart data uses the separate signed UTA read-only API. Configure the three Bitget credentials as Cloudflare Pages secrets. CFD candle history is side-specific and does not provide traded volume.' : 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. CFD is available through the separate authenticated Cloudflare feed.') : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives, margin and CFD markets.'}</span>}
+      {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? (marketType === 'cfd' ? (cloudflareMode ? 'Bitget CFD chart data uses the separate signed UTA read-only API. Configure the three Bitget credentials as Cloudflare Pages secrets. CFD candle history is side-specific and does not provide traded volume.' : 'Bitget CFD requires the Cloudflare Pages edge API and its encrypted read-only credentials; browser-direct fallback cannot access this signed feed.') : 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. CFD is available through the separate authenticated Cloudflare feed.') : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives, margin and CFD markets.'}</span>}
       {catalogError && marketType === 'cfd' && <span className="subtle-note" role="alert">{catalogError}</span>}
       {marketType === 'cfd' && <label>CFD quote side <select aria-label="CFD candle side" value={marketSide} onChange={(e) => setMarketSide(e.target.value)}><option value="buy">Buy / Ask-side</option><option value="sell">Sell / Bid-side</option></select></label>}
       <input className="market-search" aria-label="Search markets" placeholder="Search pair…" value={marketSearch} onChange={(e) => setMarketSearch(e.target.value)} />
