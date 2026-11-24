@@ -34,7 +34,7 @@ Optional repository variable for native Android builds:
 - `.dev.vars` — local Cloudflare Pages Functions runtime variables. Copy `.dev.vars.example` to `.dev.vars` when needed.
 - Cloudflare dashboard Variables and Secrets — server-side values only. Never put private exchange credentials, signing secrets, or tokens in `VITE_*` variables.
 
-The current Cloudflare edge API provides public spot market catalogs, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget additionally exposes public Margin, USDT-M, Coin-M and USDC-M instrument catalogs, tickers and candles. Exact Bitget instrument IDs are carried through chart, ticker, candle and context requests, including contract IDs that differ from a reconstructed base/quote symbol. Cross-venue ticker comparison and a limited single-timeframe OHLCV context score are also available. These public feeds require no exchange API keys and no separate API gateway. The live post-deploy workflow checks all five Bitget categories; if Bitget returns HTTP 403 to the Pages Worker egress, it reports an edge warning and verifies the same public endpoints directly from the GitHub runner.
+The current Cloudflare edge API provides public spot market catalogs, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget additionally exposes public Margin, USDT-M, Coin-M and USDC-M instrument catalogs, tickers and candles. Bitget CFD instruments, bid/ask midpoint tickers and side-specific historical candles are routed through a separate signed Cloudflare Pages Function using an account-scoped UTA read-only API key. Exact Bitget instrument IDs are carried through chart, ticker, candle and context requests, including contract IDs that differ from a reconstructed base/quote symbol. Cross-venue ticker comparison and a limited single-timeframe OHLCV context score are also available. Spot, Margin and crypto Futures feeds require no exchange API keys or separate API gateway. CFD market data requires the three Cloudflare secrets `JPTI_BITGET_API_KEY`, `JPTI_BITGET_API_SECRET` and `JPTI_BITGET_API_PASSPHRASE`; configure a Bitget UTA API key with Read-only permission only. Never put these values in Vite variables or browser code. CFD candle history is side-specific (`buy` or `sell`) and Bitget does not return traded volume in that candle endpoint. The live post-deploy workflow checks all five Bitget categories; if Bitget returns HTTP 403 to the Pages Worker egress, it reports an edge warning and verifies the same public endpoints directly from the GitHub runner.
 
 ## Runtime capability boundary
 
@@ -53,3 +53,16 @@ npm run dev:pages
 ```
 
 The Pages Functions API is available under `/api/*` when running `wrangler pages dev`.
+
+
+### Bitget CFD Cloudflare secrets
+
+In Cloudflare Dashboard → Workers & Pages → the `jpti` Pages project → Settings → Variables and Secrets, add these as **encrypted secrets** for Production (and Preview if you use preview deployments):
+
+- `JPTI_BITGET_API_KEY`
+- `JPTI_BITGET_API_SECRET`
+- `JPTI_BITGET_API_PASSPHRASE`
+
+Create the Bitget key with **Read-only** permission for UTA market data. Do not grant Trade, Transfer or Withdraw permissions for chart access. Keep the key IP restriction aligned with the egress/IP policy you choose; Cloudflare Pages egress IPs are not a fixed single IP range, so do not bind the key to a guessed IP address. The CFD market-data endpoints require authenticated UTA access; the browser never receives the key or secret.
+
+The CFD product selector is available for Bitget only. Supported CFD chart intervals are 1m, 15m, 1h, 4h and 1d. Buy/Ask and Sell/Bid candles are separate series; the adapter reports zero volume availability rather than inventing CFD volume. CFD ticker `last` is explicitly marked as the bid/ask midpoint because the documented endpoint returns bid and ask rather than a last-trade field.
