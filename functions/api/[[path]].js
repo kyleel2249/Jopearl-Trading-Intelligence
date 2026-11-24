@@ -174,7 +174,7 @@ function json(status, body, request, extra = {}) {
 
 async function verifyJournalToken(request, env) {
   const expected = String(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN || '');
-  const provided = String(request.headers.get('x-jpti-api-token') || request.headers.get('authorization')?.replace(/^Bearer\\s+/i, '') || '');
+  const provided = String(request.headers.get('x-jpti-api-token') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '');
   if (!expected) return { ok: false, status: 503, error: 'Private journal storage is not configured. Set the JPTI_JOURNAL_TOKEN Cloudflare secret.' };
   const [a,b] = await Promise.all([
     crypto.subtle.digest('SHA-256', new TextEncoder().encode(expected)),
@@ -251,7 +251,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       return new Response(null, { status: 204, headers });
     }
-    if (url.pathname.replace(/\\/+$/, '') === '/api/journal/entries') {
+    if (url.pathname.replace(/\/+$/, '') === '/api/journal/entries') {
       if (!['GET', 'HEAD', 'POST'].includes(request.method)) return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, HEAD, POST, OPTIONS' });
       if (request.method === 'HEAD') return json(200, { status: 'available' }, request);
       return handleJournalRoute(request, env, url);
