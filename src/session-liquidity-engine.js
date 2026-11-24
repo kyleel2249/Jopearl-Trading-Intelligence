@@ -1,0 +1,201 @@
+import { TRADING_SESSIONS } from './session-intelligence.js';
+
+const HOUR = 60 * 60 * 1000;
+const DAY = 24 * HOUR;
+const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+const mean = values => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : null;
+
+export function timeframeToMs(value = '1h') {
+  const match = String(value).trim().match(/^(\d+)(m|h|d|w)$/i);
+  if (!match) return HOUR;
+  const amount = Number(match[1]);
+  return amount * ({ m: 60_000, h: HOUR, d: DAY, w: 7 * DAY })[match[2].toLowerCase()];
+}
+
+function zonedParts(timestamp, timeZone) {
+  const parts = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date(timestamp)).map(part => [part.type, part.value]));
+  return { date: parts.year + '-' + parts.month + '-' + parts.day, minute: Number(parts.hour) * 60 + Number(parts.minute) };
+}
+
+function sessionContains(timestamp, session) {
+  const local = zonedParts(timestamp, session.timezone);
+  const [openHour, openMinute] = session.open.split(':').map(Number);
+  const [closeHour, closeMinute] = session.close.split(':').map(Number);
+  const minute = local.minute;
+  return minute >= openHour * 60 + openMinute && minute < closeHour * 60 + closeMinute;
+}
+
+function normalizeCandles(input = []) {
+  return input.map(row => Array.isArray(row)
+    ? row.slice(0, 6).map(Number)
+    : [row?.timestamp, row?.open, row?.high, row?.low, row?.close, row?.volume].map(Number))
+    .filter(row => row.length === 6 && row.every(Number.isFinite) && row[0] > 0
+      && row[2] >= row[3] && row[1] > 0 && row[4] > 0)
+    .sort((a, b) => a[0] - b[0]);
+}
+
+function findExtreme(candles, index, side, timeframeMs) {
+  const row = candles[index];
+  return { price: row[side === 'high' ? 2 : 3], timestamp: row[0], candleCloseAt: row[0] + timeframeMs };
+}
+
+function pctDistance(price, level) {
+  return Number.isFinite(price) && Number.isFinite(level) && level !== 0
+    ? ((price - level) / level) * 100 : null;
+}
+
+function nearestExtremeCandle(candles, level, side) {
+  if (!Number.isFinite(level)) return null;
+  const tolerance = Math.max(Math.abs(level) * 0.00025, 1e-10);
+  let best = null;
+  for (const candle of candles) {
+    const value = candle[side === 'high' ? 2 : 3];
+    if (Math.abs(value - level) <= tolerance && (!best || candle[0] > best.timestamp)) {
+      best = { timestamp: candle[0], open: candle[1], high: candle[2], low: candle[3], close: candle[4] };
+    }
+  }
+  return best;
+}
+
+function sessionAttribution(candles, level, side) {
+  const match = nearestExtremeCandle(candles, level, side);
+  if (!match) return { session: 'Unattributed', timestamp: null, confidence: 'unavailable' };
+  const session = TRADING_SESSIONS.find(item => sessionContains(match.timestamp, item));
+  return {
+    session: session?.name || 'Outside configured sessions',
+    timestamp: new Date(match.timestamp).toISOString(),
+    confidence: 'candle-match',
+    note: 'Session attribution is inferred from the loaded OHLCV candle containing the exchange-reported extreme.'
+  };
+}
+
+function sessionRanges(candles, start, end) {
+  return TRADING_SESSIONS.map(session => {
+    const rows = candles.filter(row => row[0] < end && row[0] + 1 >= start && sessionContains(row[0], session));
+    if (!rows.length) return { ...session, high: null, low: null, range: null, candles: 0, volume: 0, status: 'no-data' };
+    const high = Math.max(...rows.map(row => row[2]));
+    const low = Math.min(...rows.map(row => row[3]));
+    return {
+      ...session, high, low, range: high - low, candles: rows.length,
+      volume: rows.reduce((sum, row) => sum + row[5], 0),
+      changePercent: rows[0][1] ? ((rows.at(-1)[4] - rows[0][1]) / rows[0][1]) * 100 : null,
+      highTimestamp: new Date(rows.find(row => row[2] === high)[0]).toISOString(),
+      lowTimestamp: new Date(rows.find(row => row[3] === low)[0]).toISOString(),
+      status: 'observed'
+    };
+  });
+}
+
+function previousUtcDay(candles, now) {
+  const currentDay = Math.floor(now / DAY) * DAY;
+  const rows = candles.filter(row => row[0] >= currentDay - DAY && row[0] < currentDay);
+  if (!rows.length) return { high: null, low: null, status: 'insufficient-history' };
+  const high = Math.max(...rows.map(row => row[2]));
+  const low = Math.min(...rows.map(row => row[3]));
+  return {
+    high, low, status: 'observed',
+    highTimestamp: new Date(rows.find(row => row[2] === high)[0]).toISOString(),
+    lowTimestamp: new Date(rows.find(row => row[3] === low)[0]).toISOString()
+  };
+}
+
+function detectLevelInteraction(candles, level, side, timeframeMs) {
+  if (!Number.isFinite(level) || candles.length < 2) return { state: 'unavailable' };
+  const recent = candles.slice(-Math.min(8, candles.length));
+  const last = recent.at(-1);
+  const touched = recent.find(row => side === 'high' ? row[2] > level : row[3] < level);
+  if (!touched) return { state: 'untested' };
+  const reclaimed = side === 'high' ? last[4] < level : last[4] > level;
+  const latestCross = [...recent].reverse().find(row => side === 'high' ? row[2] > level : row[3] < level);
+  if (reclaimed) return {
+    state: 'sweep-and-reclaim',
+    direction: side === 'high' ? 'bearish-rejection' : 'bullish-reclaim',
+    touchedAt: new Date(latestCross[0]).toISOString(),
+    confirmedAt: new Date(last[0]).toISOString(),
+    barsSinceTouch: recent.length - 1 - recent.indexOf(latestCross)
+  };
+  return {
+    state: 'breakout-or-acceptance',
+    direction: side === 'high' ? 'bullish-acceptance' : 'bearish-acceptance',
+    touchedAt: new Date(latestCross[0]).toISOString(),
+    pending: last[0] + timeframeMs > Date.now()
+  };
+}
+
+export function analyze24hLiquidity(candleInput = [], {
+  now = Date.now(), timeframe = '1h', ticker = null, proximityPercent = 0.15
+} = {}) {
+  const candles = normalizeCandles(candleInput);
+  const timeframeMs = timeframeToMs(timeframe);
+  const start = now - DAY;
+  const windowCandles = candles.filter(row => row[0] < now && row[0] + timeframeMs > start);
+  const latest = windowCandles.at(-1) || candles.at(-1) || null;
+  const candleHigh = windowCandles.length ? findExtreme(windowCandles, windowCandles.reduce((best, row, i, all) => row[2] > all[best][2] ? i : best, 0), 'high', timeframeMs) : null;
+  const candleLow = windowCandles.length ? findExtreme(windowCandles, windowCandles.reduce((best, row, i, all) => row[3] < all[best][3] ? i : best, 0), 'low', timeframeMs) : null;
+
+  const tickerHigh = Number(ticker?.high);
+  const tickerLow = Number(ticker?.low);
+  const high = Number.isFinite(tickerHigh) && tickerHigh > 0 ? tickerHigh : candleHigh?.price ?? null;
+  const low = Number.isFinite(tickerLow) && tickerLow > 0 ? tickerLow : candleLow?.price ?? null;
+  const last = Number(ticker?.last) > 0 ? Number(ticker.last) : latest?.[4] ?? null;
+  const highSource = Number.isFinite(tickerHigh) && tickerHigh > 0 ? 'exchange-24h-ticker' : 'loaded-ohlcv-window';
+  const lowSource = Number.isFinite(tickerLow) && tickerLow > 0 ? 'exchange-24h-ticker' : 'loaded-ohlcv-window';
+  const range = high != null && low != null ? high - low : null;
+  const rangePercent = range != null && low > 0 ? range / low * 100 : null;
+  const rangePosition = range > 0 && last != null ? clamp((last - low) / range * 100, 0, 100) : null;
+  const change24h = Number.isFinite(Number(ticker?.percentage)) ? Number(ticker.percentage)
+    : Number.isFinite(Number(ticker?.open)) && Number(ticker.open) > 0 && last != null
+      ? (last - Number(ticker.open)) / Number(ticker.open) * 100 : null;
+
+  const highInteraction = detectLevelInteraction(candles, high, 'high', timeframeMs);
+  const lowInteraction = detectLevelInteraction(candles, low, 'low', timeframeMs);
+  const previousDay = previousUtcDay(candles, now);
+  const sessions = sessionRanges(windowCandles, start, now);
+  const ranges = windowCandles.map(row => row[2] - row[3]).filter(value => value > 0);
+  const averageCandleRange = mean(ranges.slice(-24));
+  const latestRange = latest ? latest[2] - latest[3] : null;
+  const rangeMultiple = averageCandleRange && latestRange != null ? latestRange / averageCandleRange : null;
+  const volumes = windowCandles.map(row => row[5]).filter(value => value >= 0);
+  const baselineVolume = mean(volumes.slice(-24, -3));
+  const recentVolume = mean(volumes.slice(-3));
+  const volumeMultiple = baselineVolume > 0 && recentVolume != null ? recentVolume / baselineVolume : null;
+
+  const highNear = high != null && last != null && Math.abs(pctDistance(last, high)) <= proximityPercent;
+  const lowNear = low != null && last != null && Math.abs(pctDistance(last, low)) <= proximityPercent;
+  const nearest = highNear ? '24h-high' : lowNear ? '24h-low'
+    : high != null && low != null && last != null
+      ? (Math.abs(last - high) < Math.abs(last - low) ? '24h-high' : '24h-low') : null;
+  const bias = rangePosition == null ? 'unavailable'
+    : rangePosition >= 70 ? 'upper-range'
+      : rangePosition <= 30 ? 'lower-range' : 'mid-range';
+  const alerts = [];
+  if (highInteraction.state === 'sweep-and-reclaim') alerts.push({ severity: 'watch', code: 'HIGH_SWEEP_RECLAIM', message: 'Price traded above the 24-hour high and returned below it; watch for bearish follow-through.' });
+  if (lowInteraction.state === 'sweep-and-reclaim') alerts.push({ severity: 'watch', code: 'LOW_SWEEP_RECLAIM', message: 'Price traded below the 24-hour low and reclaimed it; watch for bullish follow-through.' });
+  if (rangeMultiple != null && rangeMultiple >= 2) alerts.push({ severity: 'caution', code: 'RANGE_EXPANSION', message: 'The latest candle range is at least 2× the recent average.' });
+  if (volumeMultiple != null && volumeMultiple >= 2) alerts.push({ severity: 'info', code: 'VOLUME_EXPANSION', message: 'Recent three-candle volume is at least 2× the preceding baseline.' });
+  if (highNear) alerts.push({ severity: 'info', code: 'NEAR_24H_HIGH', message: 'Price is within the configured proximity threshold of the 24-hour high.' });
+  if (lowNear) alerts.push({ severity: 'info', code: 'NEAR_24H_LOW', message: 'Price is within the configured proximity threshold of the 24-hour low.' });
+
+  return {
+    status: latest && high != null && low != null ? 'ready' : 'insufficient',
+    asOf: new Date(now).toISOString(), windowStart: new Date(start).toISOString(),
+    timeframe, candleCount: windowCandles.length, last,
+    levels: {
+      high: { price: high, source: highSource, ...sessionAttribution(windowCandles, high, 'high'), interaction: highInteraction },
+      low: { price: low, source: lowSource, ...sessionAttribution(windowCandles, low, 'low'), interaction: lowInteraction },
+      previousUtcDay: previousDay
+    },
+    range: { absolute: range, percent: rangePercent, positionPercent: rangePosition, location: bias },
+    proximity: { thresholdPercent: proximityPercent, nearest, nearHigh: highNear, nearLow: lowNear,
+      distanceToHighPercent: pctDistance(last, high), distanceToLowPercent: pctDistance(last, low) },
+    sessions,
+    volatility: { averageCandleRange, latestCandleRange: latestRange, latestRangeMultiple: rangeMultiple,
+      recentVolumeAverage: recentVolume, baselineVolumeAverage: baselineVolume, volumeMultiple },
+    change24h,
+    alerts,
+    methodology: 'The exchange ticker is authoritative for the rolling 24-hour high/low when available. Candle-derived levels are a fallback over bars intersecting the rolling window. Session attribution is inferred only when a loaded candle matches the reported extreme; otherwise it is explicitly unattributed. Previous-day levels use UTC boundaries.'
+  };
+}
