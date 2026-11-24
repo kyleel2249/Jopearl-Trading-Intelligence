@@ -133,7 +133,7 @@ export default function LiveOrderFlowPanel({
         // The socket may already have closed during component teardown.
       }
     };
-  }, [exchange, symbol, marketType]);
+  }, [exchange, symbol, marketType, instrumentId]);
 
   const flow = useMemo(
     () => aggregateTrades(trades, clock),
