@@ -1,7 +1,7 @@
 // Deterministic paper-trading research engine. No exchange order API is imported or exposed.
 export const PAPER_POLICY=Object.freeze({
  mode:'PAPER_ONLY',initialEquityUsd:1,riskPerTradePct:0.25,maxDailyLossPct:2,maxDrawdownPct:5,
- maxOpenPositions:1,maxConcurrentPerAgent:1,maxLeverage:1,feeRate:0.0006,slippageBps:5,spreadBps:3,
+ maxOpenPositions:1,maxConcurrentPerAgent:1,maxFleetOpenPositions:10,maxOpenPerSymbol:2,maxSameDirectionOpenPositions:6,maxLeverage:1,feeRate:0.0006,slippageBps:5,spreadBps:3,
  targetWinRatePct:98,minimumClosedTrades:200,minimumObservationDays:90,minimumProfitFactor:1.5,
  minimumExpectancyR:0.15,minimumSharpe:0.8,minimumRegimeTrades:30,minimumOutOfSampleTrades:50,
  maximumConsecutiveLosses:5,maximumRiskBreaches:0,minimumNetProfitUsd:0.01
@@ -9,7 +9,7 @@ export const PAPER_POLICY=Object.freeze({
 export const AGENT_RESOURCES=Object.freeze([
  'Bitget public spot and USDT-perpetual market feeds','Closed-candle history and 1m/5m/15m/1h signal context',
  'Fee, spread, slippage and latency simulator','Ten strategy archetypes with independent performance ledgers',
- 'Market regime, volatility and session classifiers','Risk, correlation and capital-survival monitor',
+ 'Market regime, volatility and session classifiers','Fleet exposure, direction concentration and capital-survival monitor',
  'Trade attribution, fee/slippage analysis and daily review','Walk-forward and untouched forward-validation window'
 ]);
 const definitions=[
