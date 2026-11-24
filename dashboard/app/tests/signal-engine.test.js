@@ -18,7 +18,7 @@ test('EMA, RSI and ATR return finite values on valid series', () => {
 
 test('signal engine excludes a still-forming candle and emits deterministic levels', () => {
   const rows = candles();
-  const result = analyzeSignal(rows, { now: rows.at(-1)[0] + 3_600_000 });
+  const result = analyzeSignal(rows, { now: rows.at(-1)[0] + 3_600_000 - 1 });
   assert.equal(result.dataQuality.formingCandleExcluded, true);
   assert.equal(result.dataQuality.completedCandles, 99);
   assert.equal(result.targets.length, 3);
