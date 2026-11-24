@@ -10,7 +10,7 @@ const INITIAL_ENTRY = {
   createdAt: '2026-11-24T00:00:00.000Z',
   symbol: 'SOPH/USDT',
   exchange: 'Not specified by user',
-  marketType: 'USDT-M Futures',
+  marketType: 'Futures (contract type not confirmed)',
   direction: 'long',
   timeframe: '15m',
   orderType: 'Limit',
