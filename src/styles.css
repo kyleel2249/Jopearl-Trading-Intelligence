@@ -132,3 +132,7 @@ html body .trading-chart-panel .candlestick-svg-wrap svg,html body .dash-center-
 @media(max-width:820px){html body .trading-chart-panel .candlestick-svg-wrap,html body .dash-center-column .candlestick-svg-wrap{height:clamp(320px,78vw,480px)}}
 html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fixed;inset:8px;z-index:1200;height:auto;min-height:0;box-shadow:0 0 0 100vmax rgba(3,8,16,.86)}
 .chart-countdown strong{font-variant-numeric:tabular-nums}
+
+/* Expanded candle history: keep candle spacing stable and allow both-axis navigation. */
+.candlestick-svg-wrap{overflow-x:auto;overflow-y:auto;overflow:auto;overscroll-behavior:contain}
+.candlestick-svg-wrap svg{width:auto!important;max-width:none;height:auto!important;min-height:100%}
