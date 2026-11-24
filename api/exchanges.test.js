@@ -24,3 +24,23 @@ test('market classification retains margin and CFD metadata', () => {
   assert.deepEqual(classifyMarket({ type: 'spot', spot: true, margin: true }).categories, ['spot', 'margin']);
   assert.deepEqual(classifyMarket({ type: 'cfd', cfd: true }).categories, ['cfd']);
 });
+
+test('matchesProductType keeps legacy filters and adds Coin-M and USDC-M products', async () => {
+  const { matchesProductType } = await import('./exchanges.js');
+  const spot = { type: 'spot', spot: true };
+  const usdtPerp = { type: 'swap', swap: true, contract: true, linear: true, settle: 'USDT' };
+  const usdcPerp = { type: 'swap', swap: true, contract: true, linear: true, settle: 'USDC' };
+  const coinPerp = { type: 'swap', swap: true, contract: true, inverse: true, settle: 'BTC' };
+  const coinFuture = { type: 'future', future: true, contract: true, inverse: true, settle: 'ETH' };
+  assert.equal(matchesProductType(spot, 'all'), true);
+  assert.equal(matchesProductType(spot, 'spot'), true);
+  assert.equal(matchesProductType(spot, 'futures'), false);
+  assert.equal(matchesProductType(usdtPerp, 'futures'), true, 'futures still includes perpetuals');
+  assert.equal(matchesProductType(usdtPerp, 'usdc-futures'), false);
+  assert.equal(matchesProductType(usdcPerp, 'usdc-futures'), true);
+  assert.equal(matchesProductType(usdcPerp, 'coin-futures'), false);
+  assert.equal(matchesProductType(coinPerp, 'coin-futures'), true);
+  assert.equal(matchesProductType(coinFuture, 'coin-futures'), true);
+  assert.equal(matchesProductType(spot, 'coin-futures'), false);
+  assert.equal(matchesProductType({ ...usdcPerp, categories: ['perpetual'] }, 'usdc-futures'), true, 'accepts the already-mapped catalogue shape');
+});

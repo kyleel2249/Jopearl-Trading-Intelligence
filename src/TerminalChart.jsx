@@ -6,17 +6,11 @@ import GainzAlphaOverlays from './gainz-alpha/GainzAlphaOverlays.jsx';
 import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.js';
 import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
+import { candleCountdown, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
 
 const UP = '#22c58b', DOWN = '#ef5361';
 const SESSION_TINT = { sydney: '#8b7cf6', tokyo: '#4a9bf5', london: '#3b82f6', 'new-york': '#f0a848' };
 const FOCUS_ORDER = ['london', 'new-york', 'tokyo', 'sydney'];
-
-function niceStep(range, target = 7) {
-  const raw = range / target;
-  const mag = 10 ** Math.floor(Math.log10(raw));
-  const norm = raw / mag;
-  return (norm < 1.5 ? 1 : norm < 3 ? 2 : norm < 7 ? 5 : 10) * mag;
-}
 
 function bollinger(closes, period = 20, mult = 2) {
   return closes.map((_, i) => {
@@ -48,21 +42,26 @@ function timeLabel(ts, timeframe) {
 }
 
 export default function TerminalChart({ exchange = 'bitget', marketType = 'spot', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
-  const wrapRef = useRef(null);
+  // Callback ref: the wrapper only exists once candles have loaded (the empty/loading states render without it), so a
+  // mount-only effect never attached the observer and the SVG stayed at its 820x400 default instead of filling the panel.
+  const [wrapEl, setWrapEl] = useState(null);
   const [size, setSize] = useState({ w: 820, h: 400 });
   const [count, setCount] = useState(96);
   const [hover, setHover] = useState(null);
+  const [hoverY, setHoverY] = useState(null);
+  const [priceZoom, setPriceZoom] = useState(1);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
 
   useEffect(() => {
-    const el = wrapRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!wrapEl || typeof ResizeObserver === 'undefined') return undefined;
     const ro = new ResizeObserver(([entry]) => {
       const { width, height } = entry.contentRect;
-      if (width > 80 && height > 80) setSize({ w: Math.round(width), h: Math.round(height) });
+      if (width > 80 && height > 80) setSize((current) => (current.w === Math.round(width) && current.h === Math.round(height) ? current : { w: Math.round(width), h: Math.round(height) }));
     });
-    ro.observe(el);
+    ro.observe(wrapEl);
     return () => ro.disconnect();
-  }, []);
+  }, [wrapEl]);
 
   const valid = useMemo(() => (candles || []).filter((c) => Array.isArray(c) && c.length >= 6 && c.slice(0, 6).every((v) => Number.isFinite(Number(v)))).map((c) => c.slice(0, 6).map(Number)), [candles]);
   const ga = useGainzAlpha({ exchange: exchange || (context && context.exchange) || 'bitget', symbol, timeframe, candles: valid });
@@ -77,28 +76,28 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const bands = useMemo(() => (overlays.bands ? bollinger(valid.map((c) => c[4])).slice(offset) : null), [valid, overlays.bands, offset]);
   const ranges = useMemo(() => liquidityRanges(context?.liquidity, valid.at(-1)?.[4]), [context, valid]);
 
+  // The plot fills the whole panel: candles run from the left edge to the price axis and from the top to the time axis.
   const geo = useMemo(() => {
     if (!rows.length) return null;
-    const left = 10, right = size.w - 62, top = 14, bottom = size.h - 24;
-    const volH = Math.round((bottom - top) * 0.16);
-    const priceBottom = bottom - volH - 6;
+    const left = 6, top = 10, bottom = size.h - 22;
+    const priceBottom = bottom;
     const extra = [];
     if (overlays.liquidity) { if (ranges.buySide) extra.push(ranges.buySide.high); if (ranges.sellSide) extra.push(ranges.sellSide.low); }
     let lo = Math.min(...rows.map((c) => c[3]), ...extra), hi = Math.max(...rows.map((c) => c[2]), ...extra);
     if (ci?.volumeProfile) { lo = Math.min(lo, ci.volumeProfile.low); hi = Math.max(hi, ci.volumeProfile.high); }
     if (bands) { bands.filter(Boolean).forEach((b) => { lo = Math.min(lo, b.lower); hi = Math.max(hi, b.upper); }); }
     const pad = (hi - lo || hi * 0.002 || 1) * 0.06;
-    lo -= pad; hi += pad;
+    const lastClose = rows[rows.length - 1][4];
+    ({ low: lo, high: hi } = applyPriceZoom(lo - pad, hi + pad, priceZoom, priceZoom > 1 ? lastClose : undefined));
+    const { pip } = resolvePipSize({ symbol, price: lastClose, profilePip: profile.pip });
+    const axis = buildPriceAxis({ min: lo, max: hi, heightPx: priceBottom - top, pip, minLabelPx: 14 });
+    const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatPrice(lastClose, profile)]);
+    const right = Math.max(left + 80, size.w - axisW);
     const slot = (right - left) / rows.length;
     const x = (i) => left + (i + 0.5) * slot;
     const y = (p) => top + ((hi - p) / (hi - lo)) * (priceBottom - top);
-    const maxVol = Math.max(1, ...rows.map((c) => c[5]));
-    const step = niceStep(hi - lo, Math.max(4, Math.round((priceBottom - top) / 52)));
-    const ticks = [];
-    for (let p = Math.ceil(lo / step) * step; p <= hi; p += step) ticks.push(p);
-    const decimals = Math.min(profile.digits, Math.max(profile.fx ? 4 : 0, Math.ceil(-Math.log10(step) - 1e-9)));
-    return { left, right, top, bottom, priceBottom, volH, slot, x, y, lo, hi, maxVol, ticks, decimals };
-  }, [rows, size, ranges, overlays.liquidity, bands, profile.digits, ci?.volumeProfile]);
+    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, decimals: axis.decimals };
+  }, [rows, size, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
 
   const focus = useMemo(() => {
     const active = strip?.snapshot?.activeSessionIds || [];
@@ -128,6 +127,22 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     return z && z.end <= closed ? { ...z, i0: z.start - offset } : null;
   }, [smc, overlays.institutional, valid.length, offset]);
 
+  const edgeRef = useRef(0);
+  edgeRef.current = geo ? geo.right : 0;
+  const maxCountRef = useRef(200);
+  maxCountRef.current = valid.length || 200;
+  useEffect(() => {
+    if (!wrapEl) return undefined;
+    const onNativeWheel = (event) => {
+      event.preventDefault();
+      const box = wrapEl.getBoundingClientRect();
+      if (edgeRef.current && event.clientX - box.left > edgeRef.current) setPriceZoom((v) => Math.max(0.5, Math.min(12, v * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
+      else setCount((c) => Math.max(40, Math.min(maxCountRef.current, c + (event.deltaY > 0 ? 8 : -8))));
+    };
+    wrapEl.addEventListener('wheel', onNativeWheel, { passive: false });
+    return () => wrapEl.removeEventListener('wheel', onNativeWheel);
+  }, [wrapEl]);
+
   if (error && !valid.length) return <div className="tc-empty tc-error" role="alert"><b>Market data unavailable</b><span>{error}</span></div>;
   if (!geo) return <div className="tc-empty"><span>{loading ? 'Loading market data…' : 'No candle data for this market and timeframe.'}</span></div>;
 
@@ -138,6 +153,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const changePct = change !== null && prev[4] ? change / prev[4] * 100 : null;
   const last = rows.at(-1);
   const lastUp = last[4] >= last[1];
+  const countdown = candleCountdown(last[0], timeframe, now);
   const bodyW = Math.max(1.5, Math.min(14, geo.slot * 0.68));
   const rightEdge = geo.right;
   const zoneRect = (low, high, minThickness) => {
@@ -152,13 +168,10 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const px = event.clientX - box.left;
     const i = Math.round((px - geo.left) / geo.slot - 0.5);
     setHover(i >= 0 && i < rows.length ? i : null);
-  };
-  const onWheel = (event) => {
-    event.preventDefault();
-    setCount((c) => Math.max(40, Math.min(valid.length || 200, c + (event.deltaY > 0 ? 8 : -8))));
+    setHoverY(event.clientY - box.top);
   };
 
-  return <div className="tc-wrap" ref={wrapRef}>
+  return <div className="tc-wrap" ref={setWrapEl}>
     <div className="tc-ohlc" aria-live="off">
       <b>{symbol.replace('/', '')}</b><span className="tc-dot">·</span><span>{timeframe.replace('1d', '1D').replace('1h', '1H').replace('4h', '4H')}</span>
       {ga.result && ga.result.confirmed && ga.result.confirmed.status === 'ready' && <span className="tc-ga" title={ga.result.confirmed.confidenceNote}>{'α ' + ga.result.confirmed.signal + ' ' + ga.result.confirmed.confidence + '% · ' + ga.result.confirmed.stage.toLowerCase().replaceAll('_', ' ')}{ga.result.preview && ga.result.preview.status === 'ready' && ga.result.preview.signal !== ga.result.confirmed.signal ? ' · preview ' + ga.result.preview.signal : ''}</span>}
@@ -166,7 +179,9 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <span>O<b>{formatPrice(active[1], profile)}</b></span><span>H<b>{formatPrice(active[2], profile)}</b></span>
         <span>L<b>{formatPrice(active[3], profile)}</b></span><span>C<b>{formatPrice(active[4], profile)}</b></span>
         {change !== null && <span className={change >= 0 ? 'tc-up' : 'tc-down'}>{(change >= 0 ? '+' : '') + formatPrice(change, profile)} ({(changePct >= 0 ? '+' : '') + changePct.toFixed(2)}%)</span>}
+        <span title="High to low of this candle">Range<b>{pipDistance(active[3], active[2], geo.pip) ?? '—'}</b>{profile.unit || 'pips'}</span>
       </>}
+      {countdown && !countdown.expired && <span className="tc-count" title="Time until the forming candle closes">Closes in<b>{countdown.label}</b></span>}
     </div>
     <div className="tc-legend" role="group" aria-label="Chart overlays">
       {[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([key, label]) =>
@@ -196,9 +211,11 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       </div>}
     </details>
     <svg ref={svgRef} width={size.w} height={size.h} viewBox={'0 0 ' + size.w + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
-      onMouseMove={onMove} onMouseLeave={() => setHover(null)} onWheel={onWheel} xmlns="http://www.w3.org/2000/svg">
+      onMouseMove={onMove} onMouseLeave={() => { setHover(null); setHoverY(null); }} onDoubleClick={(event) => { if (event.clientX - event.currentTarget.getBoundingClientRect().left > geo.right) setPriceZoom(1); }} xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width={size.w} height={size.h} fill="#091221"/>
-      {geo.ticks.map((p) => <g key={p}><line x1={geo.left} x2={rightEdge} y1={y(p)} y2={y(p)} stroke="#16243a" strokeWidth="1"/><text x={rightEdge + 8} y={y(p) + 3} fill="#7f91aa" fontSize="10" fontFamily="DM Sans, sans-serif">{p.toFixed(geo.decimals)}</text></g>)}
+      {geo.minor.map((p) => <line key={'m' + p} x1={geo.left} x2={rightEdge} y1={y(p)} y2={y(p)} stroke="#0f1b2e" strokeWidth="1"/>)}
+      {geo.ticks.map((t) => <g key={t.price}><line x1={geo.left} x2={rightEdge} y1={y(t.price)} y2={y(t.price)} stroke="#16243a" strokeWidth="1"/><text x={rightEdge + 8} y={y(t.price) + 3} fill={t.major ? '#93a4bc' : '#7f91aa'} fontSize="10" fontFamily="DM Sans, sans-serif">{t.label}</text></g>)}
+      <line x1={rightEdge} x2={rightEdge} y1={geo.top} y2={geo.priceBottom} stroke="#1a2a44" strokeWidth="1"/>
       {rows.map((c, i) => (i % Math.max(1, Math.round(rows.length / 8)) === 0) && <g key={'t' + c[0]}><line x1={x(i)} x2={x(i)} y1={geo.top} y2={geo.bottom - 4} stroke="#122035" strokeWidth="1"/><text x={x(i)} y={size.h - 7} textAnchor="middle" fill="#6f819b" fontSize="10" fontFamily="DM Sans, sans-serif">{timeLabel(c[0], timeframe)}</text></g>)}
 
       {sessionBands.map(({ session, runs }) => runs.map(([a, b]) => {
@@ -235,13 +252,20 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       <ChartIntelligenceOverlays result={ci} layers={ciLayers} rows={rows} geometry={geo} profile={profile} />
       {rows.map((c, i) => { const up = c[4] >= c[1]; const col = up ? UP : DOWN; const h = Math.max(1, Math.abs(y(c[4]) - y(c[1])));
         return <g key={c[0]}><line x1={x(i)} x2={x(i)} y1={y(c[2])} y2={y(c[3])} stroke={col} strokeWidth="1"/>
-          <rect x={x(i) - bodyW / 2} y={Math.min(y(c[1]), y(c[4]))} width={bodyW} height={h} fill={col}/>
-          <rect x={x(i) - bodyW / 2} y={geo.bottom - 4 - (c[5] / geo.maxVol) * geo.volH} width={bodyW} height={(c[5] / geo.maxVol) * geo.volH} fill={col} opacity=".42"/></g>; })}
+          <rect x={x(i) - bodyW / 2} y={Math.min(y(c[1]), y(c[4]))} width={bodyW} height={h} fill={col}/></g>; })}
 
       <line x1={geo.left} x2={rightEdge} y1={y(last[4])} y2={y(last[4])} stroke={lastUp ? UP : DOWN} strokeDasharray="2 3" strokeOpacity=".8"/>
-      <g transform={'translate(' + (rightEdge + 2) + ' ' + (y(last[4]) - 9) + ')'}><rect width="56" height="18" rx="3" fill={lastUp ? UP : DOWN}/><text x="28" y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700" fontFamily="DM Sans, sans-serif">{formatPrice(last[4], profile).slice(0, 8)}</text></g>
+      {(() => { const tagW = geo.axisW - 4, tagY = Math.max(geo.top + 9, Math.min(geo.priceBottom - 9, y(last[4])));
+        return <g pointerEvents="none"><g transform={'translate(' + (rightEdge + 2) + ' ' + (tagY - 9) + ')'}><rect width={tagW} height="18" rx="3" fill={lastUp ? UP : DOWN}/><text x={tagW / 2} y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700" fontFamily="DM Sans, sans-serif">{formatPrice(last[4], profile)}</text></g>
+          {countdown && !countdown.expired && <g transform={'translate(' + (rightEdge + 2) + ' ' + (tagY + 10) + ')'}><rect width={tagW} height="15" rx="3" fill="#152238" stroke="#2c3f5c"/><text x={tagW / 2} y="11" textAnchor="middle" fill="#b8c7dc" fontSize="9.5" fontFamily="DM Sans, sans-serif">{countdown.label}</text></g>}</g>; })()}
 
-      {hover !== null && <g pointerEvents="none"><line x1={x(hover)} x2={x(hover)} y1={geo.top} y2={geo.bottom - 4} stroke="#6f819b" strokeDasharray="3 3"/><line x1={geo.left} x2={rightEdge} y1={y(rows[hover][4])} y2={y(rows[hover][4])} stroke="#6f819b" strokeDasharray="3 3"/></g>}
+      {hover !== null && rows[hover] && (() => {
+        const insideY = hoverY !== null && hoverY >= geo.top && hoverY <= geo.priceBottom, tagW = geo.axisW - 4;
+        const hoverPrice = insideY ? geo.hi - (hoverY - geo.top) / (geo.priceBottom - geo.top) * (geo.hi - geo.lo) : null;
+        const pips = hoverPrice === null ? null : pipDistance(last[4], hoverPrice, geo.pip);
+        return <g pointerEvents="none"><line x1={x(hover)} x2={x(hover)} y1={geo.top} y2={geo.bottom - 4} stroke="#6f819b" strokeDasharray="3 3"/>
+          {insideY && <><line x1={geo.left} x2={rightEdge} y1={hoverY} y2={hoverY} stroke="#6f819b" strokeDasharray="3 3"/>
+            <g transform={'translate(' + (rightEdge + 2) + ' ' + (hoverY - 15) + ')'}><rect width={tagW} height="30" rx="3" fill="#24344d" stroke="#4a6385"/><text x={tagW / 2} y="12" textAnchor="middle" fill="#e6eefb" fontSize="10.5" fontWeight="700" fontFamily="DM Sans, sans-serif">{formatPrice(hoverPrice, profile)}</text><text x={tagW / 2} y="25" textAnchor="middle" fill={pips !== null && pips < 0 ? DOWN : UP} fontSize="9.5" fontFamily="DM Sans, sans-serif">{pips === null ? '' : (pips > 0 ? '+' : '') + pips + ' ' + (profile.unit || 'pips')}</text></g></>}</g>; })()}
       <GainzAlphaOverlays ga={ga} geometry={{ rows, min: geo.lo, max: geo.hi, left: geo.left, right: geo.right, top: geo.top, x, y }} />
     </svg>
     {loading && <span className="tc-loading">Updating…</span>}

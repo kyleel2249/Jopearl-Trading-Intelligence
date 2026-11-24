@@ -238,3 +238,6 @@
 .ci-terminal-foot{display:flex;gap:10px;flex-wrap:wrap;color:#7187a4;font-size:9px}
 .ci-chart-zone{pointer-events:none}
 @media(max-width:560px){.ci-terminal-summary{gap:6px 9px}.ci-terminal-layers button{font-size:8px;padding:3px 5px}.ci-terminal-foot{font-size:8px}}
+.tc-count{color:#9fb3cf}
+.tc-count b{font-variant-numeric:tabular-nums}
+.td-product-notice{display:block;max-width:260px;margin:4px 0 0;color:#8fb4e8}

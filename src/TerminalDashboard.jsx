@@ -4,7 +4,9 @@ import {
   LayoutDashboard, Menu, Newspaper, Pencil, PieChart, Radar, Settings, Settings2, ShieldAlert, ShieldCheck, TrendingUp, TriangleAlert, Wallet, X
 } from 'lucide-react';
 import TerminalChart from './TerminalChart.jsx';
-import { apiFetch } from './lib/api.js';
+import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
+import { mergeLiveTick } from './chart-live.js';
+import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
 import {
   buildSessionStrip, compactSymbol, earningsRows, formatCompact, formatDuration, formatPrice, fundingLabel, imbalanceLabel,
   instrumentProfile, journalPerformance, keyInsights, liquidityRanges, macroRows, newsAndSpeakers, sessionAnalyticsRows,
@@ -396,10 +398,25 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const [menu, setMenu] = useState(null);
   const [symbolDraft, setSymbolDraft] = useState(symbol);
   const svgRef = useRef(null);
-  const setExchange = (v) => { setExchangeState(v); store.set('jpti.terminal.exchange', v); if (v !== 'bitget' && marketType !== 'spot') setMarketType('spot'); };
+  // Which API is answering decides which venues serve which products (see product-support.js).
+  const [sourceMode, setSourceMode] = useState(() => getApiSource().mode);
+  useEffect(() => subscribeApiSource(() => setSourceMode(getApiSource().mode)), []);
+  const apiMode = sourceMode === 'direct' ? 'direct' : health?.mode === 'cloudflare-edge' ? 'cloudflare-edge' : 'api';
+  const cfdReady = apiMode === 'cloudflare-edge';
+  const [productNotice, setProductNotice] = useState('');
+  const support = useMemo(() => productSupport({ exchange, mode: apiMode, cfdReady }), [exchange, apiMode, cfdReady]);
+  const setExchange = (v) => { const next = coerceProductForExchange({ exchange: v, marketType, mode: apiMode, cfdReady }); setExchangeState(v); store.set('jpti.terminal.exchange', v); if (next.marketType !== marketType) setMarketType(next.marketType); setProductNotice(next.notice); };
   const setTimeframe = (v) => { setTimeframeState(v); store.set('jpti.terminal.timeframe', v); };
   const setMarketType = (v) => { setMarketTypeState(v); store.set('jpti.terminal.marketType', v); };
-  useEffect(() => { if (exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot'); }, [exchange, marketType]);
+  // Choosing a product the current venue cannot serve moves to the venue that can (Bitget) instead of being greyed out.
+  const selectProduct = (value) => {
+    const choice = resolveProductChoice({ exchange, requested: value, mode: apiMode, cfdReady });
+    setProductNotice(choice.notice || '');
+    if (!choice.ok) return;
+    if (choice.exchange !== exchange) { setExchangeState(choice.exchange); store.set('jpti.terminal.exchange', choice.exchange); }
+    setMarketType(choice.marketType);
+  };
+  useEffect(() => { const next = coerceProductForExchange({ exchange, marketType, mode: apiMode, cfdReady }); if (next.marketType !== marketType) { setMarketType(next.marketType); setProductNotice(next.notice); } }, [exchange, marketType, apiMode, cfdReady]);
   const setSymbol = useCallback((raw) => {
     const rawInput = String(raw || '').trim();
     const input = marketType === 'cfd' ? rawInput : rawInput.toUpperCase();
@@ -419,7 +436,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const instrumentQuery = selectedMarket?.id ? '&instrumentId=' + encodeURIComponent(selectedMarket.id) : '';
   const sideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
   const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, timeframe, marketType, instrumentQuery, sideQuery], 20000, live);
-  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType) + instrumentQuery, s), [exchange, pair, marketType, instrumentQuery], 10000, live);
+  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType) + instrumentQuery, s), [exchange, pair, marketType, instrumentQuery], 4000, live);
   const contextState = usePoll((s) => getJson('/api/intelligence/market/' + exchange + '/' + pair + '/context?timeframe=' + encodeURIComponent(timeframe) + '&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, timeframe, marketType, instrumentQuery, sideQuery], 60000, live);
   const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, marketType, instrumentQuery, sideQuery], 300000, live);
   const calendarState = usePoll((s) => getJson('/api/institutional/calendar?symbol=' + encodeURIComponent(compactSymbol(symbol)), s), [symbol], 120000, live);
@@ -428,6 +445,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const candles = candlesState.data?.candles || [];
   const ticker = tickerState.data;
   const context = contextState.data;
+  const liveCandles = useMemo(() => (marketType === 'cfd' ? candles : mergeLiveTick(candles, Number(ticker?.last), { timeframe, now: Date.now() })), [candles, ticker, timeframe, marketType]);
   const last = candles.at(-1)?.[4];
   const price = ticker?.last ?? last ?? null;
   const profile = useMemo(() => instrumentProfile(symbol, price), [symbol, price]);
@@ -498,7 +516,8 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               <input list="td-symbols" value={symbolDraft} onChange={(e) => setSymbolDraft(e.target.value)} onBlur={() => { if (!setSymbol(symbolDraft)) setSymbolDraft(symbol); }} aria-label="Market symbol" spellCheck="false"/>
               <datalist id="td-symbols">{symbolOptions.map((s) => <option key={s} value={s}/>)}</datalist><ChevronDown size={13}/>
             </form>
-            <label className="td-market-product"><span>Product</span><select aria-label="Market product" value={marketType} onChange={(e) => setMarketType(e.target.value)}><option value="spot">Spot</option><option value="margin" disabled={exchange !== 'bitget'}>Margin</option><option value="futures" disabled={exchange !== 'bitget'}>USDT-M Futures</option><option value="coin-futures" disabled={exchange !== 'bitget'}>Coin-M Futures</option><option value="usdc-futures" disabled={exchange !== 'bitget'}>USDC-M Futures</option><option value="cfd" disabled={exchange !== 'bitget' || health?.mode !== 'cloudflare-edge'}>CFD · Cloudflare UTA read-only key required</option></select></label>
+            <label className="td-market-product"><span>Product</span><select aria-label="Market product" value={marketType} onChange={(e) => selectProduct(e.target.value)}>{PRODUCT_OPTIONS.map((item) => { const entry = support[item.value]; const suffix = item.value === 'cfd' && !entry.available ? ' · Cloudflare UTA read-only key required' : entry.available && !entry.native ? ' → Bitget' : ''; return <option key={item.value} value={item.value} disabled={!entry.available} title={entry.reason}>{item.label + suffix}</option>; })}</select></label>
+            {productNotice && <small className="td-foot td-product-notice" role="status">{productNotice}</small>}
             {marketType === 'cfd' && <label className="td-market-product"><span>CFD side</span><select aria-label="CFD candle side" value={marketSide} onChange={(e) => { setMarketSide(e.target.value); store.set('jpti.terminal.marketSide', e.target.value); }}><option value="buy">Buy / Ask</option><option value="sell">Sell / Bid</option></select></label>}
             {marketType === 'cfd' && marketCatalog.error && <small className="td-foot" role="alert">{marketCatalog.error}</small>}
             <span className="td-tf-current" aria-hidden="true">{timeframe.replace(/m$/, '')}</span>
@@ -518,7 +537,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
             </div>
           </div>
           <div className="td-chart-area">
-            <TerminalChart exchange={exchange} marketType={marketType} symbol={symbol} timeframe={timeframe} candles={candles} profile={profile} context={context} strip={strip}
+            <TerminalChart exchange={exchange} marketType={marketType} symbol={symbol} timeframe={timeframe} candles={liveCandles} profile={profile} context={context} strip={strip}
               loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay}/>
           </div>
         </section>

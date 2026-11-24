@@ -8,7 +8,7 @@ import express from 'express';
 import { resolve } from 'node:path';
 import helmet from 'helmet';
 import { z } from 'zod';
-import { classifyMarket, createExchange, exchangeConnectionStatus, listExchangeCatalog, withExchange, closeExchangeClients } from './exchanges.js';
+import { classifyMarket, matchesProductType, createExchange, exchangeConnectionStatus, listExchangeCatalog, withExchange, closeExchangeClients } from './exchanges.js';
 import { intelligenceRouter } from './intelligence.js';
 import { providerRouter } from './providers.js';
 import { operationsRouter, startOperationsScheduler, stopOperationsScheduler } from './operations.js';
@@ -258,7 +258,7 @@ app.get('/api/exchanges/:id/markets', async (req, res, next) => {
   const id = req.params.id.toLowerCase();
   const requestedType = String(req.query.type || 'all').toLowerCase();
   const search = String(req.query.search || '').trim().toLowerCase().slice(0, 60);
-  const allowedTypes = ['all', 'spot', 'futures', 'perpetual', 'margin', 'cfd', 'options'];
+  const allowedTypes = ['all', 'spot', 'futures', 'perpetual', 'margin', 'cfd', 'options', 'coin-futures', 'usdc-futures'];
   if (!allowedTypes.includes(requestedType)) return res.status(400).json({ error: 'Unsupported market type filter.', allowedTypes });
   try {
     const result = await withExchange(id, { privateAccess: false }, async (exchange) => {
@@ -271,8 +271,7 @@ app.get('/api/exchanges/:id/markets', async (req, res, next) => {
           linear: meta.linear, inverse: meta.inverse, precision: market.precision, limits: market.limits };
       });
       const markets = all.filter((market) => {
-        const matchesType = requestedType === 'all' || market.categories.includes(requestedType) ||
-          (requestedType === 'futures' && market.categories.includes('perpetual'));
+        const matchesType = matchesProductType(market, requestedType);
         const matchesSearch = !search || [market.symbol, market.base, market.quote].some((v) => String(v || '').toLowerCase().includes(search));
         return matchesType && matchesSearch;
       });

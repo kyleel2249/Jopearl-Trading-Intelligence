@@ -1,24 +1,49 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { PRODUCT_OPTIONS, coerceProductForExchange, productSupport } from '../src/product-support.js';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 test('Bitget product types are selectable across the shared chart and terminal', () => {
   const chart = read('../src/LiveCandlestickChart.jsx');
   const terminal = read('../src/TerminalDashboard.jsx');
-  for (const product of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd']) {
-    assert.match(chart, new RegExp('value="' + product + '"'), 'shared chart missing ' + product);
-    assert.match(terminal, new RegExp('value="' + product + '"'), 'terminal missing ' + product);
+  const alpha = read('../src/AlphaSignalEngine.jsx');
+  assert.deepEqual(PRODUCT_OPTIONS.map((item) => item.value), ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd']);
+  for (const [name, source] of [['shared chart', chart], ['terminal', terminal], ['alpha engine', alpha]]) {
+    assert.match(source, /PRODUCT_OPTIONS/, name + ' must render the shared product list');
+    assert.match(source, /selectProduct/, name + ' must route product changes through selectProduct');
+  }
+  // Products are never greyed out just because the venue is not Bitget: choosing one moves to the venue that serves it.
+  assert.doesNotMatch(chart, /disabled=\{directMode && exchange !== 'bitget'\}/);
+  assert.doesNotMatch(terminal, /disabled=\{exchange !== 'bitget'\}/);
+  assert.doesNotMatch(alpha, /disabled=\{exchange!=='bitget'\}/);
+  for (const mode of ['api', 'direct', 'cloudflare-edge']) {
+    const table = productSupport({ exchange: 'binance', mode });
+    for (const product of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures']) assert.equal(table[product].available, true, mode + ' ' + product);
   }
 });
 
 test('Bitget futures selection is not reset to Spot when browser-direct mode activates', () => {
   const chart = read('../src/LiveCandlestickChart.jsx');
-  assert.match(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget' \? 'spot' : current\)/);
-  assert.match(chart, /if \(\(directMode && exchange !== 'bitget' && marketType !== 'spot'\) \|\| \(exchange !== 'bitget' && marketType === 'cfd'\)\) setMarketType\('spot'\)/);
+  // Only a venue that cannot serve the product falls back to Spot, and visibly (coerceProductForExchange); Bitget keeps it.
+  assert.match(chart, /coerceProductForExchange\(\{ exchange, marketType, mode: apiMode, cfdReady: cloudflareMode \}\)/);
+  assert.doesNotMatch(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget'/);
   assert.doesNotMatch(chart, /if \(mode === 'direct'\) setMarketType\('spot'\)/);
   assert.doesNotMatch(chart, /if \(directMode\) setMarketType\('spot'\)/);
+  for (const mode of ['direct', 'cloudflare-edge', 'api']) {
+    for (const product of ['margin', 'futures', 'coin-futures', 'usdc-futures']) {
+      assert.deepEqual(coerceProductForExchange({ exchange: 'bitget', marketType: product, mode }), { marketType: product, notice: '' }, mode + ' ' + product);
+    }
+  }
+});
+
+test('product select is not bounced back to Spot by the parent-prop sync', () => {
+  const chart = read('../src/LiveCandlestickChart.jsx');
+  // Root cause of the Futures-reverts-to-Spot glitch: the prop sync listed the local value as a dependency and fought the select.
+  assert.match(chart, /appliedInitialMarketType/);
+  assert.doesNotMatch(chart, /\[initialMarketType, marketType\]/);
+  assert.match(chart, /\}, \[initialMarketType\]\);/);
 });
 
 test('exact Bitget instrument IDs and CFD side selection reach every candle consumer', () => {
@@ -70,6 +95,6 @@ test('Futures workspace initializes the shared chart with Futures instead of Spo
 
 test('API-source listener refreshes its exchange capture when the selected exchange changes', () => {
   const chart = read('../src/LiveCandlestickChart.jsx');
-  assert.match(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget' \? 'spot' : current\)/);
+  assert.doesNotMatch(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget'/, 'the source listener must not force Spot on its own');
   assert.match(chart, /return subscribeApiSource\(syncSource\);\n  \}, \[exchange\]\);/);
 });

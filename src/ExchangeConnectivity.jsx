@@ -91,6 +91,6 @@ export default function ExchangeConnectivity({ symbol, onSymbolChange, alphaLeve
       <span><small>24H LOW</small><strong>{ticker?.low == null ? '—' : Number(ticker.low).toLocaleString()}</strong></span>
       <span><small>24H VOLUME</small><strong>{ticker?.quoteVolume == null ? '—' : Number(ticker.quoteVolume).toLocaleString(undefined,{maximumFractionDigits:0})}</strong></span>
     </div>
-    <LiveCandlestickChart exchange={exchange} symbol={symbol} onSymbolChange={onSymbolChange} initialMarketType={marketType} onMarketTypeChange={setMarketType} alphaLevels={alphaLevels} compact={compact}/>
+    <LiveCandlestickChart exchange={exchange} symbol={symbol} onSymbolChange={onSymbolChange} initialMarketType={marketType} onMarketTypeChange={setMarketType} onExchangeChange={setExchange} alphaLevels={alphaLevels} compact={compact}/>
   </section>;
 }

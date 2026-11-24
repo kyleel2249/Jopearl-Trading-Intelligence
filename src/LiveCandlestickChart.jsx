@@ -11,7 +11,9 @@ import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.
 import ChartIntelligenceOverlays from './chart-intelligence/ChartIntelligenceOverlays.jsx';
 import ChartIntelligenceLegend from './chart-intelligence/ChartIntelligenceLegend.jsx';
 import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
-import { resolvePrecision, roundToTick, formatInstrumentPrice } from './chart-intelligence/precision.js';
+import { resolvePrecision, formatInstrumentPrice } from './chart-intelligence/precision.js';
+import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
+import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
 
 const TIMEFRAMES = [
   ['1m', '1m'], ['3m', '3m'], ['5m', '5m'], ['15m', '15m'], ['30m', '30m'],
@@ -72,29 +74,6 @@ function atr(candles, period = 14) {
 }
 
 const fmt = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
-function pipIncrementFor(symbol, price) {
-  const pair = String(symbol || '').replace(/[^A-Z]/g, '');
-  const fiat = new Set(['USD','EUR','GBP','JPY','CHF','CAD','AUD','NZD']);
-  const base = pair.slice(0,3), quote = pair.slice(3,6);
-  if (pair.length === 6 && fiat.has(base) && fiat.has(quote)) return quote === 'JPY' ? 0.01 : 0.0001;
-  if (price >= 1000) return 1;
-  if (price >= 100) return 0.1;
-  if (price >= 10) return 0.01;
-  if (price >= 1) return 0.001;
-  if (price >= 0.1) return 0.0001;
-  if (price >= 0.01) return 0.00001;
-  return 0.000001;
-}
-function calibratedPriceTicks(min, max, symbol, meta = {}) {
-  const range = max - min, center = (min + max) / 2;
-  const precision = resolvePrecision(meta);
-  let step = precision.tickSize || pipIncrementFor(symbol, center);
-  if (!Number.isFinite(step) || step <= 0) step = range / 20;
-  while (range / step > 40) step *= 10;
-  const first = Math.ceil((min - step * 1e-10) / step) * step, ticks = [];
-  for (let value = first; value <= max + step * 1e-8 && ticks.length < 45; value += step) ticks.push(precision.tickSize ? roundToTick(value, precision) : Number(value.toPrecision(12)));
-  return ticks;
-}
 const timeLabel = (stamp, timeframe) => {
   const date = new Date(stamp);
   return ['1d', '3d', '1w', '1M'].includes(timeframe)
@@ -102,7 +81,7 @@ const timeLabel = (stamp, timeframe) => {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, alphaLevels = [] }) {
+export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, onExchangeChange, alphaLevels = [] }) {
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
@@ -133,11 +112,15 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [showEma20, setShowEma20] = useState(false);
   const [showEma50, setShowEma50] = useState(false);
   const [showBollinger, setShowBollinger] = useState(false);
-  const [showVolume, setShowVolume] = useState(true);
   const [zoom, setZoom] = useState(1);
   const [candleSpacing, setCandleSpacing] = useState(1.35);
   const [candleBodyPct, setCandleBodyPct] = useState(88);
-  const [volumeHeight, setVolumeHeight] = useState(78);
+  const [priceZoom, setPriceZoom] = useState(1);
+  const [productNotice, setProductNotice] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const [wrapEl, setWrapEl] = useState(null);
+  const [plotSize, setPlotSize] = useState({ w: 1000, h: 420 });
+  const [boundaryNonce, setBoundaryNonce] = useState(0);
   const [marketContext, setMarketContext] = useState(null);
   const [contextError, setContextError] = useState('');
   const [crosshair, setCrosshair] = useState(null);
@@ -148,14 +131,13 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       const direct = ['direct', 'cloudflare-edge'].includes(mode);
       setDirectMode(direct);
       setCloudflareMode(mode === 'cloudflare-edge');
-      // Browser-direct mode still supports Bitget public Spot, Margin and derivatives.
-      // Only force Spot when the selected venue cannot serve the active product.
-      setMarketType((current) => mode === 'direct' && exchange !== 'bitget' ? 'spot' : current);
     };
     syncSource();
     return subscribeApiSource(syncSource);
   }, [exchange]);
   useEffect(() => { const timer = setInterval(() => setSessionClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
+  const apiMode = cloudflareMode ? 'cloudflare-edge' : directMode ? 'direct' : 'api';
+  const support = useMemo(() => productSupport({ exchange, mode: apiMode, cfdReady: cloudflareMode }), [exchange, apiMode, cloudflareMode]);
   const sessionSnapshot = useMemo(() => getSessionSnapshot(sessionClock), [sessionClock]);
   const sessionAnalytics = useMemo(() => analyzeSessionCandles(candles, sessionClock), [candles, sessionClock]);
   const sessionForecast = useMemo(() => sessionForecastAdjustment(candles, {symbol, timeframe, now:sessionClock}), [candles, symbol, timeframe, sessionClock]);
@@ -185,6 +167,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const marketInstrumentId = exchange === 'bitget' ? String(marketInstrumentIds[symbol] || '') : '';
   const marketInstrumentQuery = marketInstrumentId ? '&instrumentId=' + encodeURIComponent(marketInstrumentId) : '';
   const marketSideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
+  const tickerKey = exchange + '|' + symbol + '|' + marketType + '|' + marketInstrumentId;
 
   // Product sync is one-directional per event: a new parent prop is applied once, and a user
   // selection is reported up. Re-applying the prop on every local change made the parent and the
@@ -209,8 +192,10 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     if (onMarketSideChange) onMarketSideChange(marketSide);
   }, [marketSide, onMarketSideChange]);
 
+  // A product the venue cannot serve falls back to Spot visibly (never silently) when the exchange or API mode changes.
+  useEffect(() => { const next = coerceProductForExchange({ exchange, marketType, mode: apiMode, cfdReady: cloudflareMode }); if (next.marketType !== marketType) { setMarketType(next.marketType); setProductNotice(next.notice); } }, [exchange, marketType, apiMode, cloudflareMode]);
+
   useEffect(() => {
-    if ((directMode && exchange !== 'bitget' && marketType !== 'spot') || (exchange !== 'bitget' && marketType === 'cfd')) setMarketType('spot');
     let active = true;
     const refreshCatalog = async () => {
       try {
@@ -268,7 +253,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       if (!candleResult.ok) throw new Error(candleResult.data?.error || candleResult.error?.message || 'Candlestick data unavailable for this market and timeframe.');
       setCandles((candleResult.data.candles || []).filter((row) => row.length >= 6).map((row) => row.map(Number)));
       setError('');
-      tickerPromise.then((result) => { if (result.ok) setTicker(result.data); });
+      tickerPromise.then((result) => { if (result.ok) setTicker({ ...result.data, __key: tickerKey }); });
       contextPromise.then((result) => {
         if (result.ok) { setMarketContext(result.data); setContextError(''); }
         else setContextError(result.data?.error || result.error?.message || 'Context analysis unavailable');
@@ -315,7 +300,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
 
         // Secondary panels update independently and cannot hold back candle rendering.
         tickerPromise.then((result) => {
-          if (active && !signal.aborted && result.ok) setTicker(result.data);
+          if (active && !signal.aborted && result.ok) setTicker({ ...result.data, __key: tickerKey });
         });
         contextPromise.then((result) => {
           if (!active || signal.aborted) return;
@@ -337,48 +322,133 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       clearInterval(timer);
       controller?.abort();
     };
-  }, [exchange, symbol, timeframe, marketType, marketInstrumentId, marketSide, marketSymbols, catalogError]);
+  }, [exchange, symbol, timeframe, marketType, marketInstrumentId, marketSide, marketSymbols, catalogError, boundaryNonce]);
+
+  // Live tick feed: the ticker is polled every 4s between the 20s OHLCV refreshes and merged into the forming candle.
+  useEffect(() => {
+    if (marketType === 'cfd') return undefined;
+    let active = true;
+    let inFlight = false;
+    const encodedSymbol = symbol.replace('/', '-');
+    const poll = async () => {
+      if (inFlight || (typeof document !== 'undefined' && document.hidden)) return;
+      inFlight = true;
+      try {
+        const response = await apiFetch('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+        const data = await response.json();
+        if (active && response.ok) setTicker({ ...data, __key: tickerKey });
+      } catch { /* the next poll retries; the OHLCV refresh keeps the chart alive meanwhile */ } finally { inFlight = false; }
+    };
+    const timer = setInterval(poll, 4000);
+    return () => { active = false; clearInterval(timer); };
+  }, [exchange, symbol, marketType, marketInstrumentId]);
+  // Refresh the candles right after the forming candle closes instead of waiting for the next 20s poll.
+  useEffect(() => {
+    if (!candles.length) return undefined;
+    const close = candleCloseAt(candles[candles.length - 1][0], timeframe);
+    if (close == null) return undefined;
+    const wait = close - Date.now() + 1500;
+    if (wait <= 0 || wait > 2147483000) return undefined;
+    const timer = setTimeout(() => setBoundaryNonce((n) => n + 1), wait);
+    return () => clearTimeout(timer);
+  }, [candles, timeframe]);
+  const livePrice = ticker && ticker.__key === tickerKey ? Number(ticker.last) : null;
+  const formingNow = useMemo(() => { if (!candles.length) return false; const close = candleCloseAt(candles[candles.length - 1][0], timeframe); return close != null && close > sessionClock; }, [candles, timeframe, sessionClock]);
+  // sessionClock is intentionally not a dependency: formingNow already flips when the forming candle closes.
+  const liveCandles = useMemo(() => (formingNow && marketType !== 'cfd' ? mergeLiveTick(candles, livePrice, { timeframe, now: Date.now() }) : candles), [candles, livePrice, formingNow, timeframe, marketType]);
+  const countdown = candles.length ? candleCountdown(candles[candles.length - 1][0], timeframe, sessionClock) : null;
 
   const metrics = useMemo(() => {
-    const closes = candles.map((c) => c[4]);
-    const last = candles[candles.length - 1];
-    const previous = candles[candles.length - 2];
+    const series = liveCandles;
+    const closes = series.map((c) => c[4]);
+    const last = series[series.length - 1];
+    const previous = series[series.length - 2];
     return {
       ema20: ema(closes, 20), ema50: ema(closes, 50),
       bollinger: bollinger(closes), macd: macd(closes),
-      rsi: rsi(closes), atr: atr(candles),
+      rsi: rsi(closes), atr: atr(series),
       last, previous,
       change: last && previous ? ((last[4] - previous[4]) / previous[4]) * 100 : null,
-      volume: candles.slice(-20).reduce((sum, c) => sum + c[5], 0) / Math.min(20, candles.length),
-      vwap: (() => { const rows = candles.slice(-100); const pv = rows.reduce((sum,c) => sum + ((c[2]+c[3]+c[4])/3)*c[5],0); const vol = rows.reduce((sum,c) => sum+c[5],0); return vol ? pv/vol : null; })(),
-      obv: candles.reduce((sum,c,i) => i === 0 ? 0 : sum + (c[4] > candles[i-1][4] ? c[5] : c[4] < candles[i-1][4] ? -c[5] : 0),0),
+      volume: series.slice(-20).reduce((sum, c) => sum + c[5], 0) / Math.min(20, series.length),
+      vwap: (() => { const rows = series.slice(-100); const pv = rows.reduce((sum,c) => sum + ((c[2]+c[3]+c[4])/3)*c[5],0); const vol = rows.reduce((sum,c) => sum+c[5],0); return vol ? pv/vol : null; })(),
+      obv: series.reduce((sum,c,i) => i === 0 ? 0 : sum + (c[4] > series[i-1][4] ? c[5] : c[4] < series[i-1][4] ? -c[5] : 0),0),
       stochRsi: (() => { if (closes.length < 28) return null; const values=[]; for(let i=27;i<closes.length;i++) { const value=rsi(closes.slice(0,i+1)); if(value!=null) values.push(value); } const current=rsi(closes); if(current==null||!values.length)return null; const lo=Math.min(...values.slice(-14)),hi=Math.max(...values.slice(-14)); return hi===lo?50:(current-lo)/(hi-lo)*100; })(),
-      supertrend: (() => { if(candles.length<15)return null; const last=candles[candles.length-1]; const range=atr(candles,14); return range==null?null:(last[4] >= (last[2]+last[3])/2 ? 'Bullish bias' : 'Bearish bias'); })()
+      supertrend: (() => { if(series.length<15)return null; const last=series[series.length-1]; const range=atr(series,14); return range==null?null:(last[4] >= (last[2]+last[3])/2 ? 'Bullish bias' : 'Bearish bias'); })()
     };
-  }, [candles]);
+  }, [liveCandles]);
 
   const smartMoney = useMemo(() => detectSmartMoney(candles.slice(0, -1), swingLength), [candles, swingLength]);
 
+  const precisionMeta = useMemo(() => marketPrecisionMetadata[symbol] || { symbol, marketType }, [marketPrecisionMetadata, symbol, marketType]);
+  const liveClose = liveCandles.length ? liveCandles[liveCandles.length - 1][4] : null;
+  const pipInfo = useMemo(() => resolvePipSize({ symbol, price: liveClose, precision: resolvePrecision(precisionMeta) }), [symbol, liveClose, precisionMeta]);
+
+  // The plot fills its container: candles run left edge to price axis and top to the time axis. No volume pane.
   const geometry = useMemo(() => {
-    if (!candles.length) return null;
-    const count = Math.max(25, Math.min(candles.length, Math.floor(candles.length / (zoom * candleSpacing))));
-    const rows = candles.slice(-count);
+    if (!liveCandles.length) return null;
+    const count = Math.max(25, Math.min(liveCandles.length, Math.floor(liveCandles.length / (zoom * candleSpacing))));
+    const rows = liveCandles.slice(-count);
     const levelPrices = [...(alphaLevels || []).map(level => Number(level.price)).filter(Number.isFinite), ...ciPlanPrices];
     const min = Math.min(...rows.map((c) => c[3]), ...levelPrices);
     const max = Math.max(...rows.map((c) => c[2]), ...levelPrices);
-    const padding = (max - min || max * 0.002 || 1) * 0.09;
-    const low = min - padding, high = max + padding;
-    const left = 12, right = 920, top = 18, priceBottom = 280, volumeBottom = 378;
+    const padding = (max - min || max * 0.002 || 1) * 0.06;
+    const lastClose = rows[rows.length - 1][4];
+    const { low, high } = applyPriceZoom(min - padding, max + padding, priceZoom, priceZoom > 1 ? lastClose : undefined);
+    const left = 4, top = 10, bottom = Math.max(top + 60, plotSize.h - 22);
+    const axis = buildPriceAxis({ min: low, max: high, heightPx: bottom - top, pip: pipInfo.pip, minLabelPx: 14 });
+    const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatInstrumentPrice(lastClose, precisionMeta, { maximumFractionDigits: 12 })]);
+    const right = Math.max(left + 80, plotSize.w - axisW);
     const x = (i) => left + (i + 0.5) * ((right - left) / rows.length);
-    const y = (price) => top + ((high - price) / (high - low)) * (priceBottom - top);
-    const maxVol = Math.max(1, ...rows.map((c) => c[5]));
-    const points = (values) => values.slice(candles.length - count).map((value, i) => Number.isFinite(value) ? x(i) + ',' + y(value) : null).filter(Boolean).join(' ');
-    return { rows, count, min: low, max: high, left, right, top, priceBottom, volumeBottom, x, y, maxVol, points };
-  }, [candles, zoom, candleSpacing, alphaLevels, ciPlanPrices]);
+    const y = (price) => top + ((high - price) / (high - low)) * (bottom - top);
+    const points = (values) => values.slice(liveCandles.length - count).map((value, i) => Number.isFinite(value) ? x(i) + ',' + y(value) : null).filter(Boolean).join(' ');
+    return { rows, count, min: low, max: high, left, right, top, priceBottom: bottom, bottom, width: plotSize.w, height: plotSize.h, axisW, axis, pip: pipInfo.pip, x, y, points };
+  }, [liveCandles, zoom, candleSpacing, alphaLevels, ciPlanPrices, priceZoom, plotSize, pipInfo, precisionMeta]);
 
-  const activeCandle = crosshair !== null && geometry ? geometry.rows[crosshair] : metrics.last;
+  const activeCandle = (crosshair !== null && geometry ? geometry.rows[crosshair.i] : null) || metrics.last;
   const candleSlot = geometry ? (geometry.right - geometry.left) / geometry.count : 6;
   const candleWidth = Math.max(2, Math.min(36, candleSlot * candleBodyPct / 100));
+
+  // Measure the chart container so the SVG is drawn 1:1 in CSS pixels (no stretching, text stays crisp).
+  useEffect(() => {
+    if (!wrapEl || typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 60 && height > 60) setPlotSize((current) => (current.w === Math.round(width) && current.h === Math.round(height) ? current : { w: Math.round(width), h: Math.round(height) }));
+    });
+    observer.observe(wrapEl);
+    return () => observer.disconnect();
+  }, [wrapEl]);
+  // Wheel over the price axis zooms the price scale (more or fewer pips). Native listener: React's wheel handler is passive.
+  const axisEdgeRef = useRef(0);
+  axisEdgeRef.current = geometry ? geometry.right : 0;
+  useEffect(() => {
+    if (!wrapEl) return undefined;
+    const onWheel = (event) => {
+      const rect = wrapEl.getBoundingClientRect();
+      if (!axisEdgeRef.current || event.clientX - rect.left <= axisEdgeRef.current) return;
+      event.preventDefault();
+      setPriceZoom((value) => Math.max(0.5, Math.min(12, value * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
+    };
+    wrapEl.addEventListener('wheel', onWheel, { passive: false });
+    return () => wrapEl.removeEventListener('wheel', onWheel);
+  }, [wrapEl]);
+  useEffect(() => {
+    if (!expanded) return undefined;
+    const onKey = (event) => { if (event.key === 'Escape') setExpanded(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [expanded]);
+
+  const selectProduct = (value) => {
+    const choice = resolveProductChoice({ exchange, requested: value, mode: apiMode, cfdReady: cloudflareMode });
+    if (!choice.ok) { setProductNotice(choice.notice); return; }
+    if (choice.exchange !== exchange) {
+      if (typeof onExchangeChange !== 'function') { setProductNotice('This venue cannot serve that product here. Choose Bitget as the exchange to use it.'); return; }
+      onExchangeChange(choice.exchange);
+    }
+    setProductNotice(choice.notice);
+    setMarketType(choice.marketType);
+  };
 
   return <section className="panel exchange-connect trading-chart-panel">
     <div className="panelhead">
@@ -431,15 +501,11 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     </div>
     <div className="chart-toolbar">
       <label>Product</label>
-      <select aria-label="Market type" value={marketType} onChange={(e) => setMarketType(e.target.value)}>
-        <option value="spot">Spot</option>
-        <option value="futures" disabled={directMode && exchange !== 'bitget'}>USDT-M Futures</option>
-        <option value="coin-futures" disabled={directMode && exchange !== 'bitget'}>Coin-M Futures</option>
-        <option value="usdc-futures" disabled={directMode && exchange !== 'bitget'}>USDC-M Futures</option>
-        <option value="margin" disabled={directMode && exchange !== 'bitget'}>Margin</option>
-        <option value="cfd" disabled={exchange !== 'bitget' || !cloudflareMode}>CFD · Cloudflare UTA read-only key required</option>
+      <select aria-label="Market type" value={marketType} onChange={(e) => selectProduct(e.target.value)}>
+        {PRODUCT_OPTIONS.map((item) => { const entry = support[item.value]; const suffix = item.value === 'cfd' && !entry.available ? ' · Cloudflare UTA read-only key required' : entry.available && !entry.native ? ' → Bitget' : ''; return <option key={item.value} value={item.value} disabled={!entry.available} title={entry.reason}>{item.label + suffix}</option>; })}
         <option value="options" disabled>Options (not enabled in this adapter)</option>
       </select>
+      {productNotice && <span className="subtle-note" role="status">{productNotice}</span>}
       {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? (marketType === 'cfd' ? (cloudflareMode ? 'Bitget CFD chart data uses the separate signed UTA read-only API. Configure the three Bitget credentials as Cloudflare Pages secrets. CFD candle history is side-specific and does not provide traded volume.' : 'Bitget CFD requires the Cloudflare Pages edge API and its encrypted read-only credentials; browser-direct fallback cannot access this signed feed.') : 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. CFD is available through the separate authenticated Cloudflare feed.') : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives, margin and CFD markets.'}</span>}
       {catalogError && marketType === 'cfd' && <span className="subtle-note" role="alert">{catalogError}</span>}
       {marketType === 'cfd' && <label>CFD quote side <select aria-label="CFD candle side" value={marketSide} onChange={(e) => setMarketSide(e.target.value)}><option value="buy">Buy / Ask-side</option><option value="sell">Sell / Bid-side</option></select></label>}
@@ -455,20 +521,23 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <button onClick={() => setZoom((v) => Math.min(4, v * 1.35))} title="Zoom in">＋</button>
         <button onClick={() => setZoom((v) => Math.max(0.5, v / 1.35))} title="Zoom out">－</button>
         <button onClick={() => setZoom(1)} title="Fit all candles">Fit</button>
+        <button onClick={() => setPriceZoom((v) => Math.min(12, v * 1.25))} title="Zoom the price scale in (more pips visible per label)">Pip ＋</button>
+        <button onClick={() => setPriceZoom((v) => Math.max(0.5, v / 1.25))} title="Zoom the price scale out">Pip －</button>
+        <button onClick={() => setPriceZoom(1)} title="Auto-fit the price scale">Auto</button>
+        <button onClick={() => setExpanded((v) => !v)} aria-pressed={expanded} title="Expand or restore the chart (Esc closes)">{expanded ? '⤡' : '⤢'}</button>
         <button onClick={load} title="Refresh chart">{loading ? '…' : '↻'}</button>
       </div>
     </div>
     <div className="chart-size-controls" aria-label="Chart sizing controls">
       <label><span>Candle spacing <b>{candleSpacing.toFixed(2)}×</b></span><input aria-label="Candle spacing" type="range" min="0.65" max="10" step="0.05" value={candleSpacing} onChange={(e) => setCandleSpacing(Number(e.target.value))}/></label>
       <label><span>Candle body width <b>{candleBodyPct}%</b></span><input aria-label="Candle body width" type="range" min="35" max="100" step="1" value={candleBodyPct} onChange={(e) => setCandleBodyPct(Number(e.target.value))}/></label>
-      <label><span>Volume height <b>{volumeHeight}px</b></span><input aria-label="Volume height" type="range" min="20" max="90" step="1" value={volumeHeight} onChange={(e) => setVolumeHeight(Number(e.target.value))}/></label>
-      <button type="button" onClick={() => { setCandleSpacing(1.35); setCandleBodyPct(88); setVolumeHeight(78); setZoom(1); }}>Reset chart sizing</button>
+      <label><span>Price scale <b>{priceZoom === 1 ? 'Auto' : priceZoom.toFixed(2) + '×'}</b></span><input aria-label="Price scale zoom" type="range" min="0.5" max="12" step="0.05" value={priceZoom} onChange={(e) => setPriceZoom(Number(e.target.value))}/></label>
+      <button type="button" onClick={() => { setCandleSpacing(1.35); setCandleBodyPct(88); setPriceZoom(1); setZoom(1); }}>Reset chart sizing</button>
     </div>
     <div className="chart-indicator-controls">
       <label><input type="checkbox" checked={showEma20} onChange={(e) => setShowEma20(e.target.checked)}/> EMA 20</label>
       <label><input type="checkbox" checked={showEma50} onChange={(e) => setShowEma50(e.target.checked)}/> EMA 50</label>
       <label><input type="checkbox" checked={showBollinger} onChange={(e) => setShowBollinger(e.target.checked)}/> Bollinger</label>
-      <label><input type="checkbox" checked={showVolume} onChange={(e) => setShowVolume(e.target.checked)}/> Volume</label>
       <label><input type="checkbox" checked={showVwap} onChange={(e) => setShowVwap(e.target.checked)}/> VWAP</label>
       <label><input type="checkbox" checked={showStochRsi} onChange={(e) => setShowStochRsi(e.target.checked)}/> Stoch RSI</label>
       <label><input type="checkbox" checked={showObv} onChange={(e) => setShowObv(e.target.checked)}/> OBV</label>
@@ -495,30 +564,33 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       <span>L <strong className="down">{activeCandle ? fmt(activeCandle[3]) : '—'}</strong></span>
       <span>C <strong>{activeCandle ? fmt(activeCandle[4]) : '—'}</strong></span>
       <span>V <strong>{activeCandle ? fmt(activeCandle[5]) : '—'}</strong></span>
+      {activeCandle && geometry && <span>Range <strong>{pipDistance(activeCandle[3], activeCandle[2], geometry.pip) ?? '—'}</strong> pips</span>}
+      {countdown && !countdown.expired && <span className="chart-countdown" title="Time until the forming candle closes">Closes in <strong>{countdown.label}</strong></span>}
       {ticker?.last != null && <strong className="chart-last-price">{fmt(ticker.last)}</strong>}
     </div>
     {error ? <div className="chart-error">{error}</div> : !geometry ? <div className="chart-wait">{loading ? 'Loading live OHLC candles…' : 'Waiting for exchange candle data…'}</div> :
-      <div className="candlestick-svg-wrap">
-        <svg viewBox="0 0 1000 420" preserveAspectRatio="none" role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=(event.clientX-rect.left)/rect.width*1000; const py=(event.clientY-rect.top)/rect.height*420; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',x:px,price}]:[...v,{kind:'end',x:px,price}]); }} onMouseLeave={() => setCrosshair(null)} onMouseMove={(event) => {
+      <div className={'candlestick-svg-wrap' + (expanded ? ' chart-expanded' : '')} ref={setWrapEl}>
+        <svg width={plotSize.w} height={plotSize.h} viewBox={'0 0 ' + plotSize.w + ' ' + plotSize.h} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => setCrosshair(null)} onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
-          const relative = (event.clientX - rect.left) / rect.width;
-          const index = Math.max(0, Math.min(geometry.count - 1, Math.floor(((relative * 1000) - geometry.left) / (geometry.right - geometry.left) * geometry.count)));
-          setCrosshair(index);
+          const px = event.clientX - rect.left, py = event.clientY - rect.top;
+          if (px > geometry.right || px < geometry.left) { setCrosshair(null); return; }
+          const index = Math.max(0, Math.min(geometry.count - 1, Math.floor((px - geometry.left) / (geometry.right - geometry.left) * geometry.count)));
+          setCrosshair({ i: index, py });
         }}>
-          {calibratedPriceTicks(geometry.min, geometry.max, symbol, marketPrecisionMetadata[symbol] || { symbol, marketType }).map((value) => {
-            const y = geometry.y(value);
-            return <g key={'pip-'+value}><line x1={geometry.left} y1={y} x2="925" y2={y} stroke="#263247" strokeDasharray="3 4"/><text x="935" y={y + 3.5} fill="#8392a8" fontSize="9.5">{formatInstrumentPrice(value, marketPrecisionMetadata[symbol] || { symbol, marketType }, { maximumFractionDigits: 12 })}</text></g>;
+          {geometry.axis.minor.map((price) => <line key={'minor-' + price} x1={geometry.left} y1={geometry.y(price)} x2={geometry.right} y2={geometry.y(price)} stroke="#18243a" strokeWidth="0.6"/>)}
+          {geometry.axis.ticks.map((tick) => {
+            const y = geometry.y(tick.price);
+            return <g key={'pip-' + tick.price}><line x1={geometry.left} y1={y} x2={geometry.right} y2={y} stroke={tick.major ? '#2a3850' : '#1f2b40'} strokeDasharray="3 4"/><text x={geometry.right + 8} y={y + 3.5} fill={tick.major ? '#9aabc2' : '#7a8aa1'} fontSize="10">{tick.label}</text></g>;
           })}
+          <line x1={geometry.right} y1={geometry.top} x2={geometry.right} y2={geometry.bottom} stroke="#22314a"/>
           {geometry.rows.map((c, i) => {
             const up = c[4] >= c[1], color = up ? '#20c997' : '#f07883';
             const x = geometry.x(i), bodyTop = geometry.y(Math.max(c[1], c[4])), bodyBottom = geometry.y(Math.min(c[1], c[4]));
             const bodyHeight = Math.max(1.4, bodyBottom - bodyTop);
-            const volHeight = c[5] / geometry.maxVol * volumeHeight;
             return <g key={c[0]}>
               <line x1={x} y1={geometry.y(c[2])} x2={x} y2={geometry.y(c[3])} stroke={color} strokeWidth="1.3"/>
               <rect x={x - candleWidth/2} y={bodyTop} width={candleWidth} height={bodyHeight} fill={color} stroke={color} rx=".5"/>
-              {showVolume && <rect x={x - candleWidth/2} y={geometry.volumeBottom - volHeight} width={candleWidth} height={volHeight} fill={color} opacity=".42"/>}
-              {i % Math.max(1, Math.floor(geometry.count / 7)) === 0 && <text x={x} y="405" textAnchor="middle" fill="#78889e" fontSize="10">{timeLabel(c[0], timeframe)}</text>}
+              {i % Math.max(1, Math.floor(geometry.count / 7)) === 0 && <text x={x} y={geometry.height - 6} textAnchor="middle" fill="#78889e" fontSize="10">{timeLabel(c[0], timeframe)}</text>}
             </g>;
           })}
 
@@ -532,11 +604,23 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           {showVwap && !ciReady && metrics.vwap && <line x1={geometry.left} y1={geometry.y(metrics.vwap)} x2={geometry.right} y2={geometry.y(metrics.vwap)} stroke="#38bdf8" strokeWidth="1.6" strokeDasharray="6 3"/>}
           {drawings.filter(d=>d.kind==='level').map((d,i)=><g key={'level'+i}><line x1={geometry.left} y1={geometry.y(d.price)} x2={geometry.right} y2={geometry.y(d.price)} stroke="#e5b85c" strokeDasharray="5 4"/><text x={geometry.left+5} y={geometry.y(d.price)-4} fill="#e5b85c" fontSize="10">S/R {fmt(d.price)}</text></g>)}
           {(alphaLevels || []).filter(level => Number.isFinite(Number(level.price))).map((level,i) => { const y=geometry.y(Number(level.price)); return <g key={'alpha-'+level.label+'-'+i}><line x1={geometry.left} y1={y} x2={geometry.right} y2={y} stroke={level.color || '#e5b85c'} strokeWidth="1.5" strokeDasharray="6 4"/><text x={geometry.left+6} y={y-5} fill={level.color || '#e5b85c'} fontSize="10">ALPHA {level.label}: {fmt(level.price)}</text></g>; })}
-          {drawings.filter(d=>d.kind==='start').map((d,i)=>{const end=drawings.filter(x=>x.kind==='end')[i];return end?<line key={'trend'+i} x1={d.x} y1={geometry.y(d.price)} x2={end.x} y2={geometry.y(end.price)} stroke="#a78bfa" strokeWidth="2"/>:null;})}
+          {drawings.filter(d=>d.kind==='start').map((d,i)=>{const end=drawings.filter(x=>x.kind==='end')[i];return end?<line key={'trend'+i} x1={d.xr*geometry.width} y1={geometry.y(d.price)} x2={end.xr*geometry.width} y2={geometry.y(end.price)} stroke="#a78bfa" strokeWidth="2"/>:null;})}
           {showEma20 && <polyline points={geometry.points(metrics.ema20)} fill="none" stroke="#e5b85c" strokeWidth="1.7" vectorEffect="non-scaling-stroke"/>}
           {showEma50 && <polyline points={geometry.points(metrics.ema50)} fill="none" stroke="#9b8cf5" strokeWidth="1.7" vectorEffect="non-scaling-stroke"/>}
           {showBollinger && <><polyline points={geometry.points(metrics.bollinger.upper)} fill="none" stroke="#58a6ff" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke"/><polyline points={geometry.points(metrics.bollinger.lower)} fill="none" stroke="#58a6ff" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke"/></> }
-          {crosshair !== null && <g><line x1={geometry.x(crosshair)} y1="10" x2={geometry.x(crosshair)} y2="385" stroke="#a9b7c9" strokeDasharray="3 4"/><line x1="12" y1={geometry.y(geometry.rows[crosshair][4])} x2="925" y2={geometry.y(geometry.rows[crosshair][4])} stroke="#a9b7c9" strokeDasharray="3 4"/></g>}
+          {(() => {
+            const lastRow = geometry.rows[geometry.rows.length - 1];
+            const tint = lastRow[4] >= lastRow[1] ? '#20c997' : '#f07883', yLast = geometry.y(lastRow[4]);
+            if (yLast < geometry.top - 2 || yLast > geometry.bottom + 2) return null;
+            const tagY = Math.max(geometry.top + 9, Math.min(geometry.bottom - 9, yLast)), tagW = geometry.axisW - 2;
+            return <g pointerEvents="none"><line x1={geometry.left} y1={yLast} x2={geometry.right} y2={yLast} stroke={tint} strokeDasharray="2 3" strokeOpacity=".85"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY - 9) + ')'}><rect width={tagW} height="18" rx="3" fill={tint}/><text x={tagW / 2} y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(lastRow[4], precisionMeta, { maximumFractionDigits: 12 })}</text></g>{countdown && !countdown.expired && <g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY + 10) + ')'}><rect width={tagW} height="15" rx="3" fill="#152238" stroke="#2c3f5c"/><text x={tagW / 2} y="11" textAnchor="middle" fill="#b8c7dc" fontSize="9.5">{countdown.label}</text></g>}</g>;
+          })()}
+          {crosshair !== null && geometry.rows[crosshair.i] && (() => {
+            const hoverPrice = geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
+            const inside = crosshair.py >= geometry.top && crosshair.py <= geometry.priceBottom, tagW = geometry.axisW - 2;
+            const pips = pipDistance(geometry.rows[geometry.rows.length - 1][4], hoverPrice, geometry.pip);
+            return <g pointerEvents="none"><line x1={geometry.x(crosshair.i)} y1={geometry.top} x2={geometry.x(crosshair.i)} y2={geometry.bottom} stroke="#a9b7c9" strokeDasharray="3 4"/>{inside && <><line x1={geometry.left} y1={crosshair.py} x2={geometry.right} y2={crosshair.py} stroke="#a9b7c9" strokeDasharray="3 4"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (crosshair.py - 15) + ')'}><rect width={tagW} height="30" rx="3" fill="#24344d" stroke="#4a6385"/><text x={tagW / 2} y="12" textAnchor="middle" fill="#e6eefb" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(hoverPrice, precisionMeta, { maximumFractionDigits: 12 })}</text><text x={tagW / 2} y="25" textAnchor="middle" fill={pips != null && pips < 0 ? '#f07883' : '#20c997'} fontSize="9.5">{pips == null ? '' : (pips > 0 ? '+' : '') + pips + ' pips'}</text></g></>}</g>;
+          })()}
         </svg>
       </div>}
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />

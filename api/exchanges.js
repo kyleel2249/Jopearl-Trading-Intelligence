@@ -119,6 +119,20 @@ export function classifyMarket(market) {
   return { categories, type: type || (market.spot ? 'spot' : 'unknown'), contract: market.contract === true, linear: market.linear === true, inverse: market.inverse === true, settle: market.settle || null };
 }
 
+/**
+ * Product filter used by the markets route. Keeps the existing category semantics ('futures' also matches perpetuals) and
+ * adds the settlement-based products the chart's product selector offers: Coin-M (inverse contracts) and USDC-M (USDC-settled linear).
+ */
+export function matchesProductType(market, requestedType) {
+  const type = String(requestedType || 'all').toLowerCase();
+  if (type === 'all') return true;
+  const categories = Array.isArray(market.categories) ? market.categories : classifyMarket(market).categories;
+  const derivative = market.swap === true || market.future === true;
+  if (type === 'coin-futures') return derivative && market.contract === true && market.inverse === true;
+  if (type === 'usdc-futures') return derivative && market.contract === true && market.linear === true && String(market.settle || '').toUpperCase() === 'USDC';
+  return categories.includes(type) || (type === 'futures' && categories.includes('perpetual'));
+}
+
 export function listExchangeCatalog() {
   return SUPPORTED_EXCHANGES.map((id) => ({
     id,
