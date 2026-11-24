@@ -39,7 +39,7 @@ An agent reaching the maximum drawdown is suspended from opening new paper posit
 Per-trade risk is capped at 0.25% of virtual equity, daily loss at 2%, maximum drawdown at 5%, leverage at 1x and concurrent positions at one per agent. Paper fills account for taker-fee assumptions, spread and slippage. Closed-candle signals exclude the currently forming candle. Stale ticker data, missing quotes, invalid candles or D1 failure pause new entries.
 
 ## Daily performance review
-The Cloudflare Worker scans its configured Bitget watchlist each minute and stores a UTC daily review at 00:05. Reviews cover each agent's equity, net P&L, win rate, profit factor, expectancy, drawdown, consecutive losses, forward-validation count, regime coverage, risk breaches, status changes and successor creation. Reviews are retained in D1.
+The Cloudflare Worker scans BTC, ETH, SOL, XRP, SOPH, BNB, DOGE, ADA, LINK and SUI USDT perpetual markets each minute and stores a UTC daily review at 00:05. Reviews cover each agent's equity, net P&L, win rate, profit factor, expectancy, drawdown, consecutive losses, forward-validation count, regime coverage, risk breaches, status changes and successor creation. Reviews are retained in D1.
 
 ## Important limitations
 A high win rate can still lose money if average losses exceed average wins. KPI qualification therefore includes net profit, profit factor, expectancy, drawdown and risk-breach checks. Simulated fills cannot reproduce every queue position, funding payment, partial fill, latency spike or exchange rejection. Live readiness is a research milestone, not a profitability guarantee.
