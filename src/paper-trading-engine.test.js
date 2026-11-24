@@ -6,6 +6,9 @@ test('every seeded specialist has a name, role, responsibility and paper-only pe
  assert.equal(PAPER_AGENTS.length,10);
  for(const a of PAPER_AGENTS){assert.ok(a.name);assert.ok(a.role);assert.ok(a.responsibility);assert.equal(a.permissions.live,false);}
  assert.equal(PAPER_POLICY.initialEquityUsd,1);
+ assert.equal(PAPER_POLICY.maxFleetOpenPositions,10);
+ assert.equal(PAPER_POLICY.maxOpenPerSymbol,2);
+ assert.equal(PAPER_POLICY.maxSameDirectionOpenPositions,6);
 });
 test('live-ready promotion requires every KPI, including 98% observed win rate',()=>{
  const m=qualifyingMetrics();
