@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { getExpandedCanvasWidth } from '../src/chart-canvas.js';
+import { getExpandedCanvasWidth, getExpandedCanvasHeight } from '../src/chart-canvas.js';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -12,10 +12,20 @@ test('expanded canvas preserves candle spacing as visible history grows', () => 
   assert.equal(getExpandedCanvasWidth(1000, 48, 96), 1000);
 });
 
+test('vertical canvas grows proportionally while retaining the viewport minimum', () => {
+  assert.equal(getExpandedCanvasHeight(500, 96, 96), 500);
+  assert.equal(getExpandedCanvasHeight(500, 192, 96), 1000);
+  assert.equal(getExpandedCanvasHeight(500, 480, 96), 2500);
+  assert.equal(getExpandedCanvasHeight(500, 48, 96), 500);
+});
+
 test('expanded canvas handles invalid dimensions and candle counts safely', () => {
   assert.equal(getExpandedCanvasWidth(0, 10, 0), 10);
   assert.equal(getExpandedCanvasWidth(Number.NaN, -5, 20), 1);
   assert.equal(getExpandedCanvasWidth(800, 0, 10), 800);
+  assert.equal(getExpandedCanvasHeight(0, 10, 0), 10);
+  assert.equal(getExpandedCanvasHeight(Number.NaN, -5, 20), 1);
+  assert.equal(getExpandedCanvasHeight(400, 0, 10), 400);
 });
 
 test('shared live chart expands its SVG and scrolls the viewport on zoom changes', () => {
@@ -23,8 +33,12 @@ test('shared live chart expands its SVG and scrolls the viewport on zoom changes
   const styles = read('../src/styles.css');
   assert.match(chart, /getExpandedCanvasWidth\(plotSize\.w, count, baseCount\)/);
   assert.match(chart, /width=\{geometry\.width\}/);
+  assert.match(chart, /getExpandedCanvasHeight\(plotSize\.h, count, baseCount\)/);
+  assert.match(chart, /height=\{geometry\.height\}/);
+  assert.match(chart, /wrapEl\.scrollTop = wrapEl\.scrollHeight/);
   assert.match(styles, /candlestick-svg-wrap.*overflow-x:auto/);
-  assert.match(styles, /width:auto!important;max-width:none;height:100%/);
+  assert.match(styles, /width:auto!important;max-width:none;height:auto!important;min-height:100%/);
+  assert.match(styles, /overflow:auto;overscroll-behavior:contain/);
 });
 
 test('terminal dashboard expands its SVG and exposes horizontal range controls', () => {
@@ -32,8 +46,13 @@ test('terminal dashboard expands its SVG and exposes horizontal range controls',
   const styles = read('../src/TerminalDashboard.css');
   assert.match(chart, /getExpandedCanvasWidth\(size\.w, rows\.length, baseVisible\)/);
   assert.match(chart, /width=\{geo\.width\}/);
+  assert.match(chart, /getExpandedCanvasHeight\(size\.h, rows\.length, baseVisible\)/);
+  assert.match(chart, /height=\{geo\.height\}/);
+  assert.match(chart, /wrapEl\.scrollTop = wrapEl\.scrollHeight/);
   assert.match(chart, /setCount\(Math\.min\(96, valid\.length\)\)/);
   assert.match(chart, /Scroll horizontally for history/);
   assert.match(styles, /\.tc-wrap\{position:absolute;inset:0;overflow-x:auto/);
   assert.match(styles, /\.tc-wrap svg\{display:block;width:auto!important/);
+  assert.match(styles, /overflow:auto;overscroll-behavior:contain/);
+  assert.match(styles, /height:auto!important;min-height:100%/);
 });
