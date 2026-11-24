@@ -15,3 +15,6 @@ migrations_dir = "migrations/d1"
 [[kv_namespaces]]
 binding = "JPTI_KV"
 id = "df173421174345f9a065b312082ba43d"
+
+[ai]
+binding = "AI"
