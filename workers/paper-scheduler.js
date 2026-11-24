@@ -1,6 +1,6 @@
 import { runCycle, dailyReview } from '../functions/api/paper/[[path]].js';
 
-const WATCHLIST = ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','SOPHUSDT'];
+const WATCHLIST = ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','SOPHUSDT','BNBUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','SUIUSDT'];
 
 export default {
   async scheduled(event, env, ctx) {
