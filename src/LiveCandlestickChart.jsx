@@ -165,7 +165,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
 
   useEffect(() => { let active=true; const legacy=readSessionMemory(); apiFetch('/api/session/memory').then(response=>response.ok?response.json():null).then(async data=>{if(!active||!Array.isArray(data?.records))return; if(legacy.length){const migrated=await apiFetch('/api/session/memory/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:legacy})});if(!migrated.ok)throw new Error('legacy session memory migration failed');if(typeof localStorage!=='undefined')localStorage.removeItem('jpti.session-memory.v1');const refreshed=await apiFetch('/api/session/memory');const result=await refreshed.json();if(active&&Array.isArray(result.records)){setSessionMemory(result.records);setSessionMemoryStatus('legacy memory migrated');}return;} setSessionMemory(data.records);setSessionMemoryStatus('backend synced');}).catch(()=>{if(active)setSessionMemoryStatus('backend unavailable · local memory retained');}); return ()=>{active=false;}; }, []);
   useEffect(() => { if (initialTimeframe && initialTimeframe !== timeframe) setTimeframe(initialTimeframe); }, [initialTimeframe]);
-  useEffect(() => { if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
+  const reportedTimeframe = useRef(null);
+  useEffect(() => { if (reportedTimeframe.current === timeframe) return; reportedTimeframe.current = timeframe; if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
   const marketInstrumentId = exchange === 'bitget' ? String(marketInstrumentIds[symbol] || '') : '';
   const marketInstrumentQuery = marketInstrumentId ? '&instrumentId=' + encodeURIComponent(marketInstrumentId) : '';
   const marketSideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
