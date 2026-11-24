@@ -168,6 +168,7 @@ export function buildReflectiveReport(entry = {}, assessment = null) {
     '- Margin: ' + money(entry.margin),
     '- Leverage: ' + String(entry.leverage ?? 'Not recorded') + 'x',
     '- Reported liquidation: ' + price(entry.liquidationPrice),
+    '- Estimated institutional liquidity reference: ' + price(entry.institutionalLiquidityLevel) + ' (user-supplied hypothesis; unverified),
     '- Stop-loss: ' + (entry.stopLoss ?? 'Not set'),
     '- Take-profit: ' + (entry.takeProfit ?? 'Not recorded'),
     '',
