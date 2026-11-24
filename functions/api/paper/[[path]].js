@@ -21,17 +21,21 @@ async function bitget(path){
 async function marketSnapshot(symbol){
  const normalized=String(symbol||'BTCUSDT').toUpperCase().replace('/','').replace(':USDT','');
  if(!/^[A-Z0-9]{5,24}$/.test(normalized))throw new Error('Invalid Bitget USDT perpetual symbol.');
- const [rawCandles,rawTicker]=await Promise.all([
+ const [rawCandles,raw5m,raw15m,raw1h,rawTicker]=await Promise.all([
   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1m&limit=100'),
+  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=5m&limit=100'),
+  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=15m&limit=100'),
+  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1H&limit=100'),
   bitget('/api/v2/mix/market/ticker?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES')
  ]);
- const candles=(Array.isArray(rawCandles)?rawCandles:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
+ const parseCandles=raw=>(Array.isArray(raw)?raw:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
+ const candles=parseCandles(rawCandles),timeframes={'5m':parseCandles(raw5m),'15m':parseCandles(raw15m),'1H':parseCandles(raw1h)};
  const t=Array.isArray(rawTicker)?rawTicker[0]:rawTicker;
  const ticker={last:num(t?.lastPr),bid:num(t?.bidPr),ask:num(t?.askPr),timestamp:num(t?.ts)};
  if(!(ticker.last>0)||candles.length<36)throw new Error('Bitget returned insufficient valid ticker/candle data.');
  const age=Date.now()-ticker.timestamp;
  if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp; paper entries are paused.');
- return {symbol:normalized,candles,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
+ return {symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
 }
 async function ensureAgents(db){
  for(const agent of PAPER_AGENTS){
@@ -108,7 +112,7 @@ export async function runCycle(db,symbol){
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});
    }
   }
-  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id);
+  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id,{timeframes:market.timeframes});
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
   const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
@@ -120,7 +124,7 @@ export async function runCycle(db,symbol){
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps/2)/10000);
    const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
