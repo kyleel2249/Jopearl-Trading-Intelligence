@@ -71,6 +71,13 @@ test('urls use each venue format and reject unsupported timeframes', () => {
   assert.match(tickerUrl('bitget', { ...s, marketType: 'futures' }), /category=USDT-FUTURES/);
   assert.match(candlesUrl('bitget', { ...s, marketType: 'coin-futures' }, '4h', 50), /category=COIN-FUTURES.*interval=4H/);
   assert.throws(() => candlesUrl('bitget', s, '8h', 50), /Unsupported timeframe/);
+  const coin = { ...parseSymbol('BTC/USD:BTC'), marketType: 'coin-futures', instrumentId: 'BTCUSD_CM' };
+  const usdc = { ...parseSymbol('BTC/USDC:USDC'), marketType: 'usdc-futures', instrumentId: 'BTCPERP' };
+  assert.equal(venueSymbol('bitget', coin), 'BTCUSD_CM');
+  assert.match(tickerUrl('bitget', coin), /symbol=BTCUSD_CM$/);
+  assert.match(candlesUrl('bitget', coin, '1h', 50), /symbol=BTCUSD_CM/);
+  assert.match(tickerUrl('bitget', usdc), /symbol=BTCPERP$/);
+  assert.match(candlesUrl('bitget', usdc, '1h', 50), /symbol=BTCPERP/);
   assert.match(marketsUrl('binance'), /exchangeInfo/);
 });
 
