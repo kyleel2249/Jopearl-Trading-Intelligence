@@ -142,13 +142,13 @@ export async function runCycle(db,symbol){
 async function dashboard(db){
  await ensureAgents(db);
  const agents=[];
- for(const agent of PAPER_AGENTS){
-  const rows=await allTrades(db,agent.id),trades=rows.map(toTrade),metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);
+ for(const agent of await loadAgents(db)){
+  const rows=await allTrades(db,agent.id),trades=rows.map(toTrade),metrics=calculatePaperMetrics(trades,agent.virtualEquityUsd||PAPER_POLICY.initialEquityUsd);
   const outOfSample=trades.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSample);
-  const row=await db.prepare('SELECT tier,status,promoted_at,payload FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
+  const row=await db.prepare('SELECT tier,status,promoted_at,virtual_equity_usd,payload FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   let stored={};try{stored=JSON.parse(row?.payload||'{}')}catch{}
-  agents.push({...agent,...stored,tier:row?.tier||'RESEARCH',status:row?.status||'active',promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
+  agents.push({...agent,...stored,id:agent.id,tier:row?.tier||'RESEARCH',status:row?.status||'active',virtualEquityUsd:num(row?.virtual_equity_usd)||PAPER_POLICY.initialEquityUsd,promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
  }
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
  return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
@@ -157,12 +157,8 @@ export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
  const summary={date,mode:'PAPER_ONLY',agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
-  if(agent.kpi.eligibleForPromotion&&agent.tier==='RESEARCH'){
-   const promotedAt=iso(),promoted={tier:'PRO',promotedAt,reason:'All independently measured KPI gates passed.'};
-   await db.prepare("UPDATE jpti_paper_agents SET tier='PRO',promoted_at=?,updated_at=?,payload=json_set(payload,'$.promotion',json(?)) WHERE agent_id=?")
-    .bind(promotedAt,promotedAt,JSON.stringify(promoted),agent.id).run();
-   const item=summary.agents.find(a=>a.agentId===agent.id);if(item)item.tier='PRO';
-  }
+  const lifecycle=await promoteOrRetire(db,agent,agent.metrics,agent.kpi);
+  if(lifecycle){const item=summary.agents.find(a=>a.agentId===agent.id);if(item){item.tier=lifecycle.status;item.lifecycle=lifecycle;}}
  }
  const id='paper-review:'+date;
  await db.prepare("INSERT INTO jpti_paper_reviews(review_id,review_date,payload) VALUES(?,?,?) ON CONFLICT(review_date) DO UPDATE SET payload=excluded.payload,created_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')")
