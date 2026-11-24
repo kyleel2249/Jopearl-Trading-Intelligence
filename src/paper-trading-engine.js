@@ -35,10 +35,10 @@ export function derivePaperSignal(candles, ticker={}, agentId='ensemble') {
   const atrPct=last[4]?range/last[4]*100:0;
   const trend=ema9>ema21?1:ema9<ema21?-1:0;
   const breakout=last[4]>Math.max(...closed.slice(-21,-1).map(r=>r[2]))?1:last[4]<Math.min(...closed.slice(-21,-1).map(r=>r[3]))?-1:0;
-  const spreadPct=n(ticker.bid)>0&&n(ticker.ask)>0?(n(ticker.ask)-n(ticker.bid))/((n(ticker.ask)+n(ticker.bid))/2)*100:0;
+  const spreadPct=n(ticker.bid)>0&&n(ticker.ask)>n(ticker.bid)?(n(ticker.ask)-n(ticker.bid))/((n(ticker.ask)+n(ticker.bid))/2)*100:null;
   const hour=new Date(last[0]).getUTCHours(),session=hour>=13&&hour<16?'London-New York overlap':hour>=7&&hour<16?'London':hour>=13&&hour<22?'New York':'Asia-Pacific';
   const sessionWeight=session==='London-New York overlap'?1:session==='London'||session==='New York'?.75:.4;
-  const score=agentId==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5):agentId==='breakout'?breakout:agentId==='volume'?Math.sign(momentum)*(rvol>=1.25?1:0):agentId==='trend'?trend:agentId==='risk'?0:agentId==='microstructure'?(spreadPct<=0.12?Math.sign(momentum):0):agentId==='session'?trend*Math.sign(momentum)*sessionWeight:agentId==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend):agentId==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2):clamp(trend*.35+Math.sign(momentum)*.35+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0),-1,1);
+  const score=agentId==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5):agentId==='breakout'?breakout:agentId==='volume'?Math.sign(momentum)*(rvol>=1.25?1:0):agentId==='trend'?trend:agentId==='risk'?0:agentId==='microstructure'?(spreadPct!==null&&spreadPct<=0.12?Math.sign(momentum):0):agentId==='session'?trend*Math.sign(momentum)*sessionWeight:agentId==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend):agentId==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2):clamp(trend*.35+Math.sign(momentum)*.35+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0),-1,1);
   const direction=score>.25?'LONG':score<-.25?'SHORT':'FLAT';
   const regime=atrPct>2.5?'high-volatility':Math.abs(momentum)<.25?'range':'trend';
   const reason=direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`;
