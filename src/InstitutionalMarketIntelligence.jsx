@@ -52,8 +52,7 @@ export default function InstitutionalMarketIntelligence({exchange='bitget',onExc
    if(!responses[0].ok)throw new Error(payloads[0]?.error||'Live chart candle feed unavailable.');
    setCandles(payloads[0].candles||[]);
    setMarketContext(responses[1].ok?payloads[1]:null);
-   if(!responses[2].ok)throw new Error(payloads[2]?.error||'Institutional intelligence endpoint unavailable.');
-   setInstitutional(payloads[2]);
+   if(!responses[2].ok){setInstitutional(null);}else{setInstitutional(payloads[2]);}
   }catch(e){if(id===requestVersion.current)setError(e.message||'Institutional intelligence refresh failed.');}
   finally{if(id===requestVersion.current)setLoading(false);}
  },[selectedExchange,symbol,timeframe,marketType,marketSide,marketCatalog]);
