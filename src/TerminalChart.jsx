@@ -48,6 +48,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const [wrapEl, setWrapEl] = useState(null);
   const [size, setSize] = useState({ w: 820, h: 400 });
   const [count, setCount] = useState(96);
+  const [followLatest, setFollowLatest] = useState(true);
   const [hover, setHover] = useState(null);
   const [hoverY, setHoverY] = useState(null);
   const [priceZoom, setPriceZoom] = useState(1);
@@ -137,6 +138,8 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   useEffect(() => {
     if (!wrapEl) return undefined;
     const onNativeWheel = (event) => {
+      if (Math.abs(event.deltaX) > Math.abs(event.deltaY)) return;
+      if (event.shiftKey) { event.preventDefault(); wrapEl.scrollLeft += event.deltaY; return; }
       event.preventDefault();
       const box = wrapEl.getBoundingClientRect();
       if (edgeRef.current && event.clientX - box.left + wrapEl.scrollLeft > edgeRef.current) setPriceZoom((v) => Math.max(0.5, Math.min(12, v * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
@@ -146,7 +149,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     return () => wrapEl.removeEventListener('wheel', onNativeWheel);
   }, [wrapEl]);
   // Keep the newest candles visible after changing the historical range.
-  useEffect(() => { if (wrapEl) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [count]);
+  useEffect(() => { if (wrapEl && followLatest) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [count, valid.length, valid.at(-1)?.[0], followLatest]);
 
   if (error && !valid.length) return <div className="tc-empty tc-error" role="alert"><b>Market data unavailable</b><span>{error}</span></div>;
   if (!geo) return <div className="tc-empty"><span>{loading ? 'Loading market data…' : 'No candle data for this market and timeframe.'}</span></div>;
@@ -192,6 +195,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       <button type="button" onClick={() => setCount((value) => Math.max(40, value - 12))} title="Zoom in to fewer candles">＋</button>
       <button type="button" onClick={() => setCount((value) => Math.min(valid.length, value + 12))} title="Zoom out to reveal more candles">－</button>
       <button type="button" onClick={() => setCount(Math.min(96, valid.length))} title="Fit the default candle range">Fit</button>
+      <button type="button" aria-pressed={followLatest} onClick={() => setFollowLatest(value => !value)}>{followLatest ? 'Following latest' : 'Follow latest'}</button>
       <span>{rows.length} / {valid.length} candles</span>
       <span>Scroll horizontally for history</span>
     </div>
