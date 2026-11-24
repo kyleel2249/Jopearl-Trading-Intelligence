@@ -5,6 +5,7 @@ import { useGainzAlpha } from './gainz-alpha/useGainzAlpha.js';
 import GainzAlphaOverlays from './gainz-alpha/GainzAlphaOverlays.jsx';
 import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.js';
 import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
+import LiquidityTargetOverlay from './LiquidityTargetOverlay.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
 import { candleCountdown, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
 import { getExpandedCanvasWidth, getExpandedCanvasHeight } from './chart-canvas.js';
@@ -42,7 +43,7 @@ function timeLabel(ts, timeframe) {
   return hhmm(utcMinuteOfDay(ts));
 }
 
-export default function TerminalChart({ exchange = 'bitget', marketType = 'spot', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange }) {
+export default function TerminalChart({ exchange = 'bitget', marketType = 'spot', symbol, timeframe, candles, profile, context, strip, loading, error, svgRef, overlays, onOverlayChange, liquidityIntelligence }) {
   // Callback ref: the wrapper only exists once candles have loaded (the empty/loading states render without it), so a
   // mount-only effect never attached the observer and the SVG stayed at its 820x400 default instead of filling the panel.
   const [wrapEl, setWrapEl] = useState(null);
@@ -266,6 +267,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         </g>
       </g>}
 
+      {overlays.liquidityTargets && <LiquidityTargetOverlay analysis={liquidityIntelligence} rows={rows} geometry={geo} profile={profile}/>}
       <ChartIntelligenceOverlays result={ci} layers={ciLayers} rows={rows} geometry={geo} profile={profile} />
       {rows.map((c, i) => { const up = c[4] >= c[1]; const col = up ? UP : DOWN; const h = Math.max(1, Math.abs(y(c[4]) - y(c[1])));
         return <g key={c[0]}><line x1={x(i)} x2={x(i)} y1={y(c[2])} y2={y(c[3])} stroke={col} strokeWidth="1"/>

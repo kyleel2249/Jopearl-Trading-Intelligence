@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import TerminalChart from './TerminalChart.jsx';
 import SessionLiquidityIntelligence from './SessionLiquidityIntelligence.jsx';
+import { analyzeLiquidityTargets } from './liquidity-target-intelligence.js';
 import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
 import { mergeLiveTick } from './chart-live.js';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
@@ -22,7 +23,7 @@ const store = {
 };
 const TIMEFRAMES = [['1m', '1m'], ['5m', '5m'], ['15m', '15m'], ['1h', '1h'], ['4h', '4h'], ['1d', '1D']];
 const SYMBOL_PRESETS = ['EUR/USDT', 'GBP/USDT', 'AUD/USDT', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'LINK/USDT'];
-const DEFAULT_OVERLAYS = { smc: false, sessions: true, institutional: false, bands: false, liquidity: true };
+const DEFAULT_OVERLAYS = { smc: false, sessions: true, institutional: false, bands: false, liquidity: true, liquidityTargets: true };
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳' };
 const SESSION_COLOR = { sydney: '#9b8cf6', tokyo: '#4a9bf5', london: '#a767ee', 'new-york': '#f0a848' };
 
@@ -458,6 +459,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   }, [ticker]);
 
   const tick = useNow(15000);
+  const liquidityIntelligence = useMemo(() => analyzeLiquidityTargets(liveCandles, { timeframe, now: tick }), [liveCandles, timeframe, tick]);
   const strip = useMemo(() => buildSessionStrip(tick), [tick]);
   const calendarEvents = calendarState.data?.events || context?.calendar || [];
   const calendarSources = calendarState.data?.sources || context?.sources || [];
@@ -525,7 +527,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
             <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.filter(([v]) => exchange !== 'bitget' || (marketCatalog.data?.timeframes || (marketType === 'cfd' ? ['1m','15m','1h','4h','1d'] : ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'])).includes(v)).map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
             <div className="td-menu-wrap">
               <button type="button" className="td-ghost" aria-expanded={menu === 'ind'} onClick={() => setMenu(menu === 'ind' ? null : 'ind')}>Indicators <ChevronDown size={12}/></button>
-              {menu === 'ind' && <div className="td-menu" role="menu">{[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
+              {menu === 'ind' && <div className="td-menu" role="menu">{[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools'], ['liquidityTargets', 'Liquidity Targets']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
             </div>
             <div className="td-toolbar-right">
               <button type="button" className="td-icon-btn" aria-label="Save chart image" title="Save chart as PNG" onClick={exportPng}><Camera size={15}/></button>
@@ -539,12 +541,12 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
           </div>
           <div className="td-chart-area">
             <TerminalChart exchange={exchange} marketType={marketType} symbol={symbol} timeframe={timeframe} candles={liveCandles} profile={profile} context={context} strip={strip}
-              loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay}/>
+              loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay} liquidityIntelligence={liquidityIntelligence}/>
           </div>
         </section>
         <div className="td-col td-right">
           <SessionAnalytics rows={analytics} profile={profile} ready={Boolean(historyState.data)}/>
-          <SessionLiquidityIntelligence exchange={exchange} symbol={symbol} marketType={marketType} timeframe={timeframe} candles={candles} tickerSnapshot={ticker} fetchTicker={false}/>
+          <SessionLiquidityIntelligence exchange={exchange} symbol={symbol} marketType={marketType} timeframe={timeframe} candles={candles} tickerSnapshot={ticker} fetchTicker={false} liquidityIntelligence={liquidityIntelligence}/>
           <VolatilityRisk view={vol} profile={profile}/>
           <TradingControls symbol={symbol} profile={profile} ticker={ticker} atrPips={vol.atrPips} health={health}/>
         </div>

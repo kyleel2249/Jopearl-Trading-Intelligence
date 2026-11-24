@@ -167,3 +167,31 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 .sli-refresh{display:inline-flex;align-items:center;gap:6px;margin-top:7px;padding:7px 10px;border:1px solid #344d69;border-radius:6px;background:#172b42;color:#c6d8eb;font-size:9px}
 @media(max-width:760px){.sli-session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.sli-metrics,.sli-condition-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.sli-level-grid{grid-template-columns:1fr}.sli-session-grid{grid-template-columns:1fr 1fr}.sli-panel{padding:11px}}
+
+/* Liquidity target radar, setup evidence and reflective outcome journal */
+.sli-target-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.sli-target-side{min-width:0;padding:9px;border:1px solid #26394f;border-radius:9px;background:#101d2d}
+.sli-target-row{display:grid;grid-template-columns:minmax(0,1fr) auto auto;align-items:center;gap:7px;padding:8px 2px;border-bottom:1px solid #26364a}
+.sli-target-row:last-child{border-bottom:0}
+.sli-target-row>div{min-width:0}.sli-target-row b{display:block;color:#dbe7f4;font-size:9px}.sli-target-row small{display:block;color:#8195ad;font-size:8px;margin-top:3px}
+.sli-target-row strong{font-size:10px;color:#e9f0f8;font-variant-numeric:tabular-nums}
+.sli-target-row>span{font-size:8px;color:#d8bb79;background:#2c2a20;border-radius:5px;padding:4px}
+.sli-empty,.sli-note{font-size:9px;color:#8ea2b9;line-height:1.5;margin:8px 0}
+.sli-setup-card,.sli-backtest{margin-top:12px;padding:11px;border:1px solid #34445b;border-radius:9px;background:linear-gradient(145deg,#14263a,#101b2a)}
+.sli-score{font-size:10px;color:#f0cc7b;font-weight:800}
+.sli-setup-heading{display:flex;justify-content:space-between;gap:8px;align-items:center;margin:8px 0;color:#dbe8f5;font-size:10px}
+.sli-setup-heading span{color:#92a7bf;font-size:8px;text-align:right}
+.sli-setup-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.sli-setup-grid article,.sli-backtest-results article{padding:8px;border:1px solid #293d54;border-radius:6px;background:#0d1929;min-width:0}
+.sli-setup-grid small,.sli-backtest-results small{display:block;color:#8195ad;font-size:8px}
+.sli-setup-grid b,.sli-backtest-results b{display:block;color:#e4edf7;font-size:10px;margin-top:4px;overflow-wrap:anywhere;font-variant-numeric:tabular-nums}
+.sli-journal-actions{display:flex;justify-content:space-between;align-items:flex-end;gap:10px;margin-top:10px;flex-wrap:wrap}
+.sli-journal-actions label{display:grid;gap:4px;color:#9bb0c8;font-size:8px}
+.sli-journal-actions input{width:125px;padding:7px;border:1px solid #344a64;border-radius:6px;background:#0b1726;color:#e8f0fa;font-size:10px}
+.sli-journal-actions>div{display:flex;gap:5px}
+.sli-journal-actions button{padding:7px 10px;border:1px solid #39536f;border-radius:6px;background:#1a3049;color:#dbe9f7;font-size:9px}
+.sli-journal-actions button:disabled{opacity:.45;cursor:wait}
+.sli-save-state{font-size:9px;color:#84d7b5;margin:7px 0 0}
+.sli-backtest-results{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:9px}
+@media(max-width:760px){.sli-target-grid{grid-template-columns:1fr}.sli-setup-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:420px){.sli-backtest-results{grid-template-columns:repeat(2,minmax(0,1fr))}.sli-setup-heading{align-items:flex-start;flex-direction:column}}
