@@ -1,4 +1,7 @@
 // Shared runtime-safe agent scoring engine used by Node and Cloudflare Pages.
+const finite=value=>value===null||value===undefined||value===''?null:Number.isFinite(Number(value))?Number(value):null;
+const clamp=(value,min=-1,max=1)=>Math.max(min,Math.min(max,finite(value)??0));
+const sign=value=>Math.sign(finite(value)??0);
 export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
   const e = input.evidence && typeof input.evidence === 'object' ? input.evidence : input;
   const maxAgeMs = Math.max(5000, Math.min(300000, Number(policy.maxAgeMs) || 60000));
@@ -67,7 +70,7 @@ export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
       evaluatedAgents: usable.length, totalAgents: agents.length },
     risk: { score: riskScore === null ? null : Number(riskScore.toFixed(4)), blocked,
       reasons: [stale && 'Evidence freshness failed', directional.length < 4 && 'Fewer than four directional specialists have sufficient evidence',
-        sourceFailure && 'A required data source failed', riskScore !== null && riskScore < -.62 && 'Risk agents vetoed the opportunity'].filter(Boolean) },
+        sourceFailure && 'A required data source failed', riskScore !== null && riskScore < -.48 && 'Risk agents vetoed the opportunity'].filter(Boolean) },
     recommendedAction: blocked ? 'NO_TRADE' : stance === 'neutral_wait' || dissent ? 'WAIT_FOR_CONFIRMATION' : 'REVIEW_SETUP',
     permissions: { researchOnly: true, paperExecutionAuthorized: false, liveExecutionAuthorized: false, ordersCreated: 0 },
     audit: { method: 'deterministic-specialist-ensemble-v1', calibratedProbability: false, llmDebate: false,
