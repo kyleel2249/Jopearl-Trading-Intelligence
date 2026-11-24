@@ -21,6 +21,7 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
   const [snapshots, setSnapshots] = useState({});
   const [signals, setSignals] = useState([]);
   const [history, setHistory] = useState(readHistory);
+  const [historySource, setHistorySource] = useState('local-cache');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [lastUpdated, setLastUpdated] = useState(null);
@@ -57,6 +58,24 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
   }, [exchange, marketType, symbol, timeframe, watchlist]);
 
   useEffect(() => { load(); }, [load]);
+
+  useEffect(() => {
+    let active = true;
+    apiFetch('/api/signal-intelligence/history?limit=250', { cache: 'no-store' })
+      .then((response) => response.json().then((data) => ({ response, data })))
+      .then(({ response, data }) => {
+        if (!active || !response.ok || !Array.isArray(data.records)) return;
+        setHistory((current) => {
+          const merged = new Map(current.map((item) => [item.signalId, item]));
+          data.records.forEach((item) => merged.set(item.signalId, item));
+          const next = [...merged.values()].sort((a, b) => Date.parse(b.observedAt || b.generatedAt) - Date.parse(a.observedAt || a.generatedAt)).slice(0, 500);
+          try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* local fallback is optional */ }
+          return next;
+        });
+        setHistorySource('cloudflare-d1');
+      }).catch(() => { if (active) setHistorySource('local-cache'); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (!autoRefresh) return undefined;
     const timer = setInterval(load, 30000);
@@ -70,6 +89,9 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
       signals.forEach((signal) => map.set(signal.signalId, { ...signal, observedAt: new Date().toISOString() }));
       const next = [...map.values()].sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt)).slice(0, 500);
       try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* browser storage can be disabled */ }
+      apiFetch('/api/signal-intelligence/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signals }) })
+        .then((response) => { if (response.ok) setHistorySource('cloudflare-d1'); })
+        .catch(() => { /* local observation history remains available during D1 outages */ });
       return next;
     });
   }, [signals]);
@@ -80,5 +102,5 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
   const topSignals = useMemo(() => rankOpportunities(signals).slice(0, 10), [signals]);
   const addToWatchlist = useCallback((pair) => setWatchlist((current) => current.includes(pair) ? current : [...current, pair].slice(0, 12)), []);
   const removeFromWatchlist = useCallback((pair) => setWatchlist((current) => current.length > 1 ? current.filter((item) => item !== pair) : current), []);
-  return { exchange, setExchange, marketType, setMarketType, symbol, setSymbol, timeframe, setTimeframe, watchlist, addToWatchlist, removeFromWatchlist, snapshots, selected, signals, topSignals, collisions, regime, history, loading, error, lastUpdated, autoRefresh, setAutoRefresh, refresh: load, exchanges: EXCHANGES, marketTypes: MARKET_TYPES };
+  return { exchange, setExchange, marketType, setMarketType, symbol, setSymbol, timeframe, setTimeframe, watchlist, addToWatchlist, removeFromWatchlist, snapshots, selected, signals, topSignals, collisions, regime, history, historySource, loading, error, lastUpdated, autoRefresh, setAutoRefresh, refresh: load, exchanges: EXCHANGES, marketTypes: MARKET_TYPES };
 }
