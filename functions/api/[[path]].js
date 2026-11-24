@@ -244,7 +244,7 @@ function cleanSessionOutcome(input={}){
 }
 function summarizeSessionOutcomes(records){
  const groups=new Map();for(const r of records){const k=[r.session,r.symbol,r.strategy,r.volatility].join('|');const g=groups.get(k)||{session:r.session,symbol:r.symbol,strategy:r.strategy,volatility:r.volatility,trades:0,wins:0,losses:0,breakevens:0,totalR:0,scored:0};g.trades++;if(r.outcome==='win')g.wins++;else if(r.outcome==='loss')g.losses++;else g.breakevens++;if(Number.isFinite(r.returnR)){g.totalR+=r.returnR;g.scored++;}groups.set(k,g);}
- return [...groups.values()].map(g=>({...g,winRate:g.trades?g.wins/g.trades*100:0,averageR:g.scored?g.totalR/g.scored:0}));
+ return [...groups.values()].map(g=>({...g,winRate:g.trades?g.wins/g.trades*100:0,averageR:g.scored?g.totalR/g.scored:null}));
 }
 async function loadD1OutcomeRecords(env,kind,limit){
  const result=await env.JPTI_DB.prepare('SELECT id, payload, occurred_at FROM jpti_events WHERE kind = ? ORDER BY occurred_at DESC, created_at DESC LIMIT ?').bind(kind,limit).all(),seen=new Set(),out=[];
