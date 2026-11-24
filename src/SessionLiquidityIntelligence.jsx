@@ -52,7 +52,7 @@ export default function SessionLiquidityIntelligence({exchange,symbol,marketType
    <span style={{left:(analytics.range.positionPercent??0)+'%'}}/>
   </div>
   <div className="sli-section-title"><span><Waves size={14}/> SESSION OWNERSHIP</span><small>{analytics.candleCount} bars in rolling window</small></div>
-  <div className="sli-session-grid">{analytics.sessions.map(session=><article key={session.id}><b>{session.name}</b><span>H {price(session.high)} · L {price(session.low)}</span><small>{session.candles?session.candles+' candles · range '+price(session.range):'No candles in window'}</small></article>)}</div>
+  <div className="sli-session-grid">{analytics.sessions.map(session=><article key={session.id}><b>{session.name==='Tokyo'?'Tokyo / Asian':session.name}</b><span>H {price(session.high)} · L {price(session.low)}</span><small>{session.candles?session.candles+' candles · range '+price(session.range):'No candles in window'}</small></article>)}</div>
   <div className="sli-section-title"><span><Gauge size={14}/> MARKET CONDITION</span><small>Descriptive analytics · no order execution</small></div>
   <div className="sli-condition-grid">
    <article><small>Latest range / average</small><b>{analytics.volatility.latestRangeMultiple==null?'—':analytics.volatility.latestRangeMultiple.toFixed(2)+'×'}</b></article>
