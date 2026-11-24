@@ -313,7 +313,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
     const contextRoute = url.pathname.match(/^\/api\/intelligence\/market\/([a-z0-9_]+)\/([^/]+)\/context$/i);
     if (contextRoute) {
       const exchange = contextRoute[1].toLowerCase();
-      const symbol = contextRoute[2];
+      let symbol;
+      try { symbol = decodeURIComponent(contextRoute[2]); }
+      catch { return json(400, { error: 'Invalid encoded market symbol.', code: 'MARKET_SYMBOL_ENCODING_INVALID' }, request); }
       const timeframe = String(url.searchParams.get('timeframe') || '1h');
       const instrumentId = String(url.searchParams.get('instrumentId') || '').trim();
       const instrumentQuery = instrumentId ? '&instrumentId=' + encodeURIComponent(instrumentId) : '';
