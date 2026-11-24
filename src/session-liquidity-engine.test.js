@@ -33,7 +33,7 @@ test('falls back to candles and attributes matching extremes to the originating 
  const out=analyze24hLiquidity(rows,{now,timeframe:'1h'});
  assert.equal(out.levels.high.price,108);
  assert.equal(out.levels.low.price,96);
- assert.equal(out.levels.high.session,'London');
+ assert.equal(out.levels.high.session,'Tokyo + London');
  assert.equal(out.levels.low.session,'Tokyo');
 });
 
