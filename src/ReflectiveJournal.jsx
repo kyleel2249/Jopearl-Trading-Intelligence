@@ -21,6 +21,8 @@ const INITIAL_ENTRY = {
   margin: 28.7,
   leverage: 20,
   liquidationPrice: 0.000226,
+  institutionalLiquidityLevel: 0.000815,
+  institutionalLiquidityHypothesis: 'User-supplied hypothesis: the limit entry at $0.000815 aligns with an estimated institutional liquidation/liquidity level. Source, methodology and actual order-flow evidence have not yet been supplied; this is not verified institutional positioning.',
   stopLoss: null,
   takeProfit: null,
   allocationPercent: 7,
@@ -272,6 +274,7 @@ export default function ReflectiveJournal() {
             <div><small>Order type</small><b>{active.orderType}</b></div>
             <div><small>Stop-loss</small><b className="negative">Not set</b></div>
             <div><small>Reported liquidation</small><b>{price(active.liquidationPrice)}</b></div>
+            <div><small>Estimated institutional level</small><b>{price(active.institutionalLiquidityLevel)} · unverified</b></div>
             <div><small>Take-profit</small><b>Not supplied</b></div>
             <div><small>Order expiry</small><b>12 hours after placement</b></div>
             <div><small>Market bias reported</small><b className="negative">Bearish</b></div>
