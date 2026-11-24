@@ -230,7 +230,134 @@ async function handleJournalRoute(request, env, url) {
   return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
 }
 
-export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProvider = createBitgetCfdProvider(), now = () => new Date() } = {}) {
+
+function decodeXml(value) {
+  return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+}
+
+function rssItems(xml, limit = 10) {
+  const items = [];
+  for (const match of String(xml || '').matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
+    const block = match[1];
+    const field = name => decodeXml(block.match(new RegExp('<' + name + '(?:\\s[^>]*)?>([\\s\\S]*?)</' + name + '>', 'i'))?.[1] || '').replace(/<[^>]+>/g, '').trim();
+    const title = field('title'), link = field('link'), publishedAt = field('pubDate');
+    if (title && link) items.push({ title: title.slice(0, 300), url: link.slice(0, 1000), publishedAt: publishedAt || null, source: 'Google News RSS' });
+    if (items.length >= limit) break;
+  }
+  return items;
+}
+
+async function fetchPairResearch(symbol, fetchImpl = fetch) {
+  const base = String(symbol || '').split('/')[0].trim().toUpperCase();
+  if (!/^[A-Z0-9]{2,20}$/.test(base)) return { status: 'invalid-symbol', symbol, generatedAt: new Date().toISOString(), sources: [], errors: ['Pair base symbol is invalid.'] };
+  const generatedAt = new Date().toISOString();
+  const result = { status: 'partial', symbol, base, generatedAt, asset: null, candidates: [], news: [], sources: [], errors: [], caveats: [
+    'Public research endpoints can be rate-limited, delayed or incomplete.',
+    'CoinGecko asset matching is based on ticker symbol; multiple assets may share a ticker.',
+    'News headlines are leads for review, not verified facts or trading signals.',
+    'This research feed does not provide a full order-book, liquidation map, institutional flow or exchange-specific derivatives history.'
+  ] };
+  try {
+    const searchResponse = await fetchImpl('https://api.coingecko.com/api/v3/search?query=' + encodeURIComponent(base), { headers: { accept: 'application/json' } });
+    if (!searchResponse.ok) throw new Error('CoinGecko search returned HTTP ' + searchResponse.status);
+    const search = await searchResponse.json();
+    const candidates = (search.coins || []).filter(coin => String(coin.symbol || '').toUpperCase() === base).slice(0, 8);
+    result.candidates = candidates.map(coin => ({ id: coin.id, name: coin.name, symbol: coin.symbol, marketCapRank: coin.market_cap_rank, thumb: coin.thumb }));
+    if (candidates.length === 1 || (candidates.length > 1 && candidates[0].market_cap_rank && (!candidates[1].market_cap_rank || candidates[0].market_cap_rank < candidates[1].market_cap_rank))) {
+      const selected = candidates[0];
+      const detailResponse = await fetchImpl('https://api.coingecko.com/api/v3/coins/' + encodeURIComponent(selected.id) + '?localization=false&tickers=false&market_data=true&community_data=true&developer_data=true&sparkline=false', { headers: { accept: 'application/json' } });
+      if (!detailResponse.ok) throw new Error('CoinGecko asset details returned HTTP ' + detailResponse.status);
+      const coin = await detailResponse.json(), md = coin.market_data || {};
+      const cleanDescription = String(coin.description?.en || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 5000);
+      result.asset = {
+        id: coin.id, name: coin.name, symbol: coin.symbol, categories: coin.categories || [],
+        description: cleanDescription, marketCapRank: coin.market_cap_rank,
+        currentPriceUsd: md.current_price?.usd ?? null, marketCapUsd: md.market_cap?.usd ?? null,
+        fullyDilutedValuationUsd: md.fully_diluted_valuation?.usd ?? null, totalVolume24hUsd: md.total_volume?.usd ?? null,
+        circulatingSupply: md.circulating_supply ?? null, totalSupply: md.total_supply ?? null, maxSupply: md.max_supply ?? null,
+        priceChange24hPct: md.price_change_percentage_24h ?? null, priceChange7dPct: md.price_change_percentage_7d ?? null,
+        priceChange14dPct: md.price_change_percentage_14d ?? null, priceChange30dPct: md.price_change_percentage_30d ?? null,
+        allTimeHighUsd: md.ath?.usd ?? null, allTimeHighDate: md.ath_date?.usd ?? null,
+        allTimeLowUsd: md.atl?.usd ?? null, allTimeLowDate: md.atl_date?.usd ?? null,
+        homepage: (coin.links?.homepage || []).filter(Boolean).slice(0, 3),
+        blockchainExplorers: (coin.links?.blockchain_site || []).filter(Boolean).slice(0, 5),
+        officialTwitter: coin.links?.twitter_screen_name || null, officialTelegram: coin.links?.telegram_channel_identifier || null,
+        github: (coin.links?.repos_url?.github || []).slice(0, 3),
+        community: { twitterFollowers: coin.community_data?.twitter_followers ?? null, redditSubscribers: coin.community_data?.reddit_subscribers ?? null },
+        developer: { forks: coin.developer_data?.forks ?? null, stars: coin.developer_data?.stars ?? null, commits4Weeks: coin.developer_data?.commit_count_4_weeks ?? null },
+        lastUpdated: coin.last_updated || null
+      };
+      result.sources.push({ name: 'CoinGecko asset profile and market data', url: 'https://www.coingecko.com/en/coins/' + encodeURIComponent(coin.id), retrievedAt: generatedAt });
+    } else if (candidates.length > 1) {
+      result.status = 'ambiguous-asset-match';
+      result.errors.push('Multiple CoinGecko assets share this ticker. Select the correct asset before treating any profile data as pair-specific.');
+    } else {
+      result.errors.push('No exact CoinGecko ticker match was found for ' + base + '.');
+    }
+  } catch (error) { result.errors.push(String(error?.message || error).slice(0, 240)); }
+
+  try {
+    const newsUrl = 'https://news.google.com/rss/search?q=' + encodeURIComponent(base + ' crypto token') + '&hl=en-US&gl=US&ceid=US:en';
+    const newsResponse = await fetchImpl(newsUrl, { headers: { accept: 'application/rss+xml, application/xml, text/xml' } });
+    if (!newsResponse.ok) throw new Error('Google News RSS returned HTTP ' + newsResponse.status);
+    result.news = rssItems(await newsResponse.text(), 12);
+    result.sources.push({ name: 'Google News RSS search', url: newsUrl, retrievedAt: generatedAt });
+  } catch (error) { result.errors.push(String(error?.message || error).slice(0, 240)); }
+
+  if (result.asset) result.status = result.news.length ? 'research-available' : 'asset-profile-available';
+  return result;
+}
+
+async function handleMentorRoute(request, env, fetchImpl = fetch) {
+  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
+  const auth = await verifyJournalToken(request, env);
+  if (!auth.ok) return json(auth.status, { error: auth.error }, request);
+  if (!env.AI || typeof env.AI.run !== 'function') return json(503, {
+    error: 'Cloudflare Workers AI is not connected. Add a Workers AI binding named AI to the JPTI Pages project and redeploy.',
+    code: 'WORKERS_AI_BINDING_MISSING'
+  }, request);
+  const length = Number(request.headers.get('content-length') || 0);
+  if (length > 96000) return json(413, { error: 'Mentor review request exceeds the 96 KB limit.' }, request);
+  let body;
+  try { body = await request.json(); } catch { return json(400, { error: 'A valid JSON mentor-review request is required.' }, request); }
+  const entry = body?.entry;
+  if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json(400, { error: 'Send the active journal entry in the entry field.' }, request);
+  const symbol = String(entry.symbol || '').slice(0, 40);
+  const research = await fetchPairResearch(symbol, fetchImpl);
+  const context = JSON.stringify({
+    entry, technicalAssessment: body.technicalAssessment || entry.technicalAssessment || null,
+    userProvidedResearch: body.research || entry.researchSnapshot || null,
+    independentlyRetrievedPublicResearch: research,
+    recentJournalHistory: Array.isArray(body.history) ? body.history.slice(-30) : []
+  }).slice(0, 42000);
+  const system = [
+    'You are JPTI, a rigorous personal trading development council.',
+    'Act as: skeptical market researcher, technical analyst, derivatives risk analyst, trading coach, mentor, behavioural assessor, reflective-journal writer and excellent financial copywriter.',
+    'Be thoughtful and adaptable in approach, but strict about facts. Never flatter, agree blindly, invent evidence, claim a trade was filled, state an unsupported probability, or present a model opinion as a fact.',
+    'Separate USER-SUPPLIED FACTS, RETRIEVED PUBLIC DATA, TECHNICAL CALCULATIONS, INTERPRETATION, UNKNOWN / UNVERIFIED ITEMS and RECOMMENDATIONS.',
+    'Use source URLs and timestamps from retrieved research. Flag ambiguous token matches, stale data, conflicting supply/unlock figures and missing evidence. Headlines are leads, not verified facts.',
+    'Assess the trader only from observed journal behaviour and label personality conclusions provisional. Evaluate process quality separately from trade P/L.',
+    'For leveraged trades, discuss notional exposure, margin, leverage, liquidation uncertainty, funding, fees, stop/invalidation and bounded loss. Never encourage reckless exposure or loss recovery.',
+    'Review whether the trade direction agrees with multi-timeframe structure. Explain countertrend trades without automatically rejecting them.',
+    'Write a polished, detailed reflective journal report that starts with the user exact opening statement when provided. Preserve their meaning and voice.',
+    'Provide concrete next actions and questions. Do not place, modify or cancel orders.',
+    'Return Markdown with headings: Executive assessment; Pair research; Technical assessment; Trade and risk review; Trader profile; Strengths; Weaknesses and blind spots; Coaching plan; Journal narrative; Uncertainties and source quality.'
+  ].join(' ');
+  try {
+    const output = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
+      messages: [{ role: 'system', content: system }, { role: 'user', content: 'Analyze this trading record and evidence. Be candid, detailed and source-aware.\n\n' + context }],
+      max_tokens: 2600, temperature: 0.25
+    });
+    const review = typeof output === 'string' ? output : output?.response || output?.result?.response || JSON.stringify(output);
+    return json(200, { ok: true, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: new Date().toISOString(), symbol, research, review, source: 'cloudflare-workers-ai' }, request);
+  } catch (error) {
+    return json(502, { error: 'Workers AI mentor review failed.', detail: String(error?.message || error).slice(0, 240) }, request);
+  }
+}
+
+export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProvider = createBitgetCfdProvider(), now = () => new Date(), fetchImpl = fetch } = {}) {
   return async function onRequest({ request, env = {} }) {
     const url = new URL(request.url);
     if (url.href.length > MAX_URL_LENGTH) return json(414, { error: 'Request URL is too long.' }, request);
@@ -258,6 +385,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
     }
     if (!['GET', 'HEAD'].includes(request.method)) {
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
+    }
+
+    if (url.pathname === '/api/mentor/analyze') {
+      if (request.method !== 'POST') return json(405, { error: 'Mentor analysis supports POST only.' }, request, { allow: 'POST, OPTIONS' });
+      return handleMentorRoute(request, env, fetchImpl);
     }
 
     const isMarketDataRoute =
