@@ -107,6 +107,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [marketInstrumentIds, setMarketInstrumentIds] = useState({});
   const [supportedTimeframes, setSupportedTimeframes] = useState(null);
   const [marketType, setMarketType] = useState(initialMarketType || 'futures');
+  const [marketSide, setMarketSide] = useState('buy');
   const [directMode, setDirectMode] = useState(() => getApiSource().mode === 'direct');
   const [marketSearch, setMarketSearch] = useState('');
   const [marketCounts, setMarketCounts] = useState(null);
@@ -175,6 +176,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   useEffect(() => { if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
   const marketInstrumentId = exchange === 'bitget' ? String(marketInstrumentIds[symbol] || '') : '';
   const marketInstrumentQuery = marketInstrumentId ? '&instrumentId=' + encodeURIComponent(marketInstrumentId) : '';
+  const marketSideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
 
   useEffect(() => { if (initialMarketType && initialMarketType !== marketType) setMarketType(initialMarketType); }, [initialMarketType, marketType]);
   useEffect(() => { if (onMarketTypeChange) onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
@@ -215,9 +217,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         return { ok: response.ok, data: await response.json() };
       } catch (error) { return { ok: false, error }; }
     };
-    const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+    const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery + marketSideQuery);
     const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
-    const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+    const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + marketInstrumentQuery + marketSideQuery);
     try {
       const candleResult = await candlePromise;
       if (!candleResult.ok) throw new Error(candleResult.data?.error || candleResult.error?.message || 'Candlestick data unavailable for this market and timeframe.');
@@ -290,7 +292,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       clearInterval(timer);
       controller?.abort();
     };
-  }, [exchange, symbol, timeframe, marketType, marketInstrumentId]);
+  }, [exchange, symbol, timeframe, marketType, marketInstrumentId, marketSide]);
 
   const metrics = useMemo(() => {
     const closes = candles.map((c) => c[4]);
@@ -390,10 +392,11 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <option value="coin-futures" disabled={directMode && exchange !== 'bitget'}>Coin-M Futures</option>
         <option value="usdc-futures" disabled={directMode && exchange !== 'bitget'}>USDC-M Futures</option>
         <option value="margin" disabled={directMode && exchange !== 'bitget'}>Margin</option>
-        <option value="cfd" disabled>CFD (not offered by Bitget)</option>
+        <option value="cfd" disabled={exchange !== 'bitget' || !directMode}>CFD · Bitget UTA read-only key required</option>
         <option value="options" disabled>Options (not enabled in this adapter)</option>
       </select>
-      {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. Private account and order execution remain disabled.' : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives and margin markets.'}</span>}
+      {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? (marketType === 'cfd' ? 'Bitget CFD chart data uses the separate signed UTA read-only API. Configure the three Bitget credentials as Cloudflare Pages secrets. CFD candle history is side-specific and does not provide traded volume.' : 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. CFD is available through the separate authenticated Cloudflare feed.') : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives, margin and CFD markets.'}</span>}
+      {marketType === 'cfd' && <label>CFD quote side <select aria-label="CFD candle side" value={marketSide} onChange={(e) => setMarketSide(e.target.value)}><option value="buy">Buy / Ask-side</option><option value="sell">Sell / Bid-side</option></select></label>}
       <input className="market-search" aria-label="Search markets" placeholder="Search pair…" value={marketSearch} onChange={(e) => setMarketSearch(e.target.value)} />
       <label htmlFor="jpti-symbol">Pair</label>
       <select id="jpti-symbol" value={symbol} onChange={(e) => onSymbolChange(e.target.value)}>
