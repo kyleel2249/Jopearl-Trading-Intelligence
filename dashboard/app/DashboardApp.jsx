@@ -26,13 +26,7 @@ export default function DashboardApp({ initialSymbol = 'BTC/USDT' }) {
   const selectedSignal = state.selected?.signal;
   const selectedTicker = state.selected?.ticker;
   const activeCount = state.topSignals.length;
-  const marketRegime = useMemo(() => {
-    const active = state.signals.filter((item) => item.score >= 40);
-    if (!active.length) return 'Unclear';
-    const bullish = active.filter((item) => item.direction === 'long').length;
-    const bearish = active.filter((item) => item.direction === 'short').length;
-    return bullish > bearish ? 'Bullish' : bearish > bullish ? 'Bearish' : 'Mixed';
-  }, [state.signals]);
+  const marketRegime = state.regime.regime.replaceAll('-', ' ');
   const avgScore = state.signals.length ? state.signals.reduce((sum, item) => sum + item.score, 0) / state.signals.length : null;
   const onSelectSymbol = (pair) => state.setSymbol(pair);
 
@@ -52,7 +46,7 @@ export default function DashboardApp({ initialSymbol = 'BTC/USDT' }) {
       <Metric label="Active Signals" value={activeCount} note="Developing and confirmed candidates" icon={Zap}/>
       <Metric label="Average Evidence" value={avgScore == null ? '—' : Math.round(avgScore) + '/100'} note="Heuristic score, not win probability" icon={Gauge}/>
       <Metric label="Markets Scanned" value={Object.keys(state.snapshots).length} note="Live exchange data received" icon={Crosshair}/>
-      <Metric label="Signal Records" value={state.history.length} note="Browser-persisted observations" icon={ShieldCheck}/>
+      <Metric label="Signal Records" value={state.history.length} note="Browser-persisted observations" icon={ShieldCheck}/><Metric label="Signal Collisions" value={state.collisions.length} note="Conflicting directions detected" icon={AlertTriangle} tone={state.collisions.length ? "negative" : ""}/>
     </section>
     <section className="si-main-grid">
       <div className="si-chart-panel">
@@ -67,7 +61,7 @@ export default function DashboardApp({ initialSymbol = 'BTC/USDT' }) {
       <article className="si-panel"><div className="si-panel-head"><b><Gauge size={15}/> Signal Strength</b><span>{avgScore == null ? '—' : Math.round(avgScore) + '/100'}</span></div><div className="si-score-list">{(selectedSignal?.evidence || []).map((item) => <div key={item.key}><span>{item.label}</span><b>{item.contribution}/{item.key === 'trend' || item.key === 'structure' ? 15 : item.key === 'momentum' || item.key === 'volume' || item.key === 'follow-through' ? 10 : 5}</b><i><em style={{width: (item.contribution / 15 * 100) + '%'}}/></i></div>)}</div><small>Scores represent weighted rule evidence, not a calibrated probability of profit.</small></article>
       <article className="si-panel"><div className="si-panel-head"><b><Sparkles size={15}/> Signal Intelligence — Key Insights</b><span>Evidence report</span></div><ul className="si-insights">{(selectedSignal?.evidence || []).map((item) => <li key={item.key}><CheckCircle2 size={14}/><span><b>{item.label}</b><small>{item.detail}</small></span></li>)}</ul>{selectedSignal && <p className="si-invalidation"><ShieldCheck size={14}/> Invalidation: {selectedSignal.invalidation}</p>}</article>
       <article className="si-panel"><div className="si-panel-head"><b><Target size={15}/> Trade Plan</b><span>{selectedSignal?.status || 'No setup'}</span></div><div className="si-trade-levels"><div><span>Reference entry</span><b>{fmt(selectedSignal?.referencePrice, 8)}</b></div><div><span>Stop loss</span><b className="negative">{fmt(selectedSignal?.stopLoss, 8)}</b></div>{(selectedSignal?.targets || []).map((target, index) => <div key={target}><span>Target {index + 1}</span><b className="positive">{fmt(target, 8)}</b></div>)}</div><small>Reference prices are research levels. Validate spread, slippage, fees and position risk before any trade.</small></article>
-      <article className="si-panel"><div className="si-panel-head"><b><Clock3 size={15}/> Session Insights</b><span>UTC</span></div><div className="si-session"><b>{new Intl.DateTimeFormat('en', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())} UTC</b><span>Session context is linked to the selected market chart.</span><small>Session boundaries and overlap are calculated in the chart intelligence workspace.</small></div><div className="si-regime-note">Regime: <b>{marketRegime}</b> · Signals: <b>{state.signals.length}</b></div></article>
+      <article className="si-panel"><div className="si-panel-head"><b><Clock3 size={15}/> Session Insights</b><span>UTC</span></div><div className="si-session"><b>{new Intl.DateTimeFormat('en', { timeZone: 'UTC', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date())} UTC</b><span>Session context is linked to the selected market chart.</span><small>Session boundaries and overlap are calculated in the chart intelligence workspace.</small></div><div className="si-regime-note">Regime: <b>{marketRegime}</b> · Breadth: <b>{state.regime.breadth == null ? "—" : state.regime.breadth + "%"}</b> · Signals: <b>{state.signals.length}</b></div>{state.collisions.map((item) => <p className="si-invalidation" key={item.symbol}><AlertTriangle size={13}/> {item.symbol}: {item.message}</p>)}</article>
     </section>
     <section className="si-panel si-live-table"><div className="si-panel-head"><b><Activity size={15}/> Live Signals</b><button onClick={() => setShowHistory((value) => !value)}>{showHistory ? 'Show current signals' : 'Signal history'}</button></div>
       <div className="si-table-scroll"><table><thead><tr><th>Pair</th><th>Type</th><th>Direction</th><th>Score</th><th>Entry</th><th>Stop</th><th>Targets</th><th>Status</th><th>Updated</th></tr></thead><tbody>{(showHistory ? state.history : state.signals).slice(0, 30).map((signal) => <tr key={signal.signalId}><td><b>{signal.symbol}</b></td><td>{signal.signalType}</td><td className={signal.direction === 'long' ? 'positive' : signal.direction === 'short' ? 'negative' : ''}>{signal.direction.toUpperCase()}</td><td>{signal.score ?? '—'}/100</td><td>{fmt(signal.referencePrice, 6)}</td><td>{fmt(signal.stopLoss, 6)}</td><td>{signal.targets?.map((value) => fmt(value, 6)).join(' / ') || '—'}</td><td>{signal.status}</td><td>{new Date(signal.observedAt || signal.generatedAt).toLocaleTimeString()}</td></tr>)}</tbody></table></div>
