@@ -139,11 +139,46 @@ for (const category of categories) {
   results.push(row);
   if (row.status === 'passed') console.log('PASS ' + category.label + ': ' + row.checks.join(', '));
 }
+
+const cfd = { category: 'CFD', checks: [] };
+if (!platformHealth.capabilities?.bitgetCfdConfigured) {
+  cfd.status = 'not-configured';
+  cfd.warning = 'Bitget CFD charting is implemented but requires the three encrypted Cloudflare Pages secrets: JPTI_BITGET_API_KEY, JPTI_BITGET_API_SECRET and JPTI_BITGET_API_PASSPHRASE.';
+  console.warn('WARN CFD: ' + cfd.warning);
+} else {
+  try {
+    const catalog = await getJson(base + '/api/exchanges/bitget/markets?type=cfd');
+    assert(Array.isArray(catalog.markets) && catalog.markets.length > 0, 'CFD: no tradable instruments returned.');
+    cfd.checks.push('authenticated instrument catalogue');
+    const market = catalog.markets[0];
+    assert(market.symbol && market.id, 'CFD: instrument is missing its symbol or ID.');
+    const ticker = await getJson(base + '/api/exchanges/bitget/ticker/' + encodeSymbol(market.symbol) + '?type=cfd');
+    assert(Number.isFinite(Number(ticker.bid)) && Number.isFinite(Number(ticker.ask)) && Number(ticker.bid) > 0 && Number(ticker.ask) > 0,
+      'CFD ' + market.symbol + ': invalid bid/ask quote.');
+    assert(ticker.priceType === 'bid-ask-midpoint', 'CFD ticker does not identify its midpoint price type.');
+    cfd.checks.push('bid/ask midpoint ticker ' + market.symbol);
+    for (const side of ['buy', 'sell']) {
+      const candles = await getJson(base + '/api/exchanges/bitget/ohlcv/' + encodeSymbol(market.symbol) + '?type=cfd&timeframe=1h&limit=40&side=' + side);
+      validateCandles(candles.candles, 'CFD ' + market.symbol + ' ' + side);
+      assert(candles.volumeAvailable === false && candles.candles.every((row) => Number(row[5]) === 0),
+        'CFD candle volume must remain explicitly unavailable, not fabricated.');
+      cfd.checks.push(side + '-side candles');
+    }
+    cfd.status = 'passed';
+    console.log('PASS CFD: ' + cfd.checks.join(', '));
+  } catch (error) {
+    cfd.status = 'failed';
+    cfd.error = String(error?.message || error);
+    console.error('FAIL CFD: ' + cfd.error);
+  }
+}
+results.push(cfd);
+
 const failures = results.filter((row) => row.status === 'failed');
 const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
 console.log(JSON.stringify({
   target: base,
-  status: failures.length ? 'failed' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
+  status: failures.length ? 'failed' : results.some((row) => row.status === 'not-configured') ? 'passed-with-configuration-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
   results
 }, null, 2));
 if (failures.length) process.exitCode = 1;

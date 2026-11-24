@@ -259,6 +259,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           crossVenuePublicTicker: true,
           bitgetProductTypes: ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd'],
           bitgetCfd: true,
+          bitgetCfdConfigured: Boolean(env.JPTI_BITGET_API_KEY && env.JPTI_BITGET_API_SECRET && (env.JPTI_BITGET_API_PASSPHRASE || env.JPTI_BITGET_PASSWORD)),
           bitgetCfdRequiresCloudflareSecrets: true,
           privateAccounts: false,
           orderExecution: false,
