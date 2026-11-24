@@ -236,6 +236,10 @@ export async function apiFetch(path, options = {}) {
       if (served) return served;
     }
   } else if (response.status >= 500 && response.status !== 501) {
+    // Cloudflare edge can be healthy while an upstream exchange rejects its egress IP.
+    // Count this as an API-path failure so repeated requests prefer the browser-direct
+    // public-data adapter and only probe the edge again after the circuit cooldown.
+    apiCircuit.failure();
     if (direct) {
       const served = await directFallback(path, options, 'server-error');
       if (served) return served;
