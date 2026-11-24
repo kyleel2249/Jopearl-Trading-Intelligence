@@ -250,18 +250,27 @@ async function loadD1OutcomeRecords(env,kind,limit){
  const result=await env.JPTI_DB.prepare('SELECT id, payload, occurred_at FROM jpti_events WHERE kind = ? ORDER BY occurred_at DESC, created_at DESC LIMIT ?').bind(kind,limit).all(),seen=new Set(),out=[];
  for(const row of result.results||[]){let event;try{event=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{continue;}const r=event?.record||event;if(!r?.id||seen.has(r.id))continue;seen.add(r.id);out.push(r);}return out.reverse();
 }
+async function countD1OutcomeRecords(env,kind){
+ const result=await env.JPTI_DB.prepare('SELECT COUNT(*) AS count FROM jpti_events WHERE kind = ?').bind(kind).all();
+ return Number(result.results?.[0]?.count||0);
+}
+async function loadD1OutcomeById(env,id){
+ const result=await env.JPTI_DB.prepare('SELECT payload FROM jpti_events WHERE id = ?').bind(id).all();
+ const raw=result.results?.[0]?.payload;if(!raw)return null;
+ try{const event=typeof raw==='string'?JSON.parse(raw):raw;return event?.record||event;}catch{return null;}
+}
 async function insertD1Outcome(env,id,kind,source,record){
  const r=await env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, symbol, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id,kind,source,record.id,record.symbol,record.createdAt||new Date(record.candleTs).toISOString(),JSON.stringify({record})).run();
  return Number(r?.meta?.changes||0)>0;
 }
 async function handleSessionMemoryRoute(request,env,url){
- if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
  try{
-  const records=await loadD1OutcomeRecords(env,'session-outcome',MAX_SESSION_OUTCOMES);
   if(request.method==='GET'){
    const requested=Number(url.searchParams.get('limit')||1000),limit=Number.isFinite(requested)?Math.min(5000,Math.max(1,Math.floor(requested))):1000;
-   const recent=records.slice(-limit);
-   return json(200,{records:recent,summary:summarizeSessionOutcomes(recent),count:records.length,returned:recent.length,backend:true,storage:'cloudflare-d1'},request);
+   const recent=await loadD1OutcomeRecords(env,'session-outcome',limit),count=await countD1OutcomeRecords(env,'session-outcome');
+   return json(200,{records:recent,summary:summarizeSessionOutcomes(recent),count,returned:recent.length,backend:true,storage:'cloudflare-d1'},request);
   }
   if(request.method!=='POST')return json(405,{error:'Session memory supports GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
   if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'Session outcome request exceeds the 512 KB limit.'},request);
@@ -269,12 +278,15 @@ async function handleSessionMemoryRoute(request,env,url){
   if(new TextEncoder().encode(JSON.stringify(body)).byteLength>512000)return json(413,{error:'Session outcome payload exceeds the 512 KB limit.'},request);
   if(url.pathname.replace(/\/+$/,'')==='/api/session/memory/batch'){
    if(!Array.isArray(body?.records)||body.records.length>2000)return json(400,{error:'Send an array of up to 2,000 session outcome records.'},request);
-   const cleaned=body.records.map(cleanSessionOutcome),known=new Set(records.map(r=>r.id));let imported=0,duplicates=0;
-   for(const r of cleaned){if(known.has(r.id)){duplicates++;continue;}const ok=await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);known.add(r.id);if(ok){imported++;records.push(r);}else duplicates++;}
-   return json(201,{ok:true,imported,duplicates,count:records.length,summary:summarizeSessionOutcomes(records),storage:'cloudflare-d1'},request);
+   const cleaned=body.records.map(cleanSessionOutcome),known=new Set();let imported=0,duplicates=0;
+   for(const r of cleaned){if(known.has(r.id)){duplicates++;continue;}known.add(r.id);const ok=await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);if(ok)imported++;else duplicates++;}
+   const recent=await loadD1OutcomeRecords(env,'session-outcome',1000),count=await countD1OutcomeRecords(env,'session-outcome');
+   return json(201,{ok:true,imported,duplicates,count,returned:recent.length,summary:summarizeSessionOutcomes(recent),storage:'cloudflare-d1'},request);
   }
-  const r=cleanSessionOutcome(body),existing=records.find(x=>x.id===r.id),inserted=existing?false:await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);if(inserted)records.push(r);
-  return json(201,{ok:true,record:existing||r,duplicate:!!existing||!inserted,eventId:inserted?'session:'+r.id:null,count:records.length,summary:summarizeSessionOutcomes(records),storage:'cloudflare-d1',backend:true},request);
+  const record=cleanSessionOutcome(body),inserted=await insertD1Outcome(env,'session:'+record.id,'session-outcome','jpti-session-intelligence',record);
+  const stored=inserted?record:(await loadD1OutcomeById(env,'session:'+record.id))||record;
+  const recent=await loadD1OutcomeRecords(env,'session-outcome',1000),count=await countD1OutcomeRecords(env,'session-outcome');
+  return json(201,{ok:true,record:stored,duplicate:!inserted,eventId:inserted?'session:'+record.id:null,count,returned:recent.length,summary:summarizeSessionOutcomes(recent),storage:'cloudflare-d1',backend:true},request);
  }catch(e){return json(e.status||500,{error:e.message||'Session outcome storage failed.'},request);}
 }
 function cleanGainzOutcome(input){
@@ -287,21 +299,26 @@ function cleanGainzOutcome(input){
  return{id,setupId:btxt(input.setupId,200,id),symbol,exchange:btxt(input.exchange,30),timeframe,preset:btxt(input.preset,20,'balanced').toLowerCase(),setupType:btxt(input.setupType,40,'confluence'),direction,session:btxt(input.session,30),regime:btxt(input.regime,20),volRegime:btxt(input.volRegime,12),candleTs,outcome,returnR,mfeR:bnum(input.mfeR,-50,50),maeR:bnum(input.maeR,-50,50),bars:bnum(input.bars,0,10000),falseSignal:input.falseSignal===true,confidence:bnum(input.confidence,0,100),score:bnum(input.score,-1,1),factors,confirmations:Array.isArray(input.confirmations)?input.confirmations.slice(0,12).map(v=>btxt(v,24)):[],modelVersion:btxt(input.modelVersion,40),tfMs:bnum(input.tfMs,0,3e9)};
 }
 async function handleGainzOutcomesRoute(request,env,url){
- if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
  try{
-  const symbol=url.searchParams.get('symbol')?.toUpperCase()||null,timeframe=url.searchParams.get('timeframe')||null,records=await loadD1OutcomeRecords(env,'gainz-alpha-outcome',MAX_GAINZ_OUTCOMES);
-  if(request.method==='GET'){const rows=records.filter(r=>(!symbol||r.symbol===symbol)&&(!timeframe||r.timeframe===timeframe));return json(200,{records:rows,count:rows.length,backend:true,storage:'cloudflare-d1'},request);}
+  const symbol=url.searchParams.get('symbol')?.toUpperCase()||null,timeframe=url.searchParams.get('timeframe')||null;
+  if(request.method==='GET'){
+   const requested=Number(url.searchParams.get('limit')||MAX_GAINZ_OUTCOMES),limit=Number.isFinite(requested)?Math.min(MAX_GAINZ_OUTCOMES,Math.max(1,Math.floor(requested))):MAX_GAINZ_OUTCOMES;
+   const records=await loadD1OutcomeRecords(env,'gainz-alpha-outcome',limit),rows=records.filter(r=>(!symbol||r.symbol===symbol)&&(!timeframe||r.timeframe===timeframe));
+   return json(200,{records:rows,count:rows.length,backend:true,storage:'cloudflare-d1'},request);
+  }
   if(request.method!=='POST')return json(405,{error:'GainzAlpha outcomes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
   if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'GainzAlpha outcome request exceeds the 512 KB limit.'},request);
   let body;try{body=await request.json();}catch{return json(400,{error:'A valid outcomes payload is required.'},request);}
   if(new TextEncoder().encode(JSON.stringify(body)).byteLength>512000)return json(413,{error:'GainzAlpha outcomes payload exceeds the 512 KB limit.'},request);
   if(!Array.isArray(body?.records)||body.records.length>MAX_GAINZ_BATCH)return json(400,{error:'Send an array of up to '+MAX_GAINZ_BATCH+' GainzAlpha outcome records.'},request);
-  const known=new Set(records.map(r=>r.id));let saved=0,duplicates=0;const rejected=[];
-  for(const[index,raw]of body.records.entries()){let r;try{r=cleanGainzOutcome(raw);}catch(e){rejected.push({index,error:e.message});continue;}if(known.has(r.id)){duplicates++;continue;}const ok=await insertD1Outcome(env,'gainz:'+r.id,'gainz-alpha-outcome','gainz-alpha',r);known.add(r.id);if(ok){saved++;records.push(r);}else duplicates++;}
-  return json(200,{saved,duplicates,rejected,count:records.length,storage:'cloudflare-d1'},request);
+  const known=new Set();let saved=0,duplicates=0;const rejected=[];
+  for(const[index,raw]of body.records.entries()){let r;try{r=cleanGainzOutcome(raw);}catch(e){rejected.push({index,error:e.message});continue;}if(known.has(r.id)){duplicates++;continue;}known.add(r.id);const ok=await insertD1Outcome(env,'gainz:'+r.id,'gainz-alpha-outcome','gainz-alpha',r);if(ok)saved++;else duplicates++;}
+  const count=await countD1OutcomeRecords(env,'gainz-alpha-outcome');
+  return json(200,{saved,duplicates,rejected,count,storage:'cloudflare-d1'},request);
  }catch(e){return json(e.status||500,{error:e.message||'GainzAlpha outcome storage failed.'},request);}
 }
-
 
 function decodeXml(value) {
   return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')

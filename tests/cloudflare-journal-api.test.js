@@ -13,7 +13,9 @@ function fakeDb() {
           return {
             async all() {
               if (sql.includes('SELECT payload, updated_at FROM jpti_journal_entries')) return { results: [...rows.values()].map(row => ({ payload: row.payload, updated_at: row.updated_at })) };
-              if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0]; return { results:[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at)).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
+              if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0],rows=[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at)); return { results:rows.slice(0,values[1]).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
+              if (sql.includes('SELECT COUNT(*) AS count FROM jpti_events')) { const kind=values[0]; return { results:[{count:[...events.values()].filter(row=>row.kind===kind).length}] }; }
+              if (sql.includes('SELECT payload FROM jpti_events WHERE id = ?')) { const row=events.get(values[0]); return { results:row?[{payload:row.payload}]:[] }; }
               return { results: [] };
             },
             async run() {
