@@ -389,6 +389,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const [symbol, setSymbolState] = useState(() => store.get('jpti.terminal.symbol', 'EUR/USDT'));
   const [timeframe, setTimeframeState] = useState(() => store.get('jpti.terminal.timeframe', '15m'));
   const [marketType, setMarketTypeState] = useState(() => store.get('jpti.terminal.marketType', 'spot'));
+  const [marketSide, setMarketSide] = useState(() => store.get('jpti.terminal.marketSide', 'buy'));
   const [overlays, setOverlays] = useState(() => ({ ...DEFAULT_OVERLAYS, ...store.get('jpti.terminal.overlays', {}) }));
   const [live, setLive] = useState(true);
   const [classicOpen, setClassicOpen] = useState(false);
@@ -400,19 +401,26 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const setMarketType = (v) => { setMarketTypeState(v); store.set('jpti.terminal.marketType', v); };
   useEffect(() => { if (exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot'); }, [exchange, marketType]);
   const setSymbol = useCallback((raw) => {
-    const next = String(raw || '').trim().toUpperCase().replace('-', '/');
-    if (!/^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}(?::[A-Z0-9._]{2,20})?$/.test(next)) return false;
+    const input = String(raw || '').trim().toUpperCase();
+    const next = marketType === 'cfd' ? input : input.replace('-', '/');
+    const valid = marketType === 'cfd'
+      ? /^[A-Z0-9][A-Z0-9._-]{1,31}$/.test(next)
+      : /^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}(?::[A-Z0-9._]{2,20})?$/.test(next);
+    if (!valid) return false;
     setSymbolState(next); setSymbolDraft(next); store.set('jpti.terminal.symbol', next); onSymbolChange?.(next); return true;
-  }, [onSymbolChange]);
+  }, [onSymbolChange, marketType]);
   const toggleOverlay = (key) => setOverlays((o) => { const next = { ...o, [key]: !o[key] }; store.set('jpti.terminal.overlays', next); return next; });
 
-  const pair = symbol.replace('/', '-');
+  const pair = encodeURIComponent(symbol.replace('/', '-'));
   const exchanges = usePoll((s) => getJson('/api/exchanges', s), [], 0);
   const marketCatalog = usePoll((s) => getJson('/api/exchanges/' + exchange + '/markets?type=' + encodeURIComponent(marketType), s), [exchange, marketType], 300000, live);
-  const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300&type=' + encodeURIComponent(marketType), s), [exchange, pair, timeframe, marketType], 20000, live);
-  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType), s), [exchange, pair, marketType], 10000, live);
+  const selectedMarket = (marketCatalog.data?.markets || []).find((market) => market.symbol === symbol);
+  const instrumentQuery = selectedMarket?.id ? '&instrumentId=' + encodeURIComponent(selectedMarket.id) : '';
+  const sideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
+  const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, timeframe, marketType, instrumentQuery, sideQuery], 20000, live);
+  const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType) + instrumentQuery, s), [exchange, pair, marketType, instrumentQuery], 10000, live);
   const contextState = usePoll((s) => getJson('/api/institutional/context/' + exchange + '/' + pair + '?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType), s), [exchange, pair, timeframe, marketType], 60000, live);
-  const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500&type=' + encodeURIComponent(marketType), s), [exchange, pair, marketType], 300000, live);
+  const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, marketType, instrumentQuery, sideQuery], 300000, live);
   const calendarState = usePoll((s) => getJson('/api/institutional/calendar?symbol=' + encodeURIComponent(compactSymbol(symbol)), s), [symbol], 120000, live);
   const journalState = usePoll((s) => getJson('/api/session/memory', s), [], 60000, live);
 
@@ -463,7 +471,15 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const online = Boolean(health) && !loadError;
   const exchangeList = exchanges.data?.exchanges?.length ? exchanges.data.exchanges : [{ id: 'binance', name: 'Binance' }];
   const catalogSymbols = (marketCatalog.data?.markets || []).map((market) => market.symbol).filter(Boolean);
-  const symbolOptions = [...new Set([symbol, ...catalogSymbols, ...SYMBOL_PRESETS])];
+  const symbolOptions = [...new Set([symbol, ...catalogSymbols, ...(marketType === 'cfd' ? [] : SYMBOL_PRESETS)])];
+  useEffect(() => {
+    const markets = marketCatalog.data?.markets || [];
+    if (markets.length && !markets.some((market) => market.symbol === symbol)) setSymbol(markets[0].symbol);
+  }, [marketCatalog.data, symbol, setSymbol]);
+  useEffect(() => {
+    const frames = marketCatalog.data?.timeframes || [];
+    if (frames.length && !frames.includes(timeframe)) setTimeframe(frames.includes('1h') ? '1h' : frames[0]);
+  }, [marketCatalog.data, timeframe]);
 
   return <div className="td-root">
     <Header page={page} onNavigate={onNavigate} onOpenMenu={onOpenMenu} online={online} bellCount={bell} onBell={() => onNavigate('News & Events')}/>
@@ -481,9 +497,10 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               <input list="td-symbols" value={symbolDraft} onChange={(e) => setSymbolDraft(e.target.value)} onBlur={() => { if (!setSymbol(symbolDraft)) setSymbolDraft(symbol); }} aria-label="Market symbol" spellCheck="false"/>
               <datalist id="td-symbols">{symbolOptions.map((s) => <option key={s} value={s}/>)}</datalist><ChevronDown size={13}/>
             </form>
-            <label className="td-market-product"><span>Product</span><select aria-label="Market product" value={marketType} onChange={(e) => setMarketType(e.target.value)}><option value="spot">Spot</option><option value="margin" disabled={exchange !== 'bitget'}>Margin</option><option value="futures" disabled={exchange !== 'bitget'}>USDT-M Futures</option><option value="coin-futures" disabled={exchange !== 'bitget'}>Coin-M Futures</option><option value="usdc-futures" disabled={exchange !== 'bitget'}>USDC-M Futures</option><option value="cfd" disabled>CFD (not offered by Bitget)</option></select></label>
+            <label className="td-market-product"><span>Product</span><select aria-label="Market product" value={marketType} onChange={(e) => setMarketType(e.target.value)}><option value="spot">Spot</option><option value="margin" disabled={exchange !== 'bitget'}>Margin</option><option value="futures" disabled={exchange !== 'bitget'}>USDT-M Futures</option><option value="coin-futures" disabled={exchange !== 'bitget'}>Coin-M Futures</option><option value="usdc-futures" disabled={exchange !== 'bitget'}>USDC-M Futures</option><option value="cfd" disabled={exchange !== 'bitget'}>CFD · UTA read-only key required</option></select></label>
+            {marketType === 'cfd' && <label className="td-market-product"><span>CFD side</span><select aria-label="CFD candle side" value={marketSide} onChange={(e) => { setMarketSide(e.target.value); store.set('jpti.terminal.marketSide', e.target.value); }}><option value="buy">Buy / Ask</option><option value="sell">Sell / Bid</option></select></label>}
             <span className="td-tf-current" aria-hidden="true">{timeframe.replace(/m$/, '')}</span>
-            <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.filter(([v]) => exchange !== 'bitget' || ['1m', '5m', '15m', '1h', '4h', '1d'].includes(v)).map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
+            <div className="td-tfs" role="group" aria-label="Timeframe">{TIMEFRAMES.filter(([v]) => exchange !== 'bitget' || (marketCatalog.data?.timeframes || (marketType === 'cfd' ? ['1m','15m','1h','4h','1d'] : ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'])).includes(v)).map(([v, label]) => <button key={v} type="button" className={timeframe === v ? 'active' : ''} aria-pressed={timeframe === v} onClick={() => setTimeframe(v)}>{label}</button>)}</div>
             <div className="td-menu-wrap">
               <button type="button" className="td-ghost" aria-expanded={menu === 'ind'} onClick={() => setMenu(menu === 'ind' ? null : 'ind')}>Indicators <ChevronDown size={12}/></button>
               {menu === 'ind' && <div className="td-menu" role="menu">{[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([k, label]) => <label key={k}><input type="checkbox" checked={overlays[k]} onChange={() => toggleOverlay(k)}/>{label}</label>)}</div>}
@@ -493,7 +510,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               <div className="td-menu-wrap">
                 <button type="button" className="td-icon-btn" aria-label="Chart settings" aria-expanded={menu === 'set'} title="Chart settings" onClick={() => setMenu(menu === 'set' ? null : 'set')}><Settings2 size={15}/></button>
                 {menu === 'set' && <div className="td-menu right" role="menu"><label className="col"><span>Exchange</span><select value={exchange} onChange={(e) => setExchange(e.target.value)}>{exchangeList.map((x) => <option key={x.id} value={x.id}>{x.name || x.id}</option>)}</select></label>
-                  <p className="td-foot">Candles, ticker and the market list follow the selected exchange and product. Bitget supports spot, margin, USDT-M, Coin-M and USDC-M public markets here. CFD feeds are unavailable from Bitget.</p></div>}
+                  <p className="td-foot">Candles, ticker and market pairs follow the selected exchange and product. Bitget supports Spot, Margin, USDT-M, Coin-M and USDC-M public markets. CFD charts use the authenticated Cloudflare UTA read-only feed; CFD candle history is side-specific and does not include traded volume.</p></div>}
               </div>
               <button type="button" className={'td-realtime' + (live ? '' : ' paused')} aria-pressed={live} onClick={() => setLive((v) => !v)} title={live ? 'Click to pause auto-refresh' : 'Click to resume auto-refresh'}><i/>{live ? 'Real-Time' : 'Paused'}</button>
             </div>
