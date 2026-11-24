@@ -7,6 +7,7 @@ import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.
 import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
 import { candleCountdown, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
+import { getExpandedCanvasWidth } from './chart-canvas.js';
 
 const UP = '#22c58b', DOWN = '#ef5361';
 const SESSION_TINT = { sydney: '#8b7cf6', tokyo: '#4a9bf5', london: '#3b82f6', 'new-york': '#f0a848' };
@@ -72,7 +73,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const rows = useMemo(() => valid.slice(-visible), [valid, visible]);
   const offset = valid.length - rows.length;
   const baseVisible = Math.max(1, Math.min(96, valid.length));
-  const canvasWidth = Math.max(size.w, Math.ceil(size.w * (rows.length / baseVisible)));
+  const canvasWidth = getExpandedCanvasWidth(size.w, rows.length, baseVisible);
 
   const smc = useMemo(() => (overlays.institutional ? detectSmartMoney(valid.slice(0, -1), 3) : null), [valid, overlays.institutional]);
   const bands = useMemo(() => (overlays.bands ? bollinger(valid.map((c) => c[4])).slice(offset) : null), [valid, overlays.bands, offset]);
