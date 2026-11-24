@@ -5,6 +5,7 @@ import {
   normalizeTrade
 } from './chart-intelligence/live-trade-flow.js';
 import './LiveOrderFlowPanel.css';
+import { analyzeOrderBook, normalizeOrderBookMessage } from './chart-intelligence/microstructure.js';
 
 const pair = (symbol) =>
   String(symbol || 'BTC/USDT').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
@@ -25,6 +26,9 @@ export default function LiveOrderFlowPanel({
   const [state, setState] = useState('connecting');
   const [error, setError] = useState('');
   const [clock, setClock] = useState(Date.now());
+  const [book, setBook] = useState(null);
+  const [bookState, setBookState] = useState('connecting');
+  const [bookError, setBookError] = useState('');
 
   useEffect(() => {
     const id = setInterval(() => setClock(Date.now()), 1000);
@@ -135,6 +139,40 @@ export default function LiveOrderFlowPanel({
     };
   }, [exchange, symbol, marketType, instrumentId]);
 
+  useEffect(() => {
+    let ws, timer, heartbeat, alive = true, delay = 1000;
+    const connect = () => {
+      if (!alive) return;
+      setBook(null); setBookError('');
+      if (exchange !== 'bitget') { setBookState('unsupported'); setBookError('Native order-book depth is currently available from the Bitget public depth stream. Other venues are withheld until their own depth adapters are connected.'); return; }
+      if (marketType === 'cfd') { setBookState('unsupported'); setBookError('A consolidated public order book is not supplied for this CFD instrument.'); return; }
+      setBookState('connecting');
+      try {
+        ws = new WebSocket('wss://ws.bitget.com/v2/ws/public');
+        ws.onopen = () => {
+          if (!alive) return;
+          setBookState('live'); delay = 1000;
+          const instType = ({ spot:'SPOT', margin:'SPOT', futures:'USDT-FUTURES', perpetual:'USDT-FUTURES', 'coin-futures':'COIN-FUTURES', 'usdc-futures':'USDC-FUTURES' })[marketType] || 'SPOT';
+          ws.send(JSON.stringify({ op:'subscribe', args:[{ instType, channel:'books5', instId:String(instrumentId || pair(symbol)) }] }));
+          heartbeat = setInterval(() => { if (ws?.readyState === WebSocket.OPEN) ws.send('ping'); }, 25000);
+        };
+        ws.onmessage = event => {
+          if (!alive || event.data === 'pong') return;
+          try {
+            const message = JSON.parse(event.data);
+            if (message.event === 'error') { setBookError(message.msg || 'Order-book subscription rejected'); setBookState('offline'); return; }
+            const snapshot = normalizeOrderBookMessage(message);
+            if (snapshot) setBook(snapshot);
+          } catch { setBookError('Unable to parse public order-book update'); }
+        };
+        ws.onerror = () => { if (alive) { setBookState('offline'); setBookError('Depth stream error; reconnecting'); } };
+        ws.onclose = () => { if (!alive) return; clearInterval(heartbeat); setBookState('reconnecting'); timer = setTimeout(connect, delay); delay = Math.min(delay * 2, 30000); };
+      } catch { setBookState('offline'); timer = setTimeout(connect, delay); delay = Math.min(delay * 2, 30000); }
+    };
+    connect();
+    return () => { alive = false; clearTimeout(timer); clearInterval(heartbeat); try { ws?.close(); } catch {} };
+  }, [exchange, symbol, marketType, instrumentId]);
+
   const flow = useMemo(
     () => aggregateTrades(trades, clock),
     [trades, clock]
@@ -153,6 +191,8 @@ export default function LiveOrderFlowPanel({
     () => detectLiveSweep(candles, flow.latest?.price),
     [candles, flow.latest]
   );
+
+  const depth = useMemo(() => analyzeOrderBook(book), [book]);
 
   const direction = flow.pressure > 0
     ? 'buy'
@@ -240,6 +280,25 @@ export default function LiveOrderFlowPanel({
         </div>
       )}
 
+      <section className="jpti-microstructure">
+        <header><div><b>INSTITUTIONAL MICROSTRUCTURE · L2 DEPTH</b><small>{symbol} · Bitget top-five price levels · {book?.receivedAt ? new Date(book.receivedAt).toLocaleTimeString() : 'awaiting snapshot'}</small></div><span className={'jpti-flow-state ' + bookState}><i/> {bookState.toUpperCase()}</span></header>
+        {depth.status === 'ready' ? <>
+          <div className="jpti-micro-metrics">
+            <article><small>BEST BID / ASK</small><b>{fmt(depth.bestBid)} / {fmt(depth.bestAsk)}</b></article>
+            <article><small>SPREAD</small><b>{fmt(depth.spread)} · {fmt(depth.spreadBps)} bps</b></article>
+            <article><small>BOOK IMBALANCE</small><b className={depth.imbalancePct >= 0 ? 'buy' : 'sell'}>{depth.imbalancePct > 0 ? '+' : ''}{depth.imbalancePct}%</b><small>{depth.imbalanceLabel}</small></article>
+            <article><small>MICROPRICE PREMIUM</small><b>{depth.micropricePremiumBps > 0 ? '+' : ''}{fmt(depth.micropricePremiumBps)} bps</b></article>
+            <article><small>BID / ASK NOTIONAL</small><b>{fmt(depth.bidNotional)} / {fmt(depth.askNotional)}</b><small>Top-five levels · quote currency</small></article>
+            <article><small>DEPTH-ADJUSTED MID</small><b>{fmt(depth.microprice)}</b></article>
+          </div>
+          <div className="jpti-depth-columns">
+            <div><b>BUY-SIDE DEPTH</b>{depth.bids.map((level,i)=><div key={'b'+i}><span>{fmt(level.price)}</span><i><em style={{width:(level.relative*100)+'%'}}/></i><strong>{fmt(level.notional)}</strong></div>)}</div>
+            <div><b>SELL-SIDE DEPTH</b>{depth.asks.map((level,i)=><div key={'a'+i}><span>{fmt(level.price)}</span><i><em style={{width:(level.relative*100)+'%'}}/></i><strong>{fmt(level.notional)}</strong></div>)}</div>
+          </div>
+          <div className="jpti-depth-insight"><b>{depth.wall?.side ? depth.wall.side.toUpperCase()+' LIQUIDITY WALL' : 'NO DOMINANT WALL IN TOP FIVE LEVELS'}</b><span>{depth.wall ? fmt(depth.wall.price)+' · '+fmt(depth.wall.notional)+' quote notional · '+depth.wall.multiple.toFixed(2)+'× median level' : 'No level currently exceeds the wall threshold.'}</span></div>
+          <p className="jpti-micro-note">Snapshot depth is venue-local, limited to five levels, and can be cancelled or spoofed. Imbalance and walls are descriptive, not proof of intent or executable liquidity.</p>
+        </> : <p className="jpti-micro-note">{bookError || 'Waiting for a valid order-book snapshot. No depth-derived metrics are inferred from candles.'}</p>}
+      </section>
       <footer>
         {error || 'Aggressor side from exchange prints. Unknown-side trades are excluded from directional delta. No trade signal without corroborating structure, risk, and higher-timeframe evidence.'}
       </footer>
