@@ -569,7 +569,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
     }
 
-    if (url.pathname.replace(/\\/+$/, '') === '/api/market/pair-scanner') {
+    if (url.pathname.replace(/\/+$/, '') === '/api/market/pair-scanner') {
       try {
         const rangePct = Math.min(100, Math.max(1, Number(url.searchParams.get('rangePct') || 20)));
         const minTurnover = Math.max(0, Number(url.searchParams.get('minTurnover') || 50000));
