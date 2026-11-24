@@ -40,6 +40,7 @@ export function setApiToken(value = '') {
     if (token) store?.setItem(TOKEN_KEY, token);
     else store?.removeItem(TOKEN_KEY);
   } catch { /* session-only token storage is best effort */ }
+  try { storage()?.removeItem(TOKEN_KEY); } catch { /* remove any legacy localStorage token copy */ }
   emitConfigChange();
   return token;
 }

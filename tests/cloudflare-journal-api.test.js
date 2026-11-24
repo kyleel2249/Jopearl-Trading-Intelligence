@@ -13,7 +13,7 @@ function fakeDb() {
           return {
             async all() {
               if (sql.includes('SELECT payload, updated_at FROM jpti_journal_entries')) return { results: [...rows.values()].map(row => ({ payload: row.payload, updated_at: row.updated_at })) };
-              if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0]; return { results:[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>a.occurred_at.localeCompare(b.occurred_at)).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
+              if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0]; return { results:[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at)).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
               return { results: [] };
             },
             async run() {
