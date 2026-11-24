@@ -53,6 +53,25 @@ test('network failure opens the circuit and later calls skip the dead API', asyn
   });
 });
 
+test('Bitget edge 502 falls back to direct public data and opens the API circuit', async () => {
+  await withFetch((url) => {
+    if (isVenue(url)) return json({ code: '00000', data: [{ symbol: 'BTCUSDT', lastPrice: '100', bid1Price: '99', ask1Price: '101', highPrice24h: '110', lowPrice24h: '90', volume24h: '5', turnover24h: '500', price24hPcnt: '0.01', ts: String(Date.now()) }] });
+    return json({ error: 'Bitget upstream returned HTTP 403' }, 502, { 'x-jpti-runtime': 'cloudflare-edge' });
+  }, async (calls) => {
+    const path = '/api/exchanges/bitget/ticker/BTC%2FUSDT';
+    const first = await apiFetch(path);
+    assert.equal(first.headers.get('x-jpti-source'), 'browser-direct');
+    assert.equal((await first.json()).last, 100);
+    assert.equal(getApiSource().mode, 'direct');
+    await apiFetch(path);
+    assert.equal(getApiCircuitState().state, 'open');
+    const edgeCallsBefore = calls.filter((url) => !isVenue(url)).length;
+    const third = await apiFetch(path);
+    assert.equal((await third.json()).last, 100);
+    assert.equal(calls.filter((url) => !isVenue(url)).length, edgeCallsBefore, 'open circuit skips the blocked Cloudflare edge path');
+  });
+});
+
 test('routes with no direct equivalent surface the original error', async () => {
   await withFetch(() => html(), async () => {
     await assert.rejects(async () => (await apiFetch('/api/ledger/trades')).json());
