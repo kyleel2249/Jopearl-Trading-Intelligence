@@ -149,7 +149,7 @@ async function dashboard(db){
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSample);
   const row=await db.prepare('SELECT tier,status,promoted_at,virtual_equity_usd,payload FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   let stored={};try{stored=JSON.parse(row?.payload||'{}')}catch{}
-  agents.push({...agent,...stored,id:agent.id,tier:row?.tier||'RESEARCH',status:row?.status||'active',virtualEquityUsd:num(row?.virtual_equity_usd)||PAPER_POLICY.initialEquityUsd,promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
+  agents.push({...agent,...stored,id:agent.id,tier:row?.tier||'RESEARCH',status:row?.status||'active',virtualEquityUsd:row?.virtual_equity_usd==null?PAPER_POLICY.initialEquityUsd:num(row.virtual_equity_usd),promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
  }
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
  return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
@@ -161,6 +161,7 @@ export async function dailyReview(db){
   const lifecycle=await promoteOrRetire(db,agent,agent.metrics,agent.kpi);
   if(lifecycle){const item=summary.agents.find(a=>a.agentId===agent.id);if(item){item.tier=lifecycle.status;item.lifecycle=lifecycle;}}
  }
+ summary.fleet={...summary.fleet,liveReady:summary.agents.filter(a=>a.tier==='LIVE_READY').length,research:summary.agents.filter(a=>a.tier==='RESEARCH').length,suspended:summary.agents.filter(a=>a.tier==='SUSPENDED').length,retired:summary.agents.filter(a=>a.tier==='RETIRED').length};
  const id='paper-review:'+date;
  await db.prepare("INSERT INTO jpti_paper_reviews(review_id,review_date,payload) VALUES(?,?,?) ON CONFLICT(review_date) DO UPDATE SET payload=excluded.payload,created_at=strftime('%Y-%m-%dT%H:%M:%fZ','now')")
   .bind(id,date,JSON.stringify(summary)).run();
