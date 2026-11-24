@@ -27,4 +27,5 @@ test("diagnostics surface missing metadata instead of silently assuming it", () 
 test("formatting honors tick precision and preserves instrument decimals", () => {
   assert.equal(formatInstrumentPrice(1.23456, { tickSize: 0.0001 }), "1.2346");
   assert.equal(formatInstrumentPrice(1, { tickSize: 0.01 }), "1.00");
+  assert.equal(formatInstrumentPrice(1.23456789, {}, { maximumFractionDigits: 3 }), "1.235");
 });
