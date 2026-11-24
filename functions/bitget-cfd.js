@@ -89,7 +89,7 @@ function normalizeTicker(payload, symbol) {
   if (!item) throw jsonError('Bitget CFD ticker is unavailable for ' + symbol + '.', 404, 'BITGET_CFD_SYMBOL_UNAVAILABLE');
   const bid = Number(item.bid1), ask = Number(item.ask1);
   const mid = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
-  const change = Number(item.askOpenPriceChange);
+  const change = Number(item.askOpenPriceChange ?? item.bidOpenPriceChange);
   return {
     exchange: 'bitget', symbol, last: mid, mid: mid, bid: Number.isFinite(bid) ? bid : null,
     ask: Number.isFinite(ask) ? ask : null, high: Number(item.highPrice) || null, low: Number(item.lowPrice) || null,
