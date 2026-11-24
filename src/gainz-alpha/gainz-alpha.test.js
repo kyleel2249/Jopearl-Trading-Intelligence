@@ -277,6 +277,15 @@ test('hub adaptive model learns from the shared outcome pool across symbol/timef
   t=base+(rows.length+26)*TF;hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,...future]});
   assert.ok(hub.getState().model.version>1);
 });
+test('manual journal outcomes enter the shared hub once and are eligible for adaptive learning', () => {
+  const hub=createHub({learnEvery:1}), state=hub.getState();
+  state.outcomes.push(...Array.from({length:30},(_,i)=>({id:'prior-'+i,symbol:i%2?'ETH/USDT':'SOL/USDT',timeframe:'15m',candleTs:i+1,outcome:i%2?'win':'loss',returnR:i%2?1.5:-1,factors:{trend:i%2?1:0}})));
+  const record={id:'manual-journal-1',symbol:'BTC/USDT',exchange:'bitget',timeframe:'15m',direction:'bullish',outcome:'win',returnR:1.25,candleTs:100000,factors:{sweep:1,displacement:1}};
+  const saved=hub.recordOutcome(record,{sync:false});
+  assert.equal(saved.ok,true);assert.equal(saved.duplicate,false);assert.equal(hub.getState().outcomes.length,31);
+  const duplicate=hub.recordOutcome(record,{sync:false});assert.equal(duplicate.duplicate,true);assert.equal(hub.getState().outcomes.length,31);
+  assert.ok(hub.getState().model.version>1);
+});
 test('hub persistence, migration, graceful storage failure, settings import/export', () => {
   const st = memStorage(), rows = build(-1), t = nowOf(rows); const hub = createHub({ storage: st, now: () => t });
   hub.updateSettings({ preset: 'precision', overlays: { fvg: false } }); hub.ingest({ exchange: 'ex', symbol: 'BTC/USDT', timeframe: '1m', candles: rows });

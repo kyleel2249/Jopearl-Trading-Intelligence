@@ -186,6 +186,37 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     exportSettings: () => JSON.stringify({ kind: 'jpti-gainz-alpha-settings', schema: SCHEMA, settings: state.settings }),
     importSettings(text) { try { const o = JSON.parse(text); if (o.kind !== 'jpti-gainz-alpha-settings' || o.schema > SCHEMA) return { ok: false, error: 'not a compatible settings export' }; this.updateSettings(o.settings); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } },
     expectancy: (filter) => summarize(state.outcomes, filter),
+    recordOutcome(record, { sync = true } = {}) {
+      if (!record || typeof record !== 'object' || !record.id || !record.symbol || !record.timeframe ||
+          !['win', 'loss', 'timeout'].includes(record.outcome) || !['bullish', 'bearish'].includes(record.direction) ||
+          record.returnR === null || record.returnR === undefined || !Number.isFinite(Number(record.returnR))) {
+        return { ok: false, error: 'A valid, resolved trade outcome is required.' };
+      }
+      const existing = state.outcomes.find((item) => item.id === record.id);
+      if (existing) return { ok: true, duplicate: true, record: existing, modelVersion: state.model.version };
+      const saved = { ...record, returnR: Number(record.returnR), recordedAt: record.recordedAt || now() };
+      state.outcomes.push(saved);
+      state.outcomes.sort((a, b) => Number(a.candleTs || 0) - Number(b.candleTs || 0));
+      state.outcomes = state.outcomes.slice(-maxOutcomes);
+      const ctx = { exchange: saved.exchange || 'unknown', symbol: saved.symbol, timeframe: saved.timeframe };
+      emit('GAINZ_ALPHA_OUTCOME', ctx, { id: saved.id, outcome: saved.outcome, returnR: saved.returnR, falseSignal: !!saved.falseSignal, source: 'manual-journal' }, 'manual|' + saved.id);
+      outcomesSinceLearn++;
+      let learning = null;
+      if (state.settings.adaptiveLearning && outcomesSinceLearn >= learnEvery) {
+        outcomesSinceLearn = 0;
+        learning = adaptModel(state.model, state.outcomes);
+        emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: learning.changed, n: learning.n, reason: learning.reason || null, deltas: learning.deltas || {} }, 'manual-learn|' + state.model.version + '|' + learning.n);
+        if (learning.changed) {
+          state.model = learning.model;
+          version++;
+          emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: learning.drifting }, 'model|' + state.model.version);
+        }
+      }
+      version++;
+      if (sync && remote) { unsynced.push(saved); flushRemote(); }
+      persist();
+      return { ok: true, duplicate: false, record: saved, learning, modelVersion: state.model.version };
+    },
     rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); } return r; },
     diagnose(result, env = {}) { return diagnose(result, { ...env, status, state, hubLoaded: true }); }
   };
