@@ -301,6 +301,7 @@ export default function ReflectiveJournal() {
             <label className="rj-thesis-label">Actual setup thesis<textarea name="setupThesis" rows="2" defaultValue={active.setupThesis || active.thesis} placeholder="Document the evidence supporting this trade."/></label>
             <button className="rj-primary" type="submit"><ClipboardList size={15}/> Save execution details</button>
           </form>
+          <p className="rj-footnote">{active.institutionalLiquidityHypothesis || "No institutional liquidity reference has been verified."}</p>
           <div className="rj-callout danger"><ShieldAlert size={18}/><div><b>Risk review: 20× leverage with no stop-loss</b><p>A 5% adverse move in the underlying is approximately a $28.12 loss on the stated $562.33 notional, roughly equal to the stated $28.70 margin. Actual liquidation can occur earlier because of maintenance margin, fees and mark-price rules. This is a simplified exposure illustration, not an exchange liquidation calculation.</p></div></div>
           <div className="rj-subhead"><h4>Illustrative adverse-price scenarios</h4><span>Before fees and funding</span></div>
           <div className="rj-scenario-list">{scenarios.map(s => <div className="rj-scenario" key={s.move}><span>{s.move}% price move</span><div className="rj-bar"><i style={{ width: Math.min(100, Math.abs(s.pnl) / Math.max(active.margin || 1, 1) * 100) + '%' }}/></div><b className="negative">{money(s.pnl)}</b></div>)}</div>
