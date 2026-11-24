@@ -144,3 +144,72 @@ export function buildTradingDevelopmentAssessment(input = {}) {
     limitations: ['This is a deterministic rules-based assessment, not an AI model or a calibrated probability of profit.', 'No news, tokenomics, order-book, funding or institutional positioning is inferred from OHLCV.', 'Missing evidence is reported as missing, never filled with assumptions.']
   };
 }
+
+export function buildReflectiveReport(entry = {}, assessment = null) {
+  const money = value => Number.isFinite(Number(value)) ? '$' + Number(value).toFixed(2) : 'Not recorded';
+  const price = value => Number.isFinite(Number(value)) ? String(value) : 'Not recorded';
+  const lines = [
+    '# Reflective Trading Journal — ' + String(entry.symbol || 'Unspecified pair'),
+    '',
+    '## The beginning of a new trading chapter',
+    '',
+    String(entry.openingNarrative || ''),
+    '',
+    '## Trade record',
+    '',
+    '- Date: ' + String(entry.date || 'Not recorded'),
+    '- Direction: ' + String(entry.direction || 'Not recorded'),
+    '- Timeframe: ' + String(entry.timeframe || 'Not recorded'),
+    '- Execution venue: ' + String(entry.exchange || 'Not confirmed'),
+    '- Order status: ' + String(entry.orderStatus || 'Not recorded'),
+    '- Limit price: ' + price(entry.entryPrice),
+    '- Quantity: ' + String(entry.quantity ?? 'Not recorded'),
+    '- Notional: ' + money(entry.notional || Number(entry.entryPrice) * Number(entry.quantity)),
+    '- Margin: ' + money(entry.margin),
+    '- Leverage: ' + String(entry.leverage ?? 'Not recorded') + 'x',
+    '- Reported liquidation: ' + price(entry.liquidationPrice),
+    '- Stop-loss: ' + (entry.stopLoss ?? 'Not set'),
+    '- Take-profit: ' + (entry.takeProfit ?? 'Not recorded'),
+    '',
+    '## Research and market context',
+    '',
+    String(entry.thesis || 'No complete trade thesis has been documented.'),
+    '',
+    ...(entry.researchSnapshot ? [
+      '### Fundamental findings',
+      '',
+      '- Project transition: ' + String(entry.researchSnapshot.projectFundamentals?.finding || 'Not recorded'),
+      '- Chain migration: ' + String(entry.researchSnapshot.chainMigration?.finding || 'Not recorded'),
+      '- Unlock watch: ' + String(entry.researchSnapshot.unlockWatch?.finding || 'Not recorded'),
+      '- Derivatives snapshot: ' + JSON.stringify(entry.researchSnapshot.derivativesSnapshot || {}),
+      '',
+      'Sources:',
+      ...(Object.values(entry.researchSnapshot).filter(x => x && x.url).map(x => '- ' + String(x.source || 'Source') + ': ' + x.url)),
+      ''
+    ] : []),
+    '## Risk assessment',
+    '',
+    ...(assessment?.risk?.warnings || []).map(item => '- WARNING: ' + item),
+    ...(assessment?.risk?.scenarios || []).map(item => '- ' + item.movePct + '% price move: ' + money(item.pnl) + ' estimated P/L'),
+    assessment?.risk?.note || 'Risk calculation unavailable until position inputs are complete.',
+    '',
+    '## Coach and mentor assessment',
+    '',
+    ...(assessment?.coaching?.strengths || ['Trade preparation and behavioural evidence remain incomplete.']).map(item => '- Strength: ' + item),
+    ...(assessment?.coaching?.developmentAreas || ['Define entry evidence, invalidation and exit conditions.']).map(item => '- Development area: ' + item),
+    '',
+    '## Reflections and lessons',
+    '',
+    ...((entry.reflection || []).map(item => '- ' + String(item.at || '') + ' — ' + String(item.note || '') + (item.lesson ? ' Lesson: ' + item.lesson : '') + (item.nextAction ? ' Next action: ' + item.nextAction : ''))),
+    '',
+    '## Trading charter',
+    '',
+    ...(entry.rules || []).map((item, index) => (index + 1) + '. ' + item),
+    '',
+    '## Final note',
+    '',
+    'This report separates user-supplied facts, market-source observations and deterministic engine interpretation. It is not a calibrated probability, personalized investment instruction or proof of order execution. Update it when new evidence or trade outcomes arrive.',
+    ''
+  ];
+  return lines.join('\n');
+}
