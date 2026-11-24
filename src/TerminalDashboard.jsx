@@ -419,7 +419,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const sideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
   const candlesState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=' + timeframe + '&limit=300&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, timeframe, marketType, instrumentQuery, sideQuery], 20000, live);
   const tickerState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ticker/' + pair + '?type=' + encodeURIComponent(marketType) + instrumentQuery, s), [exchange, pair, marketType, instrumentQuery], 10000, live);
-  const contextState = usePoll((s) => getJson('/api/institutional/context/' + exchange + '/' + pair + '?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType), s), [exchange, pair, timeframe, marketType], 60000, live);
+  const contextState = usePoll((s) => getJson('/api/institutional/context/' + exchange + '/' + pair + '?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, timeframe, marketType, instrumentQuery, sideQuery], 60000, live);
   const historyState = usePoll((s) => getJson('/api/exchanges/' + exchange + '/ohlcv/' + pair + '?timeframe=1h&limit=500&type=' + encodeURIComponent(marketType) + instrumentQuery + sideQuery, s), [exchange, pair, marketType, instrumentQuery, sideQuery], 300000, live);
   const calendarState = usePoll((s) => getJson('/api/institutional/calendar?symbol=' + encodeURIComponent(compactSymbol(symbol)), s), [symbol], 120000, live);
   const journalState = usePoll((s) => getJson('/api/session/memory', s), [], 60000, live);

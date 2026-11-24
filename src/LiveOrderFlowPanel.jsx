@@ -41,6 +41,7 @@ export default function LiveOrderFlowPanel({
       if (!alive) return;
       setTrades([]);
       setError('');
+      if (marketType === 'cfd') { setState('unsupported'); setError('Bitget CFD market data does not expose this public crypto trade-print stream. CVD and taker pressure are intentionally unavailable for CFDs.'); return; }
       if (exchange !== 'bitget') { setState('unsupported'); setError('Native trade stream is currently wired to Bitget only.'); return; }
 
       setState('connecting');
@@ -157,6 +158,8 @@ export default function LiveOrderFlowPanel({
     : flow.pressure < 0
       ? 'sell'
       : 'neutral';
+
+  if (marketType === 'cfd') return <section className="jpti-live-flow"><header><div><b>LIVE ORDER FLOW / LIQUIDITY</b><small>{symbol} · BITGET CFD</small></div><span className="jpti-flow-state unsupported"><i /> NOT AVAILABLE</span></header><p>Bitget CFD market data provides bid/ask quotes and side-specific candles, not this public crypto trade-print stream. CVD, taker pressure and live sweep claims are withheld rather than inferred from candle volume.</p></section>;
 
   return (
     <section className="jpti-live-flow">
