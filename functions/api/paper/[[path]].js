@@ -58,11 +58,14 @@ export async function runCycle(db,symbol){
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
   if(open){
+   const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
+   const unrealizedToday=trades.filter(t=>t.status==='open').reduce((s,t)=>{const move=(market.ticker.last-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);return s+move-num(t.entryFeeUsd)-market.ticker.last*num(t.quantity)*PAPER_POLICY.feeRate;},0);
+   const dailyCircuit=realizedToday+unrealizedToday<=-(PAPER_POLICY.initialEquityUsd*PAPER_POLICY.maxDailyLossPct/100);
    const hitStop=open.direction==='LONG'?market.ticker.last<=open.stop_price:market.ticker.last>=open.stop_price;
    const hitTarget=open.direction==='LONG'?market.ticker.last>=open.target_price:market.ticker.last<=open.target_price;
    const timed=Date.now()-Date.parse(open.opened_at)>60*60*1000;
-   if(hitStop||hitTarget||timed){
-    const reason=hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
+   if(hitStop||hitTarget||timed||dailyCircuit){
+    const reason=dailyCircuit?'daily-loss-circuit-breaker':hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
     const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last);
     const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price'};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
