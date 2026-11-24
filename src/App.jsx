@@ -14,6 +14,7 @@ const PortfolioAllocation = lazy(() => import('./PortfolioAllocation.jsx'));
 const MarketStream = lazy(() => import('./MarketStream.jsx'));
 const Phase15To21Workspaces = lazy(() => import('./Phase15To21Workspaces.jsx'));
 const AlphaSignalEngine = lazy(() => import('./AlphaSignalEngine.jsx'));
+const SignalIntelligenceDashboard = lazy(() => import('../dashboard/app/DashboardApp.jsx'));
 const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
@@ -68,6 +69,7 @@ const navigation = [
   { label: 'Pre-trade Gate', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Strategy Registry', icon: Blocks, group: 'RESEARCH' },
   { label: 'Market Replay', icon: Activity, group: 'RESEARCH' },
+  { label: 'Signal Intelligence', icon: Activity, group: 'RESEARCH' },
   { label: 'Alpha Signal Engine', icon: TrendingUp, group: 'RESEARCH' },
   { label: 'System Diagnostics', icon: Cpu, group: 'SYSTEM' },
   { label: 'Production Readiness', icon: ShieldCheck, group: 'SYSTEM' },
@@ -442,6 +444,7 @@ function App() {
     'Downloads & Updates': 'Latest verified Android and desktop installers, release notes and build history.',
     'Universal Engine': 'Cross-asset strategy profiles, external market evidence, blockchain discovery and unified risk.',
     'Backtesting Lab': 'Strategy research and historical validation workspace.',
+    'Signal Intelligence': 'Live opportunity detection, multi-factor evidence, signal ranking, trade planning and performance history.',
     'Alpha Signal Engine': 'Explainable multi-model signals, deterministic fingerprints, confidence gates and risk-approved paper trading.',
     'Forecast & Strategy': 'Statistical range forecasts, market microstructure, derivatives and research validation.',
     'Walk-Forward Lab': 'Rolling parameter selection, out-of-sample validation and strategy robustness research.',
@@ -511,6 +514,7 @@ function App() {
     if (page === 'Institutional Governance') return <InstitutionalGovernance/>;
     if (page === 'Futures Intelligence') return <FuturesIntelligence/>;
     if (page === 'Market Stream') return <MarketStream/>;
+    if (page === 'Signal Intelligence') return <SignalIntelligenceDashboard initialSymbol={symbol}/>;
     if (page === 'Alpha Signal Engine') return <AlphaSignalEngine/>;
     if (page === 'Institutional Market Intelligence') return <InstitutionalMarketIntelligence exchange={forecastExchange} onExchangeChange={setForecastExchange} symbol={symbol} onSymbolChange={setSymbol} timeframe={forecastTimeframe} onTimeframeChange={setForecastTimeframe}/>;
     if (['Portfolio Stress','Pre-trade Gate','Strategy Registry','Market Replay','System Diagnostics','Production Readiness'].includes(page)) return <Phase15To21Workspaces key={page} page={page}/>;
