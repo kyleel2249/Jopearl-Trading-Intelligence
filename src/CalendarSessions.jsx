@@ -1,10 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, Clock3, RefreshCw, Globe2, BarChart3, Radio } from 'lucide-react';
-import { apiFetch } from './lib/api.js';
+import { apiFetch, getApiSource } from './lib/api.js';
 import { analyzeSessionCandles, formatDuration, getSessionSnapshot, TRADING_SESSIONS } from './session-intelligence.js';
 
 const TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h', '1d'];
 const EXCHANGES = ['binance', 'bitget', 'bybit', 'okx'];
+const PAIR_PATTERN = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
+const CFD_PATTERN = /^[A-Z0-9._-]{2,24}$/;
 
 const number = value => value == null || !Number.isFinite(Number(value))
   ? '—' : Number(value).toLocaleString(undefined, { maximumFractionDigits: 6 });
@@ -34,6 +36,9 @@ export default function CalendarSessions({ symbol: initialSymbol = 'BTC/USDT', o
   const [symbol, setSymbol] = useState(initialSymbol);
   const [exchange, setExchange] = useState('binance');
   const [timeframe, setTimeframe] = useState('1h');
+  const [marketType, setMarketType] = useState('spot');
+  const [marketSide, setMarketSide] = useState('buy');
+  const cloudflareMode = getApiSource().mode === 'cloudflare-edge';
   const requestVersion = useRef(0);
   const [candles, setCandles] = useState([]);
   const [clock, setClock] = useState(Date.now());
@@ -49,15 +54,15 @@ export default function CalendarSessions({ symbol: initialSymbol = 'BTC/USDT', o
 
   const load = useCallback(async () => {
     const normalized = symbol.trim().toUpperCase();
-    if (!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(normalized)) {
-      setError('Enter a valid BASE/QUOTE market symbol, for example BTC/USDT.');
+    if (!(marketType === 'cfd' ? CFD_PATTERN : PAIR_PATTERN).test(normalized)) {
+      setError(marketType === 'cfd' ? 'Enter a listed Bitget CFD instrument, for example XAUUSD.' : 'Enter a valid BASE/QUOTE market symbol, for example BTC/USDT (BTC/USDT:USDT for a USDT-M contract).');
       return;
     }
     const requestId = ++requestVersion.current;
     setLoading(true);
     setError('');
     try {
-      const response = await apiFetch('/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(normalized.replace('/', '-')) + '?timeframe=' + timeframe + '&limit=500', { cache: 'no-store' });
+      const response = await apiFetch('/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(normalized.replace('/', '-')) + '?timeframe=' + timeframe + '&limit=500&type=' + encodeURIComponent(marketType) + (marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : ''), { cache: 'no-store' });
       const data = await response.json();
       if (requestId !== requestVersion.current) return;
       if (!response.ok) throw new Error(data.error || 'Session candle history is unavailable for this exchange and pair.');
@@ -70,7 +75,7 @@ export default function CalendarSessions({ symbol: initialSymbol = 'BTC/USDT', o
     } finally {
       if (requestId === requestVersion.current) setLoading(false);
     }
-  }, [exchange, symbol, timeframe, onSymbolChange]);
+  }, [exchange, symbol, timeframe, marketType, marketSide, onSymbolChange]);
 
   useEffect(() => {
     load();
@@ -105,7 +110,9 @@ export default function CalendarSessions({ symbol: initialSymbol = 'BTC/USDT', o
       <div className="panel-title"><div><span className="eyebrow">EXCHANGE CANDLE ANALYTICS</span><h3>Session range & performance lab</h3></div><span className="live-tag">{candles.length} CANDLES LOADED</span></div>
       <p className="subtle-note">Session highs, lows, ranges and directional changes are calculated from actual OHLCV candles. Historical averages use up to 20 prior-date samples per session; the observed sample count is shown. Data availability depends on the selected exchange and instrument.</p>
       <div className="session-controls">
-        <label>Exchange<select value={exchange} onChange={event => setExchange(event.target.value)}>{EXCHANGES.map(id => <option key={id} value={id}>{id.toUpperCase()}</option>)}</select></label>
+        <label>Exchange<select value={exchange} onChange={event => { setExchange(event.target.value); if (event.target.value !== 'bitget') setMarketType('spot'); }}>{EXCHANGES.map(id => <option key={id} value={id}>{id.toUpperCase()}</option>)}</select></label>
+        <label>Product<select aria-label="Session market product" value={marketType} onChange={event => setMarketType(event.target.value)}><option value="spot">Spot</option><option value="margin" disabled={exchange !== 'bitget'}>Margin</option><option value="futures" disabled={exchange !== 'bitget'}>USDT-M Futures</option><option value="coin-futures" disabled={exchange !== 'bitget'}>Coin-M Futures</option><option value="usdc-futures" disabled={exchange !== 'bitget'}>USDC-M Futures</option><option value="cfd" disabled={exchange !== 'bitget' || !cloudflareMode}>CFD · Cloudflare UTA read-only key required</option></select></label>
+        {marketType === 'cfd' && <label>CFD side<select aria-label="Session CFD candle side" value={marketSide} onChange={event => setMarketSide(event.target.value)}><option value="buy">Buy / Ask</option><option value="sell">Sell / Bid</option></select></label>}
         <label>Market<input value={symbol} onChange={event => setSymbol(event.target.value.toUpperCase())} onBlur={() => onSymbolChange?.(symbol.trim().toUpperCase())}/></label>
         <label>Timeframe<select value={timeframe} onChange={event => setTimeframe(event.target.value)}>{TIMEFRAMES.map(frame => <option key={frame} value={frame}>{frame}</option>)}</select></label>
         <button type="button" onClick={load} disabled={loading}><RefreshCw size={14}/>{loading ? 'Loading…' : 'Refresh analysis'}</button>
