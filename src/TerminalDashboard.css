@@ -120,7 +120,7 @@
 @keyframes tdPulse{50%{opacity:.45}}
 @media(prefers-reduced-motion:reduce){.td-realtime i{animation:none}.td-session-bar i{transition:none}}
 .td-chart-area{position:relative;flex:1;min-height:440px;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:#091221}
-.tc-wrap{position:absolute;inset:0;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#405570 #0b1728}
+.tc-wrap{position:absolute;inset:0;overflow-x:auto;overflow-y:auto;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#405570 #0b1728}
 .tc-wrap svg{display:block;width:auto!important;min-width:100%;max-width:none;height:auto!important;min-height:100%;cursor:crosshair;flex:none}
 .tc-zoom-controls{position:absolute;z-index:4;top:7px;right:8px;display:flex;align-items:center;gap:4px;padding:4px;border:1px solid rgba(65,86,116,.72);border-radius:6px;background:rgba(8,17,31,.88);backdrop-filter:blur(6px)}
 .tc-zoom-controls button{min-width:25px;height:23px;border:1px solid #30445f;border-radius:4px;background:#14243a;color:#d8e6f7;font-size:12px}
