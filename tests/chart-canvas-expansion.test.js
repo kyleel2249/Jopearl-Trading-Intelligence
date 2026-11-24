@@ -25,7 +25,7 @@ test('shared live chart expands its SVG and scrolls the viewport on zoom changes
   assert.match(chart, /width=\{geometry\.width\}/);
   assert.match(chart, /wrapEl\.scrollLeft = wrapEl\.scrollWidth/);
   assert.match(chart, /wrapEl\.scrollLeft \+?\s*\w*\.scrollLeft/);
-  assert.match(styles, /candlestick-svg-wrap\{overflow-x:auto/);
+  assert.match(styles, /trading-chart-panel \\.candlestick-svg-wrap,html body \\.dash-center-column \.candlestick-svg-wrap\\{overflow-x:auto/);
   assert.match(styles, /width:auto!important;max-width:none;height:100%/);
 });
 
