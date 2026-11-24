@@ -517,7 +517,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const snapshotIndex = await env.JPTI_DB.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
         ).bind('jpti_events_market_snapshot_lookup').first();
-        const outcomeIndex = await env.JPTI_DB.prepare(\"SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?\").bind('jpti_events_kind_time').first();
+        const outcomeIndex = await env.JPTI_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").bind('jpti_events_kind_time').first();
         const missingIndexes = [...(!snapshotIndex ? ['jpti_events_market_snapshot_lookup'] : []), ...(!outcomeIndex ? ['jpti_events_kind_time'] : [])];
         // A read-only KV lookup exercises the binding without creating a public write surface.
         await env.JPTI_KV.get('jpti:system:health');
