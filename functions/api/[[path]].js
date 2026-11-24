@@ -571,8 +571,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
 
     if (url.pathname.replace(/\/+$/, '') === '/api/market/pair-scanner') {
       try {
-        const rangePct = Math.min(100, Math.max(1, Number(url.searchParams.get('rangePct') || 20)));
-        const minTurnover = Math.max(0, Number(url.searchParams.get('minTurnover') || 50000));
+        const rawRangePct = Number(url.searchParams.get('rangePct') || 20);
+        const rangePct = Number.isFinite(rawRangePct) ? Math.min(100, Math.max(1, rawRangePct)) : 20;
+        const rawMinTurnover = Number(url.searchParams.get('minTurnover') || 50000);
+        const minTurnover = Number.isFinite(rawMinTurnover) ? Math.max(0, rawMinTurnover) : 50000;
         const requestedInterval = String(url.searchParams.get('timeframe') || '1h').toLowerCase();
         const intervalMap = { '15m': '15m', '1h': '1H', '4h': '4H' };
         const interval = intervalMap[requestedInterval] || '1H';
@@ -634,7 +636,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const candleResults = await Promise.all(correlationSymbols.map(async symbol => {
           try {
             const candles = await get('candles?category=USDT-FUTURES&symbol=' + encodeURIComponent(symbol) + '&interval=' + interval + '&type=market&limit=100');
-            return [symbol, Array.isArray(candles) ? candles : []];
+            return [symbol, Array.isArray(candles) ? candles.slice(0, -1) : []];
           } catch { return [symbol, []]; }
         }));
         const candleMap = new Map(candleResults);
