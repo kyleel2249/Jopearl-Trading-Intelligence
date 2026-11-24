@@ -10,7 +10,8 @@ test('ranks confirmed equal highs and lows as opposing liquidity pools',()=>{
  const rows=bars.slice();
  rows[8]=row(base+8*900000,101,104,100,102);
  rows[16]=row(base+16*900000,102,104.01,101,103);
- rows[12]=row(base+12*900000,102,103,98,100);\n rows[13]=row(base+13*900000,100,101,99.5,100,100);
+ rows[12]=row(base+12*900000,102,103,98,100);
+ rows[13]=row(base+13*900000,100,101,99.5,100,100);
  rows[24]=row(base+24*900000,100,102,98.01,99);
  const out=analyzeLiquidityTargets(rows,{timeframe:'15m',now:base+41*900000});
  assert.equal(out.status,'ready');
