@@ -4,6 +4,7 @@
 // Private account access, order execution, durable ledger and Node-only API routes
 // are intentionally NOT advertised as implemented by this edge adapter.
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
+import { createBitgetCfdProvider } from '../bitget-cfd.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -170,7 +171,7 @@ function json(status, body, request, extra = {}) {
   return new Response(request.method === 'HEAD' ? null : JSON.stringify(body), { status, headers });
 }
 
-export function createPagesApiHandler({ marketProvider = provider, now = () => new Date() } = {}) {
+export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProvider = createBitgetCfdProvider(), now = () => new Date() } = {}) {
   return async function onRequest({ request, env = {} }) {
     const url = new URL(request.url);
     if (url.href.length > MAX_URL_LENGTH) return json(414, { error: 'Request URL is too long.' }, request);
@@ -256,8 +257,9 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
           publicTicker: true,
           publicCandlesticks: true,
           crossVenuePublicTicker: true,
-          bitgetProductTypes: ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures'],
-          bitgetCfd: false,
+          bitgetProductTypes: ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd'],
+          bitgetCfd: true,
+          bitgetCfdRequiresCloudflareSecrets: true,
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
@@ -269,7 +271,7 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
     }
 
     const requestedType = String(url.searchParams.get('type') || 'spot').toLowerCase();
-    const supportedBitgetTypes = ['spot', 'margin', 'futures', 'perpetual', 'coin-futures', 'usdc-futures', 'usdt-m', 'usdt-m-futures', 'usdt-futures', 'coin-m', 'coin-m-futures', 'usdc-m', 'usdc-m-futures', 'all'];
+    const supportedBitgetTypes = ['spot', 'margin', 'futures', 'perpetual', 'coin-futures', 'usdc-futures', 'usdt-m', 'usdt-m-futures', 'usdt-futures', 'coin-m', 'coin-m-futures', 'usdc-m', 'usdc-m-futures', 'cfd', 'all'];
     const isExchangeMarketRoute = /\/api\/exchanges\/([a-z0-9_]+)\/(?:markets|ticker\/[^/]+|ohlcv\/[^/]+)$/i.test(url.pathname);
     const exchangeMatch = url.pathname.match(/\/api\/exchanges\/([a-z0-9_]+)\//i);
     const requestedExchange = exchangeMatch?.[1]?.toLowerCase();
@@ -280,6 +282,33 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       return json(400, { error: 'Unsupported Bitget market category.', code: 'BITGET_CATEGORY_UNSUPPORTED', requestedType, supportedTypes: supportedBitgetTypes }, request);
     }
 
+    // CFD is a separate Bitget product line with its own signed UTA read-only API.
+    // Never route CFD symbols through the crypto CCXT/browser-direct adapter.
+    const cfdRoute = url.pathname.match(/^\/api\/exchanges\/bitget\/(markets|ticker\/([^/]+)|ohlcv\/([^/]+))$/i);
+    if (cfdRoute && requestedType === 'cfd') {
+      try {
+        const kind = cfdRoute[1] === 'markets' ? 'markets' : cfdRoute[1].startsWith('ticker/') ? 'ticker' : 'ohlcv';
+        const symbol = cfdRoute[2] || cfdRoute[3] || '';
+        const result = await bitgetCfdProvider.request(env, {
+          kind,
+          symbol,
+          timeframe: url.searchParams.get('timeframe') || '1h',
+          side: url.searchParams.get('side') || 'buy',
+          search: url.searchParams.get('search') || '',
+          limit: url.searchParams.get('limit') || '100'
+        });
+        const body = { ...result.body, source: 'cloudflare-edge' };
+        await cacheMarketResponse(env, marketRouteKey, result.status, body, now().toISOString());
+        return json(result.status, body, request, { 'x-jpti-cache': 'miss' });
+      } catch (error) {
+        return json(error.status || 502, {
+          error: error.message || 'Bitget CFD market data is unavailable.',
+          code: error.code || 'BITGET_CFD_UPSTREAM_ERROR',
+          exchange: 'bitget', productType: 'cfd'
+        }, request);
+      }
+    }
+
     const contextRoute = url.pathname.match(/^\/api\/intelligence\/market\/([a-z0-9_]+)\/([^/]+)\/context$/i);
     if (contextRoute) {
       const exchange = contextRoute[1].toLowerCase();
@@ -287,9 +316,21 @@ export function createPagesApiHandler({ marketProvider = provider, now = () => n
       const timeframe = String(url.searchParams.get('timeframe') || '1h');
       const instrumentId = String(url.searchParams.get('instrumentId') || '').trim();
       const instrumentQuery = instrumentId ? '&instrumentId=' + encodeURIComponent(instrumentId) : '';
-      const candleUrl = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) +
-        '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200&type=' + encodeURIComponent(url.searchParams.get('type') || 'spot') + instrumentQuery;
-      const candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
+      const contextType = String(url.searchParams.get('type') || 'spot').toLowerCase();
+      let candlesResult;
+      if (exchange === 'bitget' && contextType === 'cfd') {
+        try {
+          candlesResult = await bitgetCfdProvider.request(env, {
+            kind: 'ohlcv', symbol, timeframe, side: url.searchParams.get('side') || 'buy', limit: 200
+          });
+        } catch (error) {
+          candlesResult = { status: error.status || 502, body: { error: error.message, code: error.code || 'BITGET_CFD_UPSTREAM_ERROR' } };
+        }
+      } else {
+        const candleUrl = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) +
+          '?timeframe=' + encodeURIComponent(timeframe) + '&limit=200&type=' + encodeURIComponent(contextType) + instrumentQuery;
+        candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
+      }
       if (!candlesResult || candlesResult.status !== 200) {
         const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
         if (snapshot) {
