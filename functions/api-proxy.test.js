@@ -33,6 +33,8 @@ test('Pages API forwards exact Bitget instrument IDs into intelligence-context c
   } } });
   const response = await handler({ request: new Request('https://jpti.pages.dev/api/intelligence/market/bitget/BTC-USD%3ABTC/context?timeframe=1h&type=coin-futures&instrumentId=BTCUSD_CM') });
   assert.equal(response.status, 200);
+  assert.match(requested, /BTC-USD%3ABTC/);
+  assert.doesNotMatch(requested, /%253A/);
   assert.match(requested, /type=coin-futures/);
   assert.match(requested, /instrumentId=BTCUSD_CM/);
 });
@@ -71,6 +73,21 @@ test('Pages API routes Bitget CFD ticker and OHLCV requests without using crypto
   assert.equal(calls[1].kind, 'ohlcv');
   assert.equal(calls[1].side, 'sell');
   assert.equal(calls[1].limit, '80');
+});
+
+
+test('Pages API builds Bitget CFD intelligence context from the selected candle side', async () => {
+  let requestArgs;
+  const handler = createPagesApiHandler({ bitgetCfdProvider: { request: async (_env, args) => {
+    requestArgs = args;
+    return { status: 200, body: { exchange: 'bitget', symbol: args.symbol, timeframe: args.timeframe, side: args.side, candles: Array.from({ length: 30 }, (_, index) => [1700000000000 + index * 3600000, 100 + index, 102 + index, 99 + index, 101 + index, 0]) } };
+  } } });
+  const response = await handler({ request: new Request('https://jpti.pages.dev/api/intelligence/market/bitget/XAUUSD.s/context?timeframe=1h&type=cfd&side=sell') });
+  assert.equal(response.status, 200);
+  assert.equal(requestArgs.kind, 'ohlcv');
+  assert.equal(requestArgs.symbol, 'XAUUSD.s');
+  assert.equal(requestArgs.side, 'sell');
+  assert.equal((await response.json()).market.volumeChangePct, null);
 });
 
 test('Pages API returns a clear credential requirement when Bitget CFD secrets are missing', async () => {
