@@ -72,9 +72,9 @@ function sessionAttribution(candles, level, side) {
   };
 }
 
-function sessionRanges(candles, start, end) {
+function sessionRanges(candles, start, end, timeframeMs) {
   return TRADING_SESSIONS.map(session => {
-    const rows = candles.filter(row => row[0] < end && row[0] + 1 >= start && sessionContains(row[0], session));
+    const rows = candles.filter(row => row[0] < end && row[0] + timeframeMs > start && sessionContains(row[0], session));
     if (!rows.length) return { ...session, high: null, low: null, range: null, candles: 0, volume: 0, status: 'no-data' };
     const high = Math.max(...rows.map(row => row[2]));
     const low = Math.min(...rows.map(row => row[3]));
@@ -150,10 +150,10 @@ export function analyze24hLiquidity(candleInput = [], {
     : Number.isFinite(Number(ticker?.open)) && Number(ticker.open) > 0 && last != null
       ? (last - Number(ticker.open)) / Number(ticker.open) * 100 : null;
 
-  const highInteraction = detectLevelInteraction(candles, high, 'high', timeframeMs);
-  const lowInteraction = detectLevelInteraction(candles, low, 'low', timeframeMs);
+  const highInteraction = detectLevelInteraction(windowCandles, high, 'high', timeframeMs);
+  const lowInteraction = detectLevelInteraction(windowCandles, low, 'low', timeframeMs);
   const previousDay = previousUtcDay(candles, now);
-  const sessions = sessionRanges(windowCandles, start, now);
+  const sessions = sessionRanges(windowCandles, start, now, timeframeMs);
   const ranges = windowCandles.map(row => row[2] - row[3]).filter(value => value > 0);
   const averageCandleRange = mean(ranges.slice(-24));
   const latestRange = latest ? latest[2] - latest[3] : null;
