@@ -87,7 +87,7 @@ export async function runCycle(db,symbol){
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
-   const quantity=Math.min(riskUsd/stopDistance,metrics.equityUsd/price);
+   const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps/2)/10000);\n   const quantity=Math.min(riskUsd/allInRiskPerUnit,metrics.equityUsd/price);
    if(quantity>0&&Number.isFinite(quantity)){
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
     const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
