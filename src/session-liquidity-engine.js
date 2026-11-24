@@ -63,11 +63,11 @@ function nearestExtremeCandle(candles, level, side) {
 function sessionAttribution(candles, level, side) {
   const match = nearestExtremeCandle(candles, level, side);
   if (!match) return { session: 'Unattributed', timestamp: null, confidence: 'unavailable' };
-  const session = TRADING_SESSIONS.find(item => sessionContains(match.timestamp, item));
+  const sessions = TRADING_SESSIONS.filter(item => sessionContains(match.timestamp, item));
   return {
-    session: session?.name || 'Outside configured sessions',
+    session: sessions.length ? sessions.map(item => item.name).join(' + ') : 'Outside configured sessions',
     timestamp: new Date(match.timestamp).toISOString(),
-    confidence: 'candle-match',
+    confidence: sessions.length > 1 ? 'overlap-candle-match' : 'candle-match',
     note: 'Session attribution is inferred from the loaded OHLCV candle containing the exchange-reported extreme.'
   };
 }
@@ -146,12 +146,17 @@ export function analyze24hLiquidity(candleInput = [], {
   const range = high != null && low != null ? high - low : null;
   const rangePercent = range != null && low > 0 ? range / low * 100 : null;
   const rangePosition = range > 0 && last != null ? clamp((last - low) / range * 100, 0, 100) : null;
-  const change24h = Number.isFinite(Number(ticker?.percentage)) ? Number(ticker.percentage)
+  const change24h = ticker?.percentage != null && Number.isFinite(Number(ticker.percentage)) ? Number(ticker.percentage)
     : Number.isFinite(Number(ticker?.open)) && Number(ticker.open) > 0 && last != null
       ? (last - Number(ticker.open)) / Number(ticker.open) * 100 : null;
 
-  const highInteraction = detectLevelInteraction(windowCandles, high, 'high', timeframeMs);
-  const lowInteraction = detectLevelInteraction(windowCandles, low, 'low', timeframeMs);
+  const precedingWindow = windowCandles.slice(0, -1);
+  const priorWindowHigh = precedingWindow.length ? Math.max(...precedingWindow.map(row => row[2])) : null;
+  const priorWindowLow = precedingWindow.length ? Math.min(...precedingWindow.map(row => row[3])) : null;
+  const highInteraction = detectLevelInteraction(windowCandles, priorWindowHigh, 'high', timeframeMs);
+  const lowInteraction = detectLevelInteraction(windowCandles, priorWindowLow, 'low', timeframeMs);
+  highInteraction.referenceLevel = priorWindowHigh;
+  lowInteraction.referenceLevel = priorWindowLow;
   const previousDay = previousUtcDay(candles, now);
   const sessions = sessionRanges(windowCandles, start, now, timeframeMs);
   const ranges = windowCandles.map(row => row[2] - row[3]).filter(value => value > 0);
