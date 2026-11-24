@@ -19,9 +19,9 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install dependencies
@@ -43,9 +43,9 @@ jobs:
       JPTI_ANDROID_SIGNING_READY: ${{ secrets.JPTI_ANDROID_KEYSTORE_BASE64 != '' && secrets.JPTI_ANDROID_KEY_ALIAS != '' && secrets.JPTI_ANDROID_STORE_PASSWORD != '' && secrets.JPTI_ANDROID_KEY_PASSWORD != '' }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Set up Java
@@ -150,9 +150,9 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
       - name: Install Linux packaging dependencies
