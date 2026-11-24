@@ -87,14 +87,14 @@ jobs:
           JPTI_ANDROID_KEY_PASSWORD: ${{ secrets.JPTI_ANDROID_KEY_PASSWORD }}
           JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
           JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
-        run: ./gradlew --no-daemon assembleRelease bundleRelease
+        run: bash ./gradlew --no-daemon assembleRelease bundleRelease
       - name: Build Android debug APK when production signing is not configured
         if: ${{ env.JPTI_ANDROID_SIGNING_READY != 'true' }}
         working-directory: android
         env:
           JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
           JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
-        run: ./gradlew --no-daemon assembleDebug
+        run: bash ./gradlew --no-daemon assembleDebug
       - name: Stage Android packages in the Android project output folder
         run: |
           mkdir -p android/app/build/outputs/distribution build-downloads/android
