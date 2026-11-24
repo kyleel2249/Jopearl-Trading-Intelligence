@@ -58,7 +58,8 @@ export function priceDistanceInPips(from, to, meta = {}) {
   const pip = resolvePrecision(meta).pipSize;
   const a = Number(from), b = Number(to);
   if (!finitePositive(pip) || !Number.isFinite(a) || !Number.isFinite(b)) return null;
-  return (b - a) / pip;
+  // Normalize floating-point residue (e.g. 0.1 / 0.01) without losing fractional pip values.
+  return Number(((b - a) / pip).toFixed(10));
 }
 
 export function pricePrecisionDiagnostics(meta = {}) {
