@@ -97,7 +97,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
   }
 
   function resolvePending(ctx, closed) {
-    const still = [];
+    const still = []; let resolvedAny = false;
     for (const p of state.pending) {
       if (p.symbol !== ctx.symbol || p.timeframe !== ctx.timeframe || p.exchange !== ctx.exchange) { still.push(p); continue; }
       const future = closed.filter((c) => c[0] > p.candleTs);
@@ -107,7 +107,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       state.outcomes.push(rec); if (state.outcomes.length > maxOutcomes) state.outcomes.shift();
       if (remote) unsynced.push(rec);
       emit('GAINZ_ALPHA_OUTCOME', ctx, { id: rec.id, outcome: rec.outcome, returnR: rec.returnR, falseSignal: rec.falseSignal }, rec.id);
-      outcomesSinceLearn++; version++;
+      outcomesSinceLearn++; version++; resolvedAny = true;
     }
     state.pending = still;
     if (remote && unsynced.length) flushRemote();
@@ -117,6 +117,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: res.changed, n: res.n, reason: res.reason || null, deltas: res.deltas || {} }, 'learn|' + state.model.version + '|' + res.n);
       if (res.changed) { state.model = res.model; version++; emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: res.drifting }, 'model|' + state.model.version); }
     }
+    if (resolvedAny) settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
   }
 
   function ingest({ chartId = 'default', exchange = 'unknown', symbol, timeframe, candles, higherTimeframes = [] }) {
@@ -166,10 +167,12 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
         const records = await adapter.load(scope); const added = mergeOutcomes(records);
         // A fresh browser/device can reconstruct a first guarded model snapshot from D1 history.
         // Existing learned versions and explicit user rollbacks are never overwritten.
+        let modelRebuilt = false;
         if (state.settings.adaptiveLearning && state.model.version === 1 && state.outcomes.length >= MIN_SAMPLE) {
           const rebuilt = adaptModel(state.model, state.outcomes.slice(-500));
-          if (rebuilt.changed) { state.model = rebuilt.model; version++; persist(); }
+          if (rebuilt.changed) { state.model = rebuilt.model; version++; persist(); modelRebuilt = true; }
         }
+        if (added || modelRebuilt) settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
         const known = new Set(records.map((r) => r.id));
         unsynced = state.outcomes.filter((r) => !known.has(r.id));
         status.remote = { ok: true, loaded: records.length, added, pending: unsynced.length };
@@ -221,9 +224,10 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       version++;
       if (sync && remote) { unsynced.push(saved); flushRemote(); }
       persist();
+      settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
       return { ok: true, duplicate: false, record: saved, learning, modelVersion: state.model.version };
     },
-    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); } return r; },
+    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } }); } return r; },
     diagnose(result, env = {}) { return diagnose(result, { ...env, status, state, hubLoaded: true }); }
   };
 }
