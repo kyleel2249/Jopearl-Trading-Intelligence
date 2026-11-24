@@ -14,6 +14,7 @@ import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
 import { resolvePrecision, formatInstrumentPrice } from './chart-intelligence/precision.js';
 import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
+import { getExpandedCanvasWidth } from './chart-canvas.js';
 
 const TIMEFRAMES = [
   ['1m', '1m'], ['3m', '3m'], ['5m', '5m'], ['15m', '15m'], ['30m', '30m'],
@@ -389,7 +390,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     const count = Math.max(25, Math.min(liveCandles.length, Math.floor(liveCandles.length / (zoom * candleSpacing))));
     const rows = liveCandles.slice(-count);
     const baseCount = Math.max(25, Math.min(liveCandles.length, Math.floor(liveCandles.length / candleSpacing)));
-    const canvasWidth = Math.max(plotSize.w, Math.ceil(plotSize.w * (count / Math.max(1, baseCount))));
+    const canvasWidth = getExpandedCanvasWidth(plotSize.w, count, baseCount);
     const levelPrices = [...(alphaLevels || []).map(level => Number(level.price)).filter(Number.isFinite), ...ciPlanPrices];
     const min = Math.min(...rows.map((c) => c[3]), ...levelPrices);
     const max = Math.max(...rows.map((c) => c[2]), ...levelPrices);
