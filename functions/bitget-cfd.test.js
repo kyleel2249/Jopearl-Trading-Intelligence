@@ -24,6 +24,7 @@ test('Bitget CFD instruments are normalized without converting CFD symbols into 
   assert.equal(result.status, 200);
   assert.equal(result.body.count, 1);
   assert.equal(result.body.markets[0].symbol, 'XAUUSD.s');
+  assert.equal(result.body.markets[0].id, 'XAUUSD.s');
   assert.equal(result.body.markets[0].productCategory, 'CFD');
   assert.equal(result.body.markets[0].cfd, true);
   assert.match(requestUrl, /\/api\/v3\/cfd\/account\/instruments$/);

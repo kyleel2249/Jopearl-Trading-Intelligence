@@ -401,10 +401,11 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
   const setMarketType = (v) => { setMarketTypeState(v); store.set('jpti.terminal.marketType', v); };
   useEffect(() => { if (exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot'); }, [exchange, marketType]);
   const setSymbol = useCallback((raw) => {
-    const input = String(raw || '').trim().toUpperCase();
+    const rawInput = String(raw || '').trim();
+    const input = marketType === 'cfd' ? rawInput : rawInput.toUpperCase();
     const next = marketType === 'cfd' ? input : input.replace('-', '/');
     const valid = marketType === 'cfd'
-      ? /^[A-Z0-9][A-Z0-9._-]{1,31}$/.test(next)
+      ? /^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/.test(next)
       : /^[A-Z0-9._]{2,20}\/[A-Z0-9._]{2,20}(?::[A-Z0-9._]{2,20})?$/.test(next);
     if (!valid) return false;
     setSymbolState(next); setSymbolDraft(next); store.set('jpti.terminal.symbol', next); onSymbolChange?.(next); return true;

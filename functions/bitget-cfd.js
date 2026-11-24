@@ -63,8 +63,8 @@ async function signedGet(env, path, params, { fetchImpl = fetch, now = () => Dat
 }
 
 function safeInstrument(value) {
-  const symbol = decodeURIComponent(String(value || '')).trim().toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9._-]{1,31}$/.test(symbol)) throw jsonError('Invalid Bitget CFD instrument symbol.', 400, 'BITGET_CFD_INVALID_SYMBOL');
+  const symbol = decodeURIComponent(String(value || '')).trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]{1,31}$/.test(symbol)) throw jsonError('Invalid Bitget CFD instrument symbol.', 400, 'BITGET_CFD_INVALID_SYMBOL');
   return symbol;
 }
 
@@ -85,7 +85,7 @@ function normalizeInstruments(payload) {
 }
 
 function normalizeTicker(payload, symbol) {
-  const item = (Array.isArray(payload.data) ? payload.data : []).find((row) => String(row.symbol).toUpperCase() === symbol);
+  const item = (Array.isArray(payload.data) ? payload.data : []).find((row) => String(row.symbol).toUpperCase() === symbol.toUpperCase());
   if (!item) throw jsonError('Bitget CFD ticker is unavailable for ' + symbol + '.', 404, 'BITGET_CFD_SYMBOL_UNAVAILABLE');
   const bid = Number(item.bid1), ask = Number(item.ask1);
   const mid = Number.isFinite(bid) && Number.isFinite(ask) && bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
