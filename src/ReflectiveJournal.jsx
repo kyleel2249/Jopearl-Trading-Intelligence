@@ -27,7 +27,7 @@ const INITIAL_ENTRY = {
   takeProfit: null,
   allocationPercent: 7,
   accountEquity: null,
-  notional: 562.328995,
+  notional: 562.327995,
   expiryHours: 12,
   marketBias: 'bearish',
   thesis: 'User reports a bearish market but chose a 15-minute long limit entry. The intended thesis and reversal confirmation have not yet been documented.',
