@@ -49,7 +49,7 @@ export function formatInstrumentPrice(price, meta = {}, options = {}) {
   const digits = precision.decimals ?? options.maxDecimals ?? 8;
   return rounded.toLocaleString(options.locale || "en-US", {
     minimumFractionDigits: options.minimumFractionDigits ?? precision.decimals ?? 0,
-    maximumFractionDigits: Math.max(0, Math.min(14, digits)),
+    maximumFractionDigits: Math.max(0, Math.min(14, options.maximumFractionDigits ?? digits)),
     useGrouping: options.useGrouping ?? false
   });
 }
