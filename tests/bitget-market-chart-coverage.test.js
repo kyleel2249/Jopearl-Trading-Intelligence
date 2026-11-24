@@ -1,0 +1,45 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+test('Bitget product types are selectable across the shared chart and terminal', () => {
+  const chart = read('../src/LiveCandlestickChart.jsx');
+  const terminal = read('../src/TerminalDashboard.jsx');
+  for (const product of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd']) {
+    assert.match(chart, new RegExp('value="' + product + '"'), 'shared chart missing ' + product);
+    assert.match(terminal, new RegExp('value="' + product + '"'), 'terminal missing ' + product);
+  }
+});
+
+test('exact Bitget instrument IDs and CFD side selection reach every candle consumer', () => {
+  const chart = read('../src/LiveCandlestickChart.jsx');
+  const terminal = read('../src/TerminalDashboard.jsx');
+  const imi = read('../src/InstitutionalMarketIntelligence.jsx');
+  const forecast = read('../src/RangeForecastEngine.jsx');
+  assert.match(chart, /marketInstrumentQuery/);
+  assert.match(chart, /marketSideQuery/);
+  assert.match(terminal, /instrumentQuery/);
+  assert.match(terminal, /sideQuery/);
+  assert.match(imi, /marketCatalog\.find/);
+  assert.match(imi, /onMarketSideChange/);
+  assert.match(forecast, /instrumentId/);
+  assert.match(forecast, /marketSide/);
+});
+
+test('CFD trade flow does not invent CVD or taker pressure from unavailable data', () => {
+  const flow = read('../src/LiveOrderFlowPanel.jsx');
+  assert.match(flow, /marketType === 'cfd'/);
+  assert.match(flow, /CVD and taker pressure are intentionally unavailable/);
+});
+
+test('Cloudflare Pages has a dedicated signed Bitget CFD market route', () => {
+  const pages = read('../functions/api/[[path]].js');
+  const provider = read('../functions/bitget-cfd.js');
+  assert.match(pages, /createBitgetCfdProvider/);
+  assert.match(pages, /requestedType === 'cfd'/);
+  assert.match(provider, /ACCESS-SIGN/);
+  assert.match(provider, /history-candlestick/);
+  assert.match(provider, /volumeAvailable: false/);
+});
