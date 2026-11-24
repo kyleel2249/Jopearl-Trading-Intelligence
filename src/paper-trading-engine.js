@@ -67,7 +67,8 @@ export function assessAgentKpis(metrics={}, policy=PAPER_POLICY, outOfSampleTrad
     ['profitFactor',n(metrics.profitFactor)>=policy.minimumProfitFactor,metrics.profitFactor,policy.minimumProfitFactor,'profit factor'],
     ['expectancy',n(metrics.expectancyR)>=policy.minimumExpectancyR,metrics.expectancyR,policy.minimumExpectancyR,'expectancy R'],
     ['drawdown',n(metrics.maxDrawdownPct)<=policy.maxDrawdownPct,metrics.maxDrawdownPct,policy.maxDrawdownPct,'max drawdown %'],
-    ['sharpe',n(metrics.sharpe)>=policy.minimumSharpe,metrics.sharpe,policy.minimumSharpe,'Sharpe'],\n    ['lossStreak',n(metrics.maxConsecutiveLosses)<=5,metrics.maxConsecutiveLosses,5,'max consecutive losses'],
+    ['sharpe',n(metrics.sharpe)>=policy.minimumSharpe,metrics.sharpe,policy.minimumSharpe,'Sharpe'],
+    ['lossStreak',n(metrics.maxConsecutiveLosses)<=5,metrics.maxConsecutiveLosses,5,'max consecutive losses'],
     ['outOfSample',outOfSampleTrades>=policy.minimumOutOfSampleTrades,outOfSampleTrades,policy.minimumOutOfSampleTrades,'out-of-sample trades'],
     ['regimes',(metrics.regimes||[]).every(r=>r.trades>=policy.minimumRegimeTrades),metrics.regimes||[],policy.minimumRegimeTrades,'trades per regime']
   ];
