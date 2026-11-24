@@ -195,7 +195,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     recordOutcome(record, { sync = true } = {}) {
       if (!record || typeof record !== 'object' || !record.id || !record.symbol || !record.timeframe ||
           !['win', 'loss', 'timeout'].includes(record.outcome) || !['bullish', 'bearish'].includes(record.direction) ||
-          record.returnR === null || record.returnR === undefined || !Number.isFinite(Number(record.returnR))) {
+          record.returnR === null || record.returnR === undefined || !Number.isFinite(Number(record.returnR)) || !Number.isFinite(Number(record.candleTs)) || !record.factors || typeof record.factors !== 'object' || Array.isArray(record.factors)) {
         return { ok: false, error: 'A valid, resolved trade outcome is required.' };
       }
       const existing = state.outcomes.find((item) => item.id === record.id);
