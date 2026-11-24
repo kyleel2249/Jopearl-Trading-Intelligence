@@ -21,17 +21,21 @@ function emitConfigChange() {
   } catch { /* notification is best effort */ }
 }
 
+const sessionStorageSafe = () => {
+  try { return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null; } catch { return null; }
+};
 export function getApiToken() {
-  // Legacy API tokens are intentionally ignored: Cloudflare public market-data
-  // routes are same-origin and do not require a user-supplied gateway token.
-  const store = storage();
-  try { store?.removeItem(TOKEN_KEY); } catch { /* best-effort legacy cleanup */ }
-  return '';
+  const store = sessionStorageSafe();
+  try { return String(store?.getItem(TOKEN_KEY) || ''); } catch { return ''; }
 }
-export function setApiToken() {
-  const store = storage();
-  try { store?.removeItem(TOKEN_KEY); } catch { /* best-effort legacy cleanup */ }
-  return '';
+export function setApiToken(value = '') {
+  const store = sessionStorageSafe();
+  const token = String(value || '').trim();
+  try {
+    if (token) store?.setItem(TOKEN_KEY, token);
+    else store?.removeItem(TOKEN_KEY);
+  } catch { /* session-only token storage is best effort */ }
+  return token;
 }
 
 // ---------------------------------------------------------------------------
