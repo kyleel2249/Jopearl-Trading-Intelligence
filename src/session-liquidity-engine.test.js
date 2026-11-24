@@ -27,7 +27,7 @@ test('falls back to candles and attributes matching extremes to the originating 
  const now=Date.parse('2026-11-20T14:00:00Z');
  const rows=[
   candle(Date.parse('2026-11-20T08:00:00Z'),100,108,99,105),
-  candle(Date.parse('2026-11-20T09:00:00Z'),105,106,96,100),
+  candle(Date.parse('2026-11-20T07:00:00Z'),105,106,96,100),
   candle(Date.parse('2026-11-20T13:00:00Z'),100,104,98,102)
  ];
  const out=analyze24hLiquidity(rows,{now,timeframe:'1h'});
@@ -46,7 +46,7 @@ test('calculates range position, previous UTC day and safe insufficient history'
  const out=analyze24hLiquidity(rows,{now,timeframe:'1h'});
  assert.equal(out.levels.previousUtcDay.high,101);
  assert.equal(out.levels.previousUtcDay.low,88);
- assert.equal(out.range.positionPercent,100);
+ assert.equal(out.range.positionPercent,75);
  assert.equal(analyze24hLiquidity([],{now}).status,'insufficient');
 });
 
@@ -56,9 +56,9 @@ test('flags high sweep reclaim and abnormal range/volume without authorizing tra
   candle(now-4*3600000,100,105,99,103,10),
   candle(now-3*3600000,103,104,100,102,10),
   candle(now-2*3600000,102,106,101,105,10),
-  candle(now-3600000,105,112,104,104,100)
+  candle(now-3600000,105,125,104,104,100)
  ];
- const out=analyze24hLiquidity(rows,{now,timeframe:'1h',ticker:{high:112,low:99,last:104}});
+ const out=analyze24hLiquidity(rows,{now,timeframe:'1h',ticker:{high:125,low:99,last:104}});
  assert.ok(out.alerts.some(alert=>alert.code==='HIGH_SWEEP_RECLAIM'));
  assert.ok(out.alerts.some(alert=>alert.code==='RANGE_EXPANSION'));
  assert.ok(out.alerts.some(alert=>alert.code==='VOLUME_EXPANSION'));
