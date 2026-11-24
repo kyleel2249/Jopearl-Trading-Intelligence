@@ -69,7 +69,7 @@ async function promoteOrRetire(db,agent,metrics,kpi){
   await db.prepare("UPDATE jpti_paper_agents SET status='suspended',updated_at=?,payload=? WHERE agent_id=?").bind(at,JSON.stringify(payload),agent.id).run();
   return {status:'SUSPENDED',reason:payload.suspensionReason};
  }
- if(metrics.closedTrades>=100&&metrics.netPnlUsd<0&&metrics.profitFactor<0.8&&metrics.expectancyR<0&&row.status==='active'){
+ if(metrics.closedTrades>=100&&metrics.netPnlUsd<0&&metrics.profitFactor<0.8&&metrics.expectancyR<0&&(row.status==='active'||row.status==='suspended')){
   const at=iso(),payload={...agent,status:'retired',retiredAt:at,retirementReason:'Persistent negative expectancy and weak profit factor after 100 closed trades.',permissions:{paper:false,live:false}};
   await db.prepare("UPDATE jpti_paper_agents SET status='retired',updated_at=?,payload=? WHERE agent_id=?").bind(at,JSON.stringify(payload),agent.id).run();
   const successor=await spawnSuccessor(db,agent);
