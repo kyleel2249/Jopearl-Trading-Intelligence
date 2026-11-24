@@ -46,7 +46,7 @@ export default function DashboardApp({ initialSymbol = 'BTC/USDT' }) {
       <Metric label="Active Signals" value={activeCount} note="Developing and confirmed candidates" icon={Zap}/>
       <Metric label="Average Evidence" value={avgScore == null ? '—' : Math.round(avgScore) + '/100'} note="Heuristic score, not win probability" icon={Gauge}/>
       <Metric label="Markets Scanned" value={Object.keys(state.snapshots).length} note="Live exchange data received" icon={Crosshair}/>
-      <Metric label="Signal Records" value={state.history.length} note="Browser-persisted observations" icon={ShieldCheck}/><Metric label="Signal Collisions" value={state.collisions.length} note="Conflicting directions detected" icon={AlertTriangle} tone={state.collisions.length ? "negative" : ""}/>
+      <Metric label="Signal Records" value={state.history.length} note={state.historySource === "cloudflare-d1" ? "Cloudflare D1 + local cache" : "Local cache · D1 reconnect pending"} icon={ShieldCheck}/><Metric label="Signal Collisions" value={state.collisions.length} note="Conflicting directions detected" icon={AlertTriangle} tone={state.collisions.length ? "negative" : ""}/>
     </section>
     <section className="si-main-grid">
       <div className="si-chart-panel">
