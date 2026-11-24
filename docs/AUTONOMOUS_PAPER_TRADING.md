@@ -5,6 +5,9 @@ Every newly created research agent starts with an independent **$1.00 virtual ac
 
 The paper engine consumes public Bitget market data and writes simulated positions to Cloudflare D1. It has no private Bitget credentials, no exchange order submission method, and no live execution permission. A LIVE_READY label means only that the research gates passed. It is not an API permission, an order switch or an instruction to trade live. Human approval, exchange-specific preflight, key isolation, a small canary, kill switch and monitoring are separate requirements.
 
+## Agent implementation model
+The first ten specialists use deterministic, explainable strategy rules over public Bitget data. They are autonomous paper-trading bots, not LLM inference sessions. This keeps signal generation reproducible and auditable. Any later model-assisted research layer must remain advisory and cannot override capital limits, data-freshness gates or the paper/live execution boundary.
+
 ## Named roles and responsibilities
 - **Atlas — Trend Structure Analyst:** multi-timeframe alignment, continuation and invalidation.
 - **Pulse — Momentum Analyst:** acceleration, exhaustion and momentum reversal.
