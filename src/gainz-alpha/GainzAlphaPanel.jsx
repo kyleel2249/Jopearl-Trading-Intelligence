@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { PRESETS } from './presets.js';
+import { MIN_SAMPLE } from './learning.js';
 
 const box = { padding: '8px 10px', background: '#18263a', borderRadius: 8, minWidth: 0 };
 const small = { fontSize: 10, color: '#93a6bd' };
@@ -12,12 +13,16 @@ export default function GainzAlphaPanel({ ga, symbol, timeframe, candleCount, ov
   const [why, setWhy] = useState(true);
   const [diag, setDiag] = useState(null);
   const [transfer, setTransfer] = useState('');
+  const [learningRevision, setLearningRevision] = useState(0);
   const { settings, update, reset, hub } = ga;
   const data = ga.result;
   const c = data && data.confirmed, p = data && data.preview && data.preview.status === 'ready' ? data.preview : null;
   const ready = c && c.status === 'ready';
   const ex = ready ? c.setupExpectancy : null, all = ready ? c.expectancy : null, rp = ready ? c.riskPlan : null;
   const status = hub.status();
+  const learningState = hub.getState();
+  const learningModel = learningState.model || {};
+  const learningCount = learningState.outcomes?.length || 0;
   const age = ready && c.setup ? c.setup.ageBars : null;
   const runDiag = () => setDiag(ga.diagnose({ candleCount, timeframe, symbol, lastCandleTs: ready ? c.asOf : null, now: Date.now(), alphaConsumer: true, overlaysLoaded, status, state: hub.getState() }));
   const num = (key, label, min, max, step) => <label style={{ ...small, display: 'flex', flexDirection: 'column', gap: 2 }}>{label}<input aria-label={label} type="number" min={min} max={max} step={step} value={(settings.overrides[key] ?? '')} placeholder={String(PRESETS[settings.preset][key])} onChange={(e) => update({ overrides: { ...settings.overrides, [key]: e.target.value === '' ? undefined : Number(e.target.value) } })} style={{ width: 84 }} /></label>;
@@ -55,6 +60,20 @@ export default function GainzAlphaPanel({ ga, symbol, timeframe, candleCount, ov
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5, marginTop: 8, fontSize: 10 }}>{c.factors.map((f) => <span key={f.key} title={'weight ' + f.weight} style={{ padding: '3px 6px', background: '#202f45', borderRadius: 5 }}>{f.key} {f.value > 0 ? '+' : ''}{f.value} → {f.contribution > 0 ? '+' : ''}{f.contribution}</span>)}</div>
       <small style={{ display: 'block', marginTop: 6, color: '#8297b0' }}>{c.confidenceNote}. {c.method}</small>
     </>}
+    <section aria-label="Adaptive learning status" style={{ ...box, marginTop: 10, border: '1px solid #304765' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
+        <div><b>ADAPTIVE STRATEGY LEARNING</b><div style={small}>Model v{learningModel.version || 1} · {learningCount}/{MIN_SAMPLE} outcomes for minimum learning sample</div></div>
+        <span style={{ color: learningModel.drift?.drifting ? '#f3b85b' : '#8fe3c4', fontSize: 11 }}>{learningModel.drift?.drifting ? 'Performance drift flagged' : 'No material drift flag'}</span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 7, fontSize: 11 }}>
+        <span>Adaptive mode <b>{settings.adaptiveLearning ? 'ON' : 'OFF'}</b></span><span>Recorded outcomes <b>{learningCount}</b></span><span>Learned factors <b>{Object.keys(learningModel.weights || {}).length}</b></span><span>Previous versions <b>{learningModel.history?.length || 0}</b></span>
+      </div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 8 }}>
+        {Object.entries(learningModel.weights || {}).map(([key, value]) => <span key={key} style={{ padding: '3px 6px', background: '#202f45', borderRadius: 5 }}>{key}: {Number(value).toFixed(3)}×</span>)}
+        <button type="button" disabled={!learningModel.history?.length} onClick={() => { const result = hub.rollbackModel(); if (result.rolledBack) setLearningRevision(result.model.version); }}>Rollback last model update</button>
+        <small style={small}>Revision {learningRevision || learningModel.version || 1}. Learning does not place trades.</small>
+      </div>
+    </section>
     {!status.persistence.ok && <p style={{ ...small, color: '#e5b85c' }}>Storage notice: {status.persistence.error}. Learning data may not survive a refresh.</p>}
     <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 8 }} aria-label="Overlay toggles">{OVERLAYS.map(([k, l]) => <label key={k} style={{ ...small, display: 'flex', gap: 4 }}><input type="checkbox" checked={!!settings.overlays[k]} onChange={(e) => update({ overlays: { [k]: e.target.checked } })} />{l}</label>)}</div>
     {open && <div style={{ marginTop: 10, paddingTop: 10, borderTop: '1px solid #26384f' }}>

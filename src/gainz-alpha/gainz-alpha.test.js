@@ -210,6 +210,11 @@ test('adaptive learning: guarded steps, minimum sample, versioning, rollback, no
   assert.ok(outlier.model.weights.trend <= 1.05);
   const back = rollbackModel(r.model); assert.equal(back.rolledBack, true); assert.deepEqual(back.model.weights, {});
 });
+test('adaptive learning ignores missing factor observations instead of treating them as negative evidence', () => {
+  const rows=[...Array.from({length:10},(_,i)=>({returnR:1,factors:{trend:1},candleTs:i})),...Array.from({length:10},(_,i)=>({returnR:-1,factors:{trend:0},candleTs:i+10})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{volume:1},candleTs:i+20})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{trend:null},candleTs:i+30}))];
+  const result=adaptModel(createModel(),rows,{minSample:10});assert.ok(result.model.weights.trend>1);assert.equal(result.n,40);
+  assert.equal(adaptModel(createModel(),[{returnR:null,factors:{trend:1}}],{minSample:1}).n,0);
+});
 test('false-signal report flags overtrading clusters', () => {
   const recs = [0, 1, 2, 3].map((i) => ({ symbol: 'A', timeframe: '1m', candleTs: i * 60000, tfMs: 60000, falseSignal: true, session: 'asia', setupType: 'c', direction: 'bullish' }));
   const r = falseSignalReport(recs); assert.equal(r.overall, 1); assert.ok(r.overtradingClusters >= 2);
@@ -262,6 +267,30 @@ test('hub: preview is provisional, never recorded; confirmed signal flows to out
   hub.ingest({ exchange: 'ex', symbol: 'BTC/USDT', timeframe: '1m', candles: [...rows, ...future] });
   const out = hub.getState().outcomes; assert.equal(out.length, 1); assert.ok(['win', 'loss', 'timeout'].includes(out[0].outcome));
   assert.ok(hub.events().some((e) => e.type === 'GAINZ_ALPHA_OUTCOME')); assert.ok(hub.events().some((e) => e.type === 'GAINZ_ALPHA_LEARNING_UPDATE'));
+});
+test('hub adaptive model learns from the shared outcome pool across symbol/timeframe contexts', () => {
+  const rows=build(-1);let t=nowOf(rows);const hub=createHub({now:()=>t,learnEvery:1});
+  hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,[t,95,96,94,95,10]]});
+  const state=hub.getState();state.outcomes.push(...Array.from({length:30},(_,i)=>({id:'other-market-'+i,symbol:i%2?'ETH/USDT':'SOL/USDT',timeframe:i%2?'5m':'1h',candleTs:i+1,outcome:i%2?'win':'loss',returnR:i%2?2:-1,factors:{trend:i%2?1:0},falseSignal:i%2===0})));
+  const plan=state.pending[0].riskPlan,future=[];
+  for(let k=0;k<25;k++){const i=rows.length+k,close=plan.takeProfit1-k*.01;future.push([base+i*TF,close+.05,k===3?plan.takeProfit1-.5:close+.1,close-.1,close,1000]);}
+  t=base+(rows.length+26)*TF;hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,...future]});
+  assert.ok(hub.getState().model.version>1);
+});
+test('remote D1 outcome history reconstructs a first adaptive model on a fresh device', async () => {
+  const hub=createHub();let updates=0;hub.onSettingsChange(()=>updates++);
+  const records=Array.from({length:60},(_,i)=>({id:'remote-'+i,symbol:i%2?'ETH/USDT':'BTC/USDT',timeframe:'15m',preset:'balanced',setupType:'confluence',direction:'bullish',session:'london',regime:'trend',volRegime:'normal',candleTs:i+1,outcome:i<35?'win':'loss',returnR:i<35?1.5:-1,falseSignal:i>=35,factors:{trend:i<35?1:0,volume:i%3?1:0}}));
+  const result=await hub.attachRemote({async load(){return records;},async save(){return {saved:0};}});
+  assert.equal(result.ok,true);assert.equal(hub.getState().outcomes.length,60);assert.ok(hub.getState().model.version>1);assert.ok(updates>0);
+});
+test('manual journal outcomes enter the shared hub once and are eligible for adaptive learning', async () => {
+  const hub=createHub({learnEvery:1}), state=hub.getState();let updates=0;hub.onSettingsChange(()=>updates++);
+  state.outcomes.push(...Array.from({length:30},(_,i)=>({id:'prior-'+i,symbol:i%2?'ETH/USDT':'SOL/USDT',timeframe:'15m',candleTs:i+1,outcome:i%2?'win':'loss',returnR:i%2?1.5:-1,factors:{trend:i%2?1:0}})));
+  const record={id:'manual-journal-1',symbol:'BTC/USDT',exchange:'bitget',timeframe:'15m',direction:'bullish',outcome:'win',returnR:1.25,candleTs:100000,factors:{sweep:1,displacement:1}};
+  const saved=hub.recordOutcome(record,{sync:false});
+  assert.equal(saved.ok,true);assert.equal(saved.duplicate,false);assert.equal(hub.getState().outcomes.length,31);
+  const duplicate=hub.recordOutcome(record,{sync:false});assert.equal(duplicate.duplicate,true);assert.equal(hub.getState().outcomes.length,31);
+  assert.ok(hub.getState().model.version>1);await Promise.resolve();assert.equal(updates,1);
 });
 test('hub persistence, migration, graceful storage failure, settings import/export', () => {
   const st = memStorage(), rows = build(-1), t = nowOf(rows); const hub = createHub({ storage: st, now: () => t });

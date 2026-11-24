@@ -2,7 +2,7 @@
 // subscribe. Handles signal registry, outcome tracking, learning loop, events, persistence and diagnostics.
 import { analyzeGainzAlpha, toAlphaEvidence } from './engine.js';
 import { PRESETS, resolvePreset, MODEL_VERSION } from './presets.js';
-import { createModel, adaptModel, rollbackModel, evaluateOutcome, signalToRecord, summarize } from './learning.js';
+import { createModel, adaptModel, rollbackModel, evaluateOutcome, signalToRecord, summarize, MIN_SAMPLE } from './learning.js';
 import { normalizeCandles, splitClosed, timeframeMs } from './indicators.js';
 
 export const SCHEMA = 1, STORAGE_KEY = 'jpti.gainz-alpha.v1';
@@ -79,6 +79,11 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     return added;
   }
 
+  function notifySettings() {
+    const snapshot = { ...state.settings };
+    Promise.resolve().then(() => settingsHandlers.forEach((h) => { try { h(snapshot); } catch { /* isolate */ } }));
+  }
+
   function emit(type, ctx, payload, idPart) {
     const e = { type, id: [type, ctx.symbol, ctx.timeframe, idPart].join('|'), ts: now(), symbol: ctx.symbol, timeframe: ctx.timeframe, exchange: ctx.exchange, schema: SCHEMA, payload };
     if (seenEvents.has(e.id) || !validateEvent(e).ok) return false;
@@ -97,7 +102,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
   }
 
   function resolvePending(ctx, closed) {
-    const still = [];
+    const still = []; let resolvedAny = false;
     for (const p of state.pending) {
       if (p.symbol !== ctx.symbol || p.timeframe !== ctx.timeframe || p.exchange !== ctx.exchange) { still.push(p); continue; }
       const future = closed.filter((c) => c[0] > p.candleTs);
@@ -107,16 +112,17 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       state.outcomes.push(rec); if (state.outcomes.length > maxOutcomes) state.outcomes.shift();
       if (remote) unsynced.push(rec);
       emit('GAINZ_ALPHA_OUTCOME', ctx, { id: rec.id, outcome: rec.outcome, returnR: rec.returnR, falseSignal: rec.falseSignal }, rec.id);
-      outcomesSinceLearn++; version++;
+      outcomesSinceLearn++; version++; resolvedAny = true;
     }
     state.pending = still;
     if (remote && unsynced.length) flushRemote();
     if (state.settings.adaptiveLearning && outcomesSinceLearn >= learnEvery) {
       outcomesSinceLearn = 0;
-      const res = adaptModel(state.model, state.outcomes.filter((r) => r.symbol === ctx.symbol && r.timeframe === ctx.timeframe));
+      const res = adaptModel(state.model, state.outcomes);
       emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: res.changed, n: res.n, reason: res.reason || null, deltas: res.deltas || {} }, 'learn|' + state.model.version + '|' + res.n);
       if (res.changed) { state.model = res.model; version++; emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: res.drifting }, 'model|' + state.model.version); }
     }
+    if (resolvedAny) notifySettings();
   }
 
   function ingest({ chartId = 'default', exchange = 'unknown', symbol, timeframe, candles, higherTimeframes = [] }) {
@@ -164,6 +170,14 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       remote = adapter;
       try {
         const records = await adapter.load(scope); const added = mergeOutcomes(records);
+        // A fresh browser/device can reconstruct a first guarded model snapshot from D1 history.
+        // Existing learned versions and explicit user rollbacks are never overwritten.
+        let modelRebuilt = false;
+        if (state.settings.adaptiveLearning && state.model.version === 1 && state.outcomes.length >= MIN_SAMPLE) {
+          const rebuilt = adaptModel(state.model, state.outcomes.slice(-500));
+          if (rebuilt.changed) { state.model = rebuilt.model; version++; persist(); modelRebuilt = true; }
+        }
+        if (added || modelRebuilt) notifySettings();
         const known = new Set(records.map((r) => r.id));
         unsynced = state.outcomes.filter((r) => !known.has(r.id));
         status.remote = { ok: true, loaded: records.length, added, pending: unsynced.length };
@@ -186,7 +200,39 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     exportSettings: () => JSON.stringify({ kind: 'jpti-gainz-alpha-settings', schema: SCHEMA, settings: state.settings }),
     importSettings(text) { try { const o = JSON.parse(text); if (o.kind !== 'jpti-gainz-alpha-settings' || o.schema > SCHEMA) return { ok: false, error: 'not a compatible settings export' }; this.updateSettings(o.settings); return { ok: true }; } catch (e) { return { ok: false, error: e.message }; } },
     expectancy: (filter) => summarize(state.outcomes, filter),
-    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); } return r; },
+    recordOutcome(record, { sync = true } = {}) {
+      if (!record || typeof record !== 'object' || !record.id || !record.symbol || !record.timeframe ||
+          !['win', 'loss', 'timeout'].includes(record.outcome) || !['bullish', 'bearish'].includes(record.direction) ||
+          record.returnR === null || record.returnR === undefined || !Number.isFinite(Number(record.returnR)) || !Number.isFinite(Number(record.candleTs)) || !record.factors || typeof record.factors !== 'object' || Array.isArray(record.factors)) {
+        return { ok: false, error: 'A valid, resolved trade outcome is required.' };
+      }
+      const existing = state.outcomes.find((item) => item.id === record.id);
+      if (existing) return { ok: true, duplicate: true, record: existing, modelVersion: state.model.version };
+      const saved = { ...record, returnR: Number(record.returnR), recordedAt: record.recordedAt || now() };
+      state.outcomes.push(saved);
+      state.outcomes.sort((a, b) => Number(a.candleTs || 0) - Number(b.candleTs || 0));
+      state.outcomes = state.outcomes.slice(-maxOutcomes);
+      const ctx = { exchange: saved.exchange || 'unknown', symbol: saved.symbol, timeframe: saved.timeframe };
+      emit('GAINZ_ALPHA_OUTCOME', ctx, { id: saved.id, outcome: saved.outcome, returnR: saved.returnR, falseSignal: !!saved.falseSignal, source: 'manual-journal' }, 'manual|' + saved.id);
+      outcomesSinceLearn++;
+      let learning = null;
+      if (state.settings.adaptiveLearning && outcomesSinceLearn >= learnEvery) {
+        outcomesSinceLearn = 0;
+        learning = adaptModel(state.model, state.outcomes);
+        emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: learning.changed, n: learning.n, reason: learning.reason || null, deltas: learning.deltas || {} }, 'manual-learn|' + state.model.version + '|' + learning.n);
+        if (learning.changed) {
+          state.model = learning.model;
+          version++;
+          emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: learning.drifting }, 'model|' + state.model.version);
+        }
+      }
+      version++;
+      if (sync && remote) { unsynced.push(saved); flushRemote(); }
+      persist();
+      notifySettings();
+      return { ok: true, duplicate: false, record: saved, learning, modelVersion: state.model.version };
+    },
+    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); notifySettings(); } return r; },
     diagnose(result, env = {}) { return diagnose(result, { ...env, status, state, hubLoaded: true }); }
   };
 }

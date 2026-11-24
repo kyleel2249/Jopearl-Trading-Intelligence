@@ -231,6 +231,94 @@ async function handleJournalRoute(request, env, url) {
   return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
 }
 
+const MAX_SESSION_OUTCOMES=20000,MAX_GAINZ_OUTCOMES=5000,MAX_GAINZ_BATCH=500;
+const btxt=(v,n,d='unknown')=>String(v??'').trim().slice(0,n)||d;
+const bnum=(v,lo,hi)=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):null;};
+function cleanSessionOutcome(input={}){
+ if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Outcome record must be an object.'),{status:400});
+ const outcome=String(input.outcome||'').toLowerCase();if(!['win','loss','breakeven'].includes(outcome))throw Object.assign(new Error('Outcome must be win, loss or breakeven.'),{status:400});
+ const returnR=bnum(input.returnR,-50,50);if(input.returnR!==null&&input.returnR!==undefined&&input.returnR!==''&&returnR===null)throw Object.assign(new Error('Return in R must be finite.'),{status:400});
+ const date=input.createdAt?new Date(input.createdAt):new Date();if(!Number.isFinite(date.getTime()))throw Object.assign(new Error('Invalid outcome timestamp.'),{status:400});
+ const id=btxt(input.id||crypto.randomUUID(),160,'');if(!/^[a-zA-Z0-9._:|/-]{1,160}$/.test(id))throw Object.assign(new Error('Outcome id is invalid.'),{status:400});
+ return{id,session:btxt(input.session,120),symbol:btxt(input.symbol,32).toUpperCase(),strategy:btxt(input.strategy,120,'Unspecified'),volatility:btxt(input.volatility,40),outcome,returnR,notes:String(input.notes||'').slice(0,500),createdAt:date.toISOString()};
+}
+function summarizeSessionOutcomes(records){
+ const groups=new Map();for(const r of records){const k=[r.session,r.symbol,r.strategy,r.volatility].join('|');const g=groups.get(k)||{session:r.session,symbol:r.symbol,strategy:r.strategy,volatility:r.volatility,trades:0,wins:0,losses:0,breakevens:0,totalR:0,scored:0};g.trades++;if(r.outcome==='win')g.wins++;else if(r.outcome==='loss')g.losses++;else g.breakevens++;if(Number.isFinite(r.returnR)){g.totalR+=r.returnR;g.scored++;}groups.set(k,g);}
+ return [...groups.values()].map(g=>({...g,winRate:g.trades?g.wins/g.trades*100:0,averageR:g.scored?g.totalR/g.scored:null}));
+}
+async function loadD1OutcomeRecords(env,kind,limit){
+ const result=await env.JPTI_DB.prepare('SELECT id, payload, occurred_at FROM jpti_events WHERE kind = ? ORDER BY occurred_at DESC, created_at DESC LIMIT ?').bind(kind,limit).all(),seen=new Set(),out=[];
+ for(const row of result.results||[]){let event;try{event=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{continue;}const r=event?.record||event;if(!r?.id||seen.has(r.id))continue;seen.add(r.id);out.push(r);}return out.reverse();
+}
+async function countD1OutcomeRecords(env,kind){
+ const result=await env.JPTI_DB.prepare('SELECT COUNT(*) AS count FROM jpti_events WHERE kind = ?').bind(kind).all();
+ return Number(result.results?.[0]?.count||0);
+}
+async function loadD1OutcomeById(env,id){
+ const result=await env.JPTI_DB.prepare('SELECT payload FROM jpti_events WHERE id = ?').bind(id).all();
+ const raw=result.results?.[0]?.payload;if(!raw)return null;
+ try{const event=typeof raw==='string'?JSON.parse(raw):raw;return event?.record||event;}catch{return null;}
+}
+async function insertD1Outcome(env,id,kind,source,record){
+ const r=await env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, symbol, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id,kind,source,record.id,record.symbol,record.createdAt||new Date(record.candleTs).toISOString(),JSON.stringify({record})).run();
+ return Number(r?.meta?.changes||0)>0;
+}
+async function handleSessionMemoryRoute(request,env,url){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  if(request.method==='GET'){
+   const requested=Number(url.searchParams.get('limit')||1000),limit=Number.isFinite(requested)?Math.min(5000,Math.max(1,Math.floor(requested))):1000;
+   const recent=await loadD1OutcomeRecords(env,'session-outcome',limit),count=await countD1OutcomeRecords(env,'session-outcome');
+   return json(200,{records:recent,summary:summarizeSessionOutcomes(recent),count,returned:recent.length,backend:true,storage:'cloudflare-d1'},request);
+  }
+  if(request.method!=='POST')return json(405,{error:'Session memory supports GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+  if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'Session outcome request exceeds the 512 KB limit.'},request);
+  let body;try{body=await request.json();}catch{return json(400,{error:'A valid JSON outcome record is required.'},request);}
+  if(new TextEncoder().encode(JSON.stringify(body)).byteLength>512000)return json(413,{error:'Session outcome payload exceeds the 512 KB limit.'},request);
+  if(url.pathname.replace(/\/+$/,'')==='/api/session/memory/batch'){
+   if(!Array.isArray(body?.records)||body.records.length>2000)return json(400,{error:'Send an array of up to 2,000 session outcome records.'},request);
+   const cleaned=body.records.map(cleanSessionOutcome),known=new Set();let imported=0,duplicates=0;
+   for(const r of cleaned){if(known.has(r.id)){duplicates++;continue;}known.add(r.id);const ok=await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);if(ok)imported++;else duplicates++;}
+   const recent=await loadD1OutcomeRecords(env,'session-outcome',1000),count=await countD1OutcomeRecords(env,'session-outcome');
+   return json(201,{ok:true,imported,duplicates,count,returned:recent.length,summary:summarizeSessionOutcomes(recent),storage:'cloudflare-d1'},request);
+  }
+  const record=cleanSessionOutcome(body),inserted=await insertD1Outcome(env,'session:'+record.id,'session-outcome','jpti-session-intelligence',record);
+  const stored=inserted?record:(await loadD1OutcomeById(env,'session:'+record.id))||record;
+  const recent=await loadD1OutcomeRecords(env,'session-outcome',1000),count=await countD1OutcomeRecords(env,'session-outcome');
+  return json(201,{ok:true,record:stored,duplicate:!inserted,eventId:inserted?'session:'+record.id:null,count,returned:recent.length,summary:summarizeSessionOutcomes(recent),storage:'cloudflare-d1',backend:true},request);
+ }catch(e){return json(e.status||500,{error:e.message||'Session outcome storage failed.'},request);}
+}
+function cleanGainzOutcome(input){
+ if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Outcome record must be an object.'),{status:400});
+ const outcome=String(input.outcome||'').toLowerCase(),direction=String(input.direction||'').toLowerCase();if(!['win','loss','timeout'].includes(outcome))throw Object.assign(new Error('Outcome must be win, loss or timeout.'),{status:400});if(!['bullish','bearish'].includes(direction))throw Object.assign(new Error('Direction must be bullish or bearish.'),{status:400});
+ const returnR=bnum(input.returnR,-20,50),candleTs=bnum(input.candleTs,1,8.64e15);if(returnR===null||candleTs===null)throw Object.assign(new Error('returnR and candleTs must be valid finite numbers.'),{status:400});
+ const symbol=btxt(input.symbol,32).toUpperCase(),timeframe=btxt(input.timeframe,8);if(symbol==='UNKNOWN'||timeframe==='unknown')throw Object.assign(new Error('symbol and timeframe are required.'),{status:400});
+ const factors={};if(input.factors&&typeof input.factors==='object'&&!Array.isArray(input.factors))for(const[k,v]of Object.entries(input.factors).slice(0,16)){const n=bnum(v,-2,2);if(n!==null)factors[btxt(k,24)]=n;}
+ const id=btxt(input.id,200,[symbol,timeframe,input.preset,candleTs,input.setupId].join('|'));
+ return{id,setupId:btxt(input.setupId,200,id),symbol,exchange:btxt(input.exchange,30),timeframe,preset:btxt(input.preset,20,'balanced').toLowerCase(),setupType:btxt(input.setupType,40,'confluence'),direction,session:btxt(input.session,30),regime:btxt(input.regime,20),volRegime:btxt(input.volRegime,12),candleTs,outcome,returnR,mfeR:bnum(input.mfeR,-50,50),maeR:bnum(input.maeR,-50,50),bars:bnum(input.bars,0,10000),falseSignal:input.falseSignal===true,confidence:bnum(input.confidence,0,100),score:bnum(input.score,-1,1),factors,confirmations:Array.isArray(input.confirmations)?input.confirmations.slice(0,12).map(v=>btxt(v,24)):[],modelVersion:btxt(input.modelVersion,40),tfMs:bnum(input.tfMs,0,3e9)};
+}
+async function handleGainzOutcomesRoute(request,env,url){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  const symbol=url.searchParams.get('symbol')?.toUpperCase()||null,timeframe=url.searchParams.get('timeframe')||null;
+  if(request.method==='GET'){
+   const requested=Number(url.searchParams.get('limit')||MAX_GAINZ_OUTCOMES),limit=Number.isFinite(requested)?Math.min(MAX_GAINZ_OUTCOMES,Math.max(1,Math.floor(requested))):MAX_GAINZ_OUTCOMES;
+   const records=await loadD1OutcomeRecords(env,'gainz-alpha-outcome',limit),rows=records.filter(r=>(!symbol||r.symbol===symbol)&&(!timeframe||r.timeframe===timeframe));
+   return json(200,{records:rows,count:rows.length,backend:true,storage:'cloudflare-d1'},request);
+  }
+  if(request.method!=='POST')return json(405,{error:'GainzAlpha outcomes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+  if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'GainzAlpha outcome request exceeds the 512 KB limit.'},request);
+  let body;try{body=await request.json();}catch{return json(400,{error:'A valid outcomes payload is required.'},request);}
+  if(new TextEncoder().encode(JSON.stringify(body)).byteLength>512000)return json(413,{error:'GainzAlpha outcomes payload exceeds the 512 KB limit.'},request);
+  if(!Array.isArray(body?.records)||body.records.length>MAX_GAINZ_BATCH)return json(400,{error:'Send an array of up to '+MAX_GAINZ_BATCH+' GainzAlpha outcome records.'},request);
+  const known=new Set();let saved=0,duplicates=0;const rejected=[];
+  for(const[index,raw]of body.records.entries()){let r;try{r=cleanGainzOutcome(raw);}catch(e){rejected.push({index,error:e.message});continue;}if(known.has(r.id)){duplicates++;continue;}known.add(r.id);const ok=await insertD1Outcome(env,'gainz:'+r.id,'gainz-alpha-outcome','gainz-alpha',r);if(ok)saved++;else duplicates++;}
+  const count=await countD1OutcomeRecords(env,'gainz-alpha-outcome');
+  return json(200,{saved,duplicates,rejected,count,storage:'cloudflare-d1'},request);
+ }catch(e){return json(e.status||500,{error:e.message||'GainzAlpha outcome storage failed.'},request);}
+}
 
 function decodeXml(value) {
   return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -384,6 +472,15 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       if (request.method === 'HEAD') return json(200, { status: 'available' }, request);
       return handleJournalRoute(request, env, url);
     }
+    const sessionPath = url.pathname.replace(/\/+$/, '');
+    if (sessionPath === '/api/session/memory' || sessionPath === '/api/session/memory/batch') {
+      if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'Session memory supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+      return handleSessionMemoryRoute(request, env, url);
+    }
+    if (url.pathname.replace(/\/+$/, '') === '/api/alpha/gainz/outcomes') {
+      if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'GainzAlpha outcomes support GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+      return handleGainzOutcomesRoute(request, env, url);
+    }
     if (url.pathname === '/api/mentor/analyze') {
       if (request.method !== 'POST') return json(405, { error: 'Mentor analysis supports POST only.' }, request, { allow: 'POST, OPTIONS' });
       return handleMentorRoute(request, env, fetchImpl);
@@ -420,14 +517,15 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const snapshotIndex = await env.JPTI_DB.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
         ).bind('jpti_events_market_snapshot_lookup').first();
-        const missingIndexes = snapshotIndex ? [] : ['jpti_events_market_snapshot_lookup'];
+        const outcomeIndex = await env.JPTI_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").bind('jpti_events_kind_time').first();
+        const missingIndexes = [...(!snapshotIndex ? ['jpti_events_market_snapshot_lookup'] : []), ...(!outcomeIndex ? ['jpti_events_kind_time'] : [])];
         // A read-only KV lookup exercises the binding without creating a public write surface.
         await env.JPTI_KV.get('jpti:system:health');
         const healthy = missingTables.length === 0 && missingIndexes.length === 0;
         return json(healthy ? 200 : 503, {
           status: healthy ? 'ok' : 'migration-required',
           service: 'JPTI Cloudflare storage',
-          d1: { connected: true, tables, missingTables, indexes: snapshotIndex ? [snapshotIndex.name] : [], missingIndexes },
+          d1: { connected: true, tables, missingTables, indexes: [snapshotIndex?.name, outcomeIndex?.name].filter(Boolean), missingIndexes },
           kv: { connected: true, operation: 'read' },
           timestamp: now().toISOString()
         }, request);
@@ -458,11 +556,21 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           bitgetCfd: true,
           bitgetCfdConfigured: Boolean(env.JPTI_BITGET_API_KEY && env.JPTI_BITGET_API_SECRET && (env.JPTI_BITGET_API_PASSPHRASE || env.JPTI_BITGET_PASSWORD)),
           bitgetCfdRequiresCloudflareSecrets: true,
+          journalAuthConfigured: Boolean(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN),
+          reflectiveJournal: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          sessionOutcomeMemory: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          workersAiMentor: Boolean(env.AI && env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
           serverBackedAdvancedAnalytics: false
         },
+        warnings: [
+          ...(!env.JPTI_DB ? ['JPTI_DB is not bound; private journal and learning history are unavailable.'] : []),
+          ...(!(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
+          ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : [])
+        ],
         exchanges: DIRECT_EXCHANGES,
         timestamp: now().toISOString()
       }, request);
@@ -688,9 +796,14 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           '/api/exchanges/compare/ticker',
           '/api/exchanges/:id/markets',
           '/api/exchanges/:id/ticker/:symbol',
-          '/api/exchanges/:id/ohlcv/:symbol'
+          '/api/exchanges/:id/ohlcv/:symbol',
+          '/api/journal/entries',
+          '/api/session/memory',
+          '/api/session/memory/batch',
+          '/api/alpha/gainz/outcomes',
+          '/api/mentor/analyze'
         ],
-        note: 'Public chart data is available without an external API gateway. Private trading and persistent server services require separate Cloudflare-native implementations.'
+        note: 'Public chart data, private reflective journal, session outcome memory and GainzAlpha outcome persistence run on Cloudflare Pages Functions and D1. Private account access and order execution remain disabled.'
       }, request);
     }
 

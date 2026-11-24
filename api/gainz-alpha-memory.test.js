@@ -14,6 +14,11 @@ test('cleanGainzOutcome normalizes valid records and clamps untrusted numbers', 
   const c = cleanGainzOutcome(rec({ returnR: 9999, confidence: 500 }));
   assert.equal(c.symbol, 'BTC/USDT'); assert.equal(c.returnR, 50); assert.equal(c.confidence, 100); assert.deepEqual(c.factors, { trend: 0.8 });
 });
+test('cleanGainzOutcome preserves missing metrics as unknown and rejects a missing R result', () => {
+  assert.throws(() => cleanGainzOutcome(rec({ returnR: null })), /returnR/);
+  const c = cleanGainzOutcome(rec({ mfeR: null, maeR: null, confidence: null, score: null, factors: { trend: null } }));
+  assert.equal(c.mfeR, null); assert.equal(c.maeR, null); assert.equal(c.confidence, null); assert.equal(c.score, null); assert.deepEqual(c.factors, {});
+});
 test('cleanGainzOutcome rejects malformed records', () => {
   for (const bad of [null, rec({ outcome: 'maybe' }), rec({ direction: 'sideways' }), rec({ returnR: 'x' }), rec({ candleTs: -1 }), rec({ symbol: '' })]) assert.throws(() => cleanGainzOutcome(bad), /./);
 });

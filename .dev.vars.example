@@ -4,7 +4,12 @@ JPTI_TRADING_MODE=paper
 JPTI_ENABLE_LIVE_TRADING=false
 # Native app CORS is restricted in the Pages Function to standard Capacitor origins.
 
-# Optional Bitget CFD market-data credentials for a local Cloudflare Pages dev session
+# Private D1 journal, session-memory and GainzAlpha outcome synchronization.
+# Copy this file to .dev.vars and replace the placeholder with a long random secret.
+# Never commit the real .dev.vars file.
+JPTI_JOURNAL_TOKEN=replace-with-a-long-random-secret
+
+# Optional Bitget CFD market-data credentials for a local Cloudflare Pages dev session.
 JPTI_BITGET_API_KEY=
 JPTI_BITGET_API_SECRET=
 JPTI_BITGET_API_PASSPHRASE=
