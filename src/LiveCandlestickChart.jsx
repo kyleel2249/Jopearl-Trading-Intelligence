@@ -388,9 +388,10 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   // The plot fills its container: candles run left edge to price axis and top to the time axis. No volume pane.
   const geometry = useMemo(() => {
     if (!liveCandles.length) return null;
-    const count = Math.max(25, Math.min(liveCandles.length, Math.floor(liveCandles.length / (zoom * candleSpacing))));
+    // Start with a readable 120-candle window; zooming out reveals progressively older history.
+    const baseCount = Math.max(25, Math.min(liveCandles.length, 120));
+    const count = Math.max(25, Math.min(liveCandles.length, Math.floor(baseCount / zoom)));
     const rows = liveCandles.slice(-count);
-    const baseCount = Math.max(25, Math.min(liveCandles.length, Math.floor(liveCandles.length / candleSpacing)));
     const canvasWidth = getExpandedCanvasWidth(plotSize.w, count, baseCount);
     const levelPrices = [...(alphaLevels || []).map(level => Number(level.price)).filter(Number.isFinite), ...ciPlanPrices];
     const min = Math.min(...rows.map((c) => c[3]), ...levelPrices);
@@ -525,7 +526,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       </div>
       <div className="chart-actions">
         <button onClick={() => setZoom((v) => Math.min(4, v * 1.35))} title="Zoom in">＋</button>
-        <button onClick={() => setZoom((v) => Math.max(0.5, v / 1.35))} title="Zoom out">－</button>
+        <button onClick={() => setZoom((v) => Math.max(0.1, v / 1.35))} title="Zoom out">－</button>
         <button onClick={() => setZoom(1)} title="Fit the default candle range">Fit</button>
         <button type="button" aria-pressed={followLatest} className={followLatest ? 'active' : ''} onClick={() => setFollowLatest(value => !value)} title="Automatically keep the newest candle in view">{followLatest ? 'Following' : 'Follow'}</button>
         <button onClick={() => setPriceZoom((v) => Math.min(12, v * 1.25))} title="Zoom the price scale in (more pips visible per label)">Pip ＋</button>
@@ -571,6 +572,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       <span>L <strong className="down">{activeCandle ? fmt(activeCandle[3]) : '—'}</strong></span>
       <span>C <strong>{activeCandle ? fmt(activeCandle[4]) : '—'}</strong></span>
       <span>V <strong>{activeCandle ? fmt(activeCandle[5]) : '—'}</strong></span>
+      {geometry && <span>Showing <strong>{geometry.count}/{liveCandles.length}</strong> candles</span>}
       {activeCandle && geometry && <span>Range <strong>{pipDistance(activeCandle[3], activeCandle[2], geometry.pip) ?? '—'}</strong> pips</span>}
       {countdown && !countdown.expired && <span className="chart-countdown" title="Time until the forming candle closes">Closes in <strong>{countdown.label}</strong></span>}
       {ticker?.last != null && <strong className="chart-last-price">{fmt(ticker.last)}</strong>}
