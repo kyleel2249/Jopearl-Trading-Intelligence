@@ -9,6 +9,10 @@ function fakeDb() {
     rows, events,
     prepare(sql) {
       return {
+        async all() {
+          if (sql.includes("SELECT name FROM sqlite_master WHERE type = 'table'")) return { results: ['jpti_events','jpti_outbox','jpti_scheduler_leases','jpti_schema_migrations','jpti_sync_cursors','jpti_journal_entries'].map(name=>({name})) };
+          return { results: [] };
+        },
         bind(...values) {
           return {
             async all() {
