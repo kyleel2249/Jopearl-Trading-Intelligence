@@ -674,6 +674,12 @@ function App() {
 
   const groups = [...new Set(navigation.map((item) => item.group))];
   const marketTerminalMode = page === 'Spot & Markets' || page === 'Futures';
+  useEffect(() => {
+    if (!marketTerminalMode) return undefined;
+    const onKeyDown = (event) => { if (event.key === 'Escape') setPage('Overview'); };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [marketTerminalMode]);
   return <div className={'jpti-shell' + (page === 'Overview' ? ' terminal-mode' : '') + (marketTerminalMode ? ' jpti-market-fullscreen' : '')}>
     {page === 'Overview' && mobileOpen && <button type="button" className="td-drawer-scrim" aria-label="Close workspace menu" onClick={() => setMobileOpen(false)}/>}
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>

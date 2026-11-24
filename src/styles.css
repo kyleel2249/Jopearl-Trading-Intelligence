@@ -256,3 +256,5 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 @media(max-height:700px){
  .jpti-market-fullscreen .trading-chart-panel .candlestick-svg-wrap{height:calc(100dvh - 315px)!important;min-height:220px}
 }
+
+.jpti-market-fullscreen .page-content>.exchange-workspace{flex:1;min-height:0}
