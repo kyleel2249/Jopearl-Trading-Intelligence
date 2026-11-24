@@ -47,7 +47,7 @@ export function derivePaperSignal(candles, ticker={}, agentId='ensemble') {
 export function calculatePaperMetrics(trades=[], startingEquity=PAPER_POLICY.initialEquityUsd, now=Date.now()) {
   const closed=trades.filter(t=>t.status==='closed'), wins=closed.filter(t=>n(t.netPnlUsd)>0), losses=closed.filter(t=>n(t.netPnlUsd)<0);
   const grossWin=wins.reduce((s,t)=>s+n(t.netPnlUsd),0),grossLoss=Math.abs(losses.reduce((s,t)=>s+n(t.netPnlUsd),0));
-  const rs=closed.map(t=>n(t.rMultiple)), expectancy=rs.length?rs.reduce((s,v)=>s+v,0)/rs.length:0;
+  const rs=closed.map(t=>n(t.rMultiple)), expectancy=rs.length?rs.reduce((s,v)=>s+v,0)/rs.length:0;\n  let streak=0,maxStreak=0;for(const t of [...closed].sort((a,b)=>Date.parse(a.closedAt)-Date.parse(b.closedAt))){streak=n(t.netPnlUsd)<0?streak+1:0;maxStreak=Math.max(maxStreak,streak);}
   let equity=startingEquity,peak=startingEquity,maxDd=0;const dailyPnl=new Map();
   for(const t of [...closed].sort((a,b)=>Date.parse(a.closedAt)-Date.parse(b.closedAt))){equity+=n(t.netPnlUsd);peak=Math.max(peak,equity);maxDd=Math.max(maxDd,peak?((peak-equity)/peak)*100:0);const day=String(t.closedAt||'').slice(0,10);dailyPnl.set(day,(dailyPnl.get(day)||0)+n(t.netPnlUsd));}
   let dailyEquity=startingEquity;const returns=[];for(const [,pnl] of [...dailyPnl].sort((a,b)=>a[0].localeCompare(b[0]))){if(dailyEquity>0)returns.push(pnl/dailyEquity);dailyEquity+=pnl;}
@@ -55,7 +55,7 @@ export function calculatePaperMetrics(trades=[], startingEquity=PAPER_POLICY.ini
   const first=closed.length?Math.min(...closed.map(t=>Date.parse(t.openedAt)||now)):now;
   const days=Math.max(0,(now-first)/86400000);
   const regimes=['trend','range','high-volatility'].map(regime=>({regime,trades:closed.filter(t=>t.regime===regime).length}));
-  return {closedTrades:closed.length,wins:wins.length,losses:losses.length,winRatePct:closed.length?wins.length/closed.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:grossWin>0?999:0,netPnlUsd:closed.reduce((s,t)=>s+n(t.netPnlUsd),0),equityUsd:startingEquity+closed.reduce((s,t)=>s+n(t.netPnlUsd),0),maxDrawdownPct:maxDd,expectancyR:expectancy,sharpe,observationDays:days,regimes};
+  return {closedTrades:closed.length,wins:wins.length,losses:losses.length,winRatePct:closed.length?wins.length/closed.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:grossWin>0?999:0,netPnlUsd:closed.reduce((s,t)=>s+n(t.netPnlUsd),0),equityUsd:startingEquity+closed.reduce((s,t)=>s+n(t.netPnlUsd),0),maxDrawdownPct:maxDd,expectancyR:expectancy,sharpe,maxConsecutiveLosses:maxStreak,observationDays:days,regimes};
 }
 const mean=(a)=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
 export function assessAgentKpis(metrics={}, policy=PAPER_POLICY, outOfSampleTrades=0) {
@@ -66,7 +66,7 @@ export function assessAgentKpis(metrics={}, policy=PAPER_POLICY, outOfSampleTrad
     ['profitFactor',n(metrics.profitFactor)>=policy.minimumProfitFactor,metrics.profitFactor,policy.minimumProfitFactor,'profit factor'],
     ['expectancy',n(metrics.expectancyR)>=policy.minimumExpectancyR,metrics.expectancyR,policy.minimumExpectancyR,'expectancy R'],
     ['drawdown',n(metrics.maxDrawdownPct)<=policy.maxDrawdownPct,metrics.maxDrawdownPct,policy.maxDrawdownPct,'max drawdown %'],
-    ['sharpe',n(metrics.sharpe)>=policy.minimumSharpe,metrics.sharpe,policy.minimumSharpe,'Sharpe'],
+    ['sharpe',n(metrics.sharpe)>=policy.minimumSharpe,metrics.sharpe,policy.minimumSharpe,'Sharpe'],\n    ['lossStreak',n(metrics.maxConsecutiveLosses)<=5,metrics.maxConsecutiveLosses,5,'max consecutive losses'],
     ['outOfSample',outOfSampleTrades>=policy.minimumOutOfSampleTrades,outOfSampleTrades,policy.minimumOutOfSampleTrades,'out-of-sample trades'],
     ['regimes',(metrics.regimes||[]).every(r=>r.trades>=policy.minimumRegimeTrades),metrics.regimes||[],policy.minimumRegimeTrades,'trades per regime']
   ];
