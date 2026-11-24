@@ -5,6 +5,7 @@
 // are intentionally NOT advertised as implemented by this edge adapter.
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
+import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -566,6 +567,100 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
       if (context.status === 200) await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
+    }
+
+    if (url.pathname.replace(/\\/+$/, '') === '/api/market/pair-scanner') {
+      try {
+        const rangePct = Math.min(100, Math.max(1, Number(url.searchParams.get('rangePct') || 20)));
+        const minTurnover = Math.max(0, Number(url.searchParams.get('minTurnover') || 50000));
+        const requestedInterval = String(url.searchParams.get('timeframe') || '1h').toLowerCase();
+        const intervalMap = { '15m': '15m', '1h': '1H', '4h': '4H' };
+        const interval = intervalMap[requestedInterval] || '1H';
+        const base = 'https://api.bitget.com/api/v3/market/';
+        const get = async (path) => {
+          const response = await fetch(base + path, { headers: { accept: 'application/json' } });
+          if (!response.ok) throw new Error('Bitget market endpoint returned HTTP ' + response.status);
+          const payload = await response.json();
+          if (payload.code && payload.code !== '00000') throw new Error(payload.msg || 'Bitget market endpoint rejected the request.');
+          return payload.data;
+        };
+        const [tickersRaw, instrumentsRaw] = await Promise.all([
+          get('tickers?category=USDT-FUTURES'),
+          get('instruments?category=USDT-FUTURES')
+        ]);
+        const tickers = Array.isArray(tickersRaw) ? tickersRaw : [];
+        const instruments = Array.isArray(instrumentsRaw) ? instrumentsRaw : [];
+        const byInstrument = new Map(instruments.map(item => [item.symbol, item]));
+        const reference = tickers.find(item => item.symbol === 'SOPHUSDT');
+        if (!reference || !(Number(reference.lastPrice) > 0)) {
+          return json(503, { error: 'SOPHUSDT is not currently available in Bitget USDT-M ticker data.', code: 'REFERENCE_CONTRACT_UNAVAILABLE' }, request);
+        }
+        const referencePrice = Number(reference.lastPrice);
+        const minPrice = referencePrice * (1 - rangePct / 100), maxPrice = referencePrice * (1 + rangePct / 100);
+        const eligible = tickers.filter(item => {
+          const p = Number(item.lastPrice), turnover = Number(item.turnover24h || 0);
+          return item.symbol.endsWith('USDT') && p > 0 && p >= minPrice && p <= maxPrice && turnover >= minTurnover;
+        });
+        if (!eligible.some(item => item.symbol === 'SOPHUSDT')) eligible.push(reference);
+        const pairs = eligible.map(item => {
+          const instrument = byInstrument.get(item.symbol) || {};
+          const bid = Number(item.bid1Price), ask = Number(item.ask1Price);
+          const mid = bid > 0 && ask > 0 ? (bid + ask) / 2 : null;
+          const price = Number(item.lastPrice);
+          const mark = Number(item.markPrice || price);
+          const oi = Number(item.openInterest);
+          return {
+            symbol: item.symbol, price, markPrice: mark,
+            distancePct: Number(((price / referencePrice - 1) * 100).toFixed(3)),
+            change24h: Number(item.price24hPcnt || 0) * 100,
+            turnover24h: Number(item.turnover24h || 0),
+            spreadPct: mid ? Number(((ask - bid) / mid * 100).toFixed(4)) : null,
+            bid1Price: bid || null, ask1Price: ask || null,
+            bid1Size: Number(item.bid1Size || 0), ask1Size: Number(item.ask1Size || 0),
+            openInterestBase: Number.isFinite(oi) ? oi : null,
+            openInterestUsd: Number.isFinite(oi) ? oi * mark : null,
+            fundingRate: item.fundingRate == null ? null : Number(item.fundingRate),
+            fundingInterval: Number(instrument.fundInterval || 0) || null,
+            maxLeverage: Number(instrument.maxLeverage || 0) || null,
+            minOrderAmount: instrument.minOrderAmount || null,
+            makerFeeRate: instrument.makerFeeRate == null ? null : Number(instrument.makerFeeRate),
+            takerFeeRate: instrument.takerFeeRate == null ? null : Number(instrument.takerFeeRate),
+            status: instrument.status || null,
+            sourceTimestamp: item.ts || null
+          };
+        }).sort((a,b) => b.turnover24h - a.turnover24h);
+        const selected = pairs.filter(item => item.symbol !== 'SOPHUSDT').slice(0, 14);
+        const correlationSymbols = ['SOPHUSDT', ...selected.map(item => item.symbol)];
+        const candleResults = await Promise.all(correlationSymbols.map(async symbol => {
+          try {
+            const candles = await get('candles?category=USDT-FUTURES&symbol=' + encodeURIComponent(symbol) + '&interval=' + interval + '&type=market&limit=100');
+            return [symbol, Array.isArray(candles) ? candles : []];
+          } catch { return [symbol, []]; }
+        }));
+        const candleMap = new Map(candleResults);
+        const referenceCandles = candleMap.get('SOPHUSDT') || [];
+        const correlations = selected.map(item => correlateCandleSeries(referenceCandles, candleMap.get(item.symbol) || [], item.symbol, interval))
+          .filter(item => item.status === 'measured');
+        const observationCounts = correlations.map(item => item.observations);
+        return json(200, {
+          generatedAt: new Date().toISOString(),
+          venue: 'Bitget', category: 'USDT-FUTURES',
+          reference: { symbol: 'SOPHUSDT', price: referencePrice, change24h: Number(reference.price24hPcnt || 0) * 100, turnover24h: Number(reference.turnover24h || 0) },
+          filters: { rangePct, minTurnover, timeframe: interval },
+          pairs,
+          correlations,
+          correlationMeta: { timeframe: interval, observations: observationCounts.length ? Math.min(...observationCounts) : 0, candidateCount: correlations.length, method: 'Pearson correlation of matched timestamp log returns from closed Bitget candles' },
+          caveats: [
+            'The candidate universe is limited to Bitget USDT perpetuals and the selected price and turnover filters.',
+            'Correlation is computed from matched candle timestamps; fewer than 12 matched returns are excluded.',
+            'Correlation is historical co-movement, not causation, a hedge guarantee or a forecast.',
+            'Open interest value is estimated as base open interest multiplied by mark price.',
+            'This scanner is public market research only; it does not place or manage orders.'
+          ]
+        }, request, { 'x-jpti-cache': 'miss' });
+      } catch (error) {
+        return json(502, { error: error.message || 'Bitget pair scanner unavailable.', code: 'PAIR_SCANNER_UPSTREAM_ERROR' }, request);
+      }
     }
 
     const result = await marketProvider.request(url.pathname + url.search, {
