@@ -198,6 +198,7 @@ export function buildReflectiveReport(entry = {}, assessment = null) {
     ...(assessment?.coaching?.strengths || ['Trade preparation and behavioural evidence remain incomplete.']).map(item => '- Strength: ' + item),
     ...(assessment?.coaching?.developmentAreas || ['Define entry evidence, invalidation and exit conditions.']).map(item => '- Development area: ' + item),
     '',
+    ...(entry.mentorReview ? ['## AI mentor and research council review', '', String(entry.mentorReview), ''] : []),
     '## Reflections and lessons',
     '',
     ...((entry.reflection || []).map(item => '- ' + String(item.at || '') + ' — ' + String(item.note || '') + (item.lesson ? ' Lesson: ' + item.lesson : '') + (item.nextAction ? ' Next action: ' + item.nextAction : ''))),
