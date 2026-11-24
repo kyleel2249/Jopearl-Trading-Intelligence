@@ -18,3 +18,5 @@ CREATE TABLE IF NOT EXISTS jpti_paper_reviews (
   payload TEXT NOT NULL CHECK (json_valid(payload)), UNIQUE(review_date)
 );
 INSERT OR IGNORE INTO jpti_schema_migrations(version) VALUES ('0006_autonomous_paper_trading');
+
+CREATE UNIQUE INDEX IF NOT EXISTS jpti_paper_agent_candle_dedupe ON jpti_paper_trades(agent_id,symbol,source_candle_at);
