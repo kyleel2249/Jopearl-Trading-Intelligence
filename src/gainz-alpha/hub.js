@@ -79,6 +79,11 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     return added;
   }
 
+  function notifySettings() {
+    const snapshot = { ...state.settings };
+    Promise.resolve().then(() => settingsHandlers.forEach((h) => { try { h(snapshot); } catch { /* isolate */ } }));
+  }
+
   function emit(type, ctx, payload, idPart) {
     const e = { type, id: [type, ctx.symbol, ctx.timeframe, idPart].join('|'), ts: now(), symbol: ctx.symbol, timeframe: ctx.timeframe, exchange: ctx.exchange, schema: SCHEMA, payload };
     if (seenEvents.has(e.id) || !validateEvent(e).ok) return false;
@@ -117,7 +122,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: res.changed, n: res.n, reason: res.reason || null, deltas: res.deltas || {} }, 'learn|' + state.model.version + '|' + res.n);
       if (res.changed) { state.model = res.model; version++; emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: res.drifting }, 'model|' + state.model.version); }
     }
-    if (resolvedAny) settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
+    if (resolvedAny) notifySettings();
   }
 
   function ingest({ chartId = 'default', exchange = 'unknown', symbol, timeframe, candles, higherTimeframes = [] }) {
@@ -172,7 +177,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
           const rebuilt = adaptModel(state.model, state.outcomes.slice(-500));
           if (rebuilt.changed) { state.model = rebuilt.model; version++; persist(); modelRebuilt = true; }
         }
-        if (added || modelRebuilt) settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
+        if (added || modelRebuilt) notifySettings();
         const known = new Set(records.map((r) => r.id));
         unsynced = state.outcomes.filter((r) => !known.has(r.id));
         status.remote = { ok: true, loaded: records.length, added, pending: unsynced.length };
@@ -224,10 +229,10 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       version++;
       if (sync && remote) { unsynced.push(saved); flushRemote(); }
       persist();
-      settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } });
+      notifySettings();
       return { ok: true, duplicate: false, record: saved, learning, modelVersion: state.model.version };
     },
-    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); settingsHandlers.forEach((h) => { try { h({ ...state.settings }); } catch { /* isolate */ } }); } return r; },
+    rollbackModel() { const r = rollbackModel(state.model); if (r.rolledBack) { state.model = r.model; version++; persist(); notifySettings(); } return r; },
     diagnose(result, env = {}) { return diagnose(result, { ...env, status, state, hubLoaded: true }); }
   };
 }
