@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { pearsonCorrelation, candleReturns, correlateCandleSeries } from './pair-scanner-engine.js';
 
 test('Pearson correlation distinguishes inverse and aligned returns', () => {
-  assert.equal(pearsonCorrelation([1,2,3,4],[4,3,2,1]), -1);
-  assert.equal(pearsonCorrelation([1,2,3,4],[2,4,6,8]), 1);
+  assert.ok(Math.abs(pearsonCorrelation([1,2,3,4],[4,3,2,1]) + 1) < 1e-12);
+  assert.ok(Math.abs(pearsonCorrelation([1,2,3,4],[2,4,6,8]) - 1) < 1e-12);
 });
 test('Pearson correlation returns null for insufficient or constant data', () => {
   assert.equal(pearsonCorrelation([1,2],[2,1]), null);
