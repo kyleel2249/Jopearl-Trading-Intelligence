@@ -70,7 +70,7 @@ async function verifyDirectCategory(category, row) {
 }
 const platformHealth = await getJson(base + '/api/health');
 const advertisedTypes = platformHealth.capabilities?.bitgetProductTypes || [];
-for (const required of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures']) {
+for (const required of ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd']) {
   assert(advertisedTypes.includes(required), 'Cloudflare API health does not advertise Bitget ' + required + '.');
 }
 console.log('PASS Cloudflare API health: ' + advertisedTypes.join(', '));
