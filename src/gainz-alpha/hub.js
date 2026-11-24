@@ -113,7 +113,7 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
     if (remote && unsynced.length) flushRemote();
     if (state.settings.adaptiveLearning && outcomesSinceLearn >= learnEvery) {
       outcomesSinceLearn = 0;
-      const res = adaptModel(state.model, state.outcomes.filter((r) => r.symbol === ctx.symbol && r.timeframe === ctx.timeframe));
+      const res = adaptModel(state.model, state.outcomes);
       emit('GAINZ_ALPHA_LEARNING_UPDATE', ctx, { changed: res.changed, n: res.n, reason: res.reason || null, deltas: res.deltas || {} }, 'learn|' + state.model.version + '|' + res.n);
       if (res.changed) { state.model = res.model; version++; emit('GAINZ_ALPHA_MODEL_CHANGE', ctx, { version: state.model.version, drifting: res.drifting }, 'model|' + state.model.version); }
     }

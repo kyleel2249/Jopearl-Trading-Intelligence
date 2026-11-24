@@ -26,7 +26,7 @@ const sessionStorageSafe = () => {
 };
 function isPrivateJournalRoute(path) {
   const value = String(path || '').split('?')[0];
-  return value === '/api/journal/entries' || value === '/api/mentor/analyze';
+  return value === '/api/journal/entries' || value === '/api/mentor/analyze' || value === '/api/session/memory' || value === '/api/session/memory/batch' || value === '/api/alpha/gainz/outcomes';
 }
 
 export function getApiToken() {
@@ -40,6 +40,7 @@ export function setApiToken(value = '') {
     if (token) store?.setItem(TOKEN_KEY, token);
     else store?.removeItem(TOKEN_KEY);
   } catch { /* session-only token storage is best effort */ }
+  emitConfigChange();
   return token;
 }
 

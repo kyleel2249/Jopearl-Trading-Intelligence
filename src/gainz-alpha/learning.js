@@ -19,7 +19,7 @@ const KEYS = ['symbol', 'timeframe', 'preset', 'setupType', 'direction', 'sessio
 export const matches = (r, filter = {}) => KEYS.every((k) => filter[k] == null || String(r[k]).toLowerCase() === String(filter[k]).toLowerCase());
 
 export function summarize(records, filter = {}, minSample = MIN_SAMPLE) {
-  const rows = (Array.isArray(records) ? records : []).filter((r) => matches(r, filter) && Number.isFinite(Number(r.returnR)));
+  const rows = (Array.isArray(records) ? records : []).filter((r) => matches(r, filter) && r.returnR !== null && r.returnR !== undefined && r.returnR !== '' && Number.isFinite(Number(r.returnR)));
   const n = rows.length;
   const R = rows.map((r) => Number(r.returnR));
   const wins = rows.filter((r) => r.outcome === 'win'), losses = rows.filter((r) => r.outcome === 'loss');
@@ -112,13 +112,15 @@ export function calibrate(confidence, table) {
  */
 export function adaptModel(model, records, { minSample = MIN_SAMPLE, lr = 0.1, maxStep = 0.05, floor = 0.6, cap = 1.4, dispStep = 0.02 } = {}) {
   const base = model || createModel();
-  const rows = (Array.isArray(records) ? records : []).filter((r) => Number.isFinite(Number(r.returnR)) && r.factors);
+  const rows = (Array.isArray(records) ? records : []).filter((r) => Number.isFinite(Number(r.returnR)) && r.factors && typeof r.factors === 'object' && !Array.isArray(r.factors));
   if (rows.length < minSample) return { model: base, changed: false, reason: 'insufficient-sample', n: rows.length };
   const R = (r) => clamp(Number(r.returnR), -3, 5);
   const weights = { ...base.weights }, deltas = {};
   const keys = new Set(rows.flatMap((r) => Object.keys(r.factors)));
   for (const k of keys) {
-    const a = rows.filter((r) => r.factors[k] >= 0.25), b = rows.filter((r) => !(r.factors[k] >= 0.25));
+    // Missing factors are unknown, not negative observations.
+    const measured = rows.filter((r) => Object.prototype.hasOwnProperty.call(r.factors, k) && Number.isFinite(Number(r.factors[k])));
+    const a = measured.filter((r) => Number(r.factors[k]) >= 0.25), b = measured.filter((r) => Number(r.factors[k]) < 0.25);
     if (a.length < minSample || b.length < Math.ceil(minSample / 3)) continue;
     const step = clamp(lr * (mean(a.map(R)) - mean(b.map(R))), -maxStep, maxStep);
     const next = clamp((weights[k] ?? 1) + step, floor, cap);

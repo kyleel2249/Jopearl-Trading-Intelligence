@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { getHub } from './hub.js';
 import { createApiRemote } from './remote.js';
-import { apiFetch } from '../lib/api.js';
+import { apiFetch, getApiToken, API_CONFIG_EVENT } from '../lib/api.js';
 
-let remoteAttached = false;
+const remoteTokens = new WeakMap();
 
 let chartSeq = 0;
 
@@ -19,9 +19,18 @@ export function useGainzAlpha({ exchange, symbol, timeframe, candles, higherTime
   const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    if (remoteAttached) return;
-    remoteAttached = true;
-    hub.attachRemote(createApiRemote(apiFetch));
+    const attachRemote = () => {
+      const token = getApiToken();
+      if (!token || remoteTokens.get(hub) === token) return;
+      remoteTokens.set(hub, token);
+      Promise.resolve(hub.attachRemote(createApiRemote(apiFetch))).then((result) => {
+        if (!result?.ok && remoteTokens.get(hub) === token) remoteTokens.delete(hub);
+      }).catch(() => { if (remoteTokens.get(hub) === token) remoteTokens.delete(hub); });
+    };
+    attachRemote();
+    if (typeof window === 'undefined') return undefined;
+    window.addEventListener(API_CONFIG_EVENT, attachRemote);
+    return () => window.removeEventListener(API_CONFIG_EVENT, attachRemote);
   }, [hub]);
 
   useEffect(() => hub.onSettingsChange((next) => setSettings({ ...next })), [hub]);
