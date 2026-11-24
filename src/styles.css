@@ -127,7 +127,7 @@ main.command-main{padding:0;max-width:none;width:auto;margin:0 0 0 252px;min-hei
 
 /* Live candlestick chart: the plot fills its container (volume pane removed), larger default height for per-pip price labels, expand mode. */
 html body .trading-chart-panel .candlestick-svg-wrap,html body .dash-center-column .candlestick-svg-wrap{height:clamp(340px,46vw,620px);min-height:300px;padding:0;position:relative}
-html body .trading-chart-panel .candlestick-svg-wrap,html body .dash-center-column .candlestick-svg-wrap{overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#405570 #0b1728}
+html body .trading-chart-panel .candlestick-svg-wrap,html body .dash-center-column .candlestick-svg-wrap{overflow-x:auto;overflow-y:auto;overflow:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:#405570 #0b1728}
 html body .trading-chart-panel .candlestick-svg-wrap svg,html body .dash-center-column .candlestick-svg-wrap svg{display:block;width:auto!important;max-width:none;height:auto!important;min-height:100%}
 @media(max-width:820px){html body .trading-chart-panel .candlestick-svg-wrap,html body .dash-center-column .candlestick-svg-wrap{height:clamp(320px,78vw,480px)}}
 html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fixed;inset:8px;z-index:1200;height:auto;min-height:0;box-shadow:0 0 0 100vmax rgba(3,8,16,.86)}
