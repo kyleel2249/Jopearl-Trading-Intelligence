@@ -53,3 +53,18 @@ test('Cloudflare Pages has a dedicated signed Bitget CFD market route', () => {
   assert.match(provider, /history-candlestick/);
   assert.match(provider, /volumeAvailable: false/);
 });
+
+
+test('Futures workspace initializes the shared chart with Futures instead of Spot', () => {
+  const app = read('../src/App.jsx');
+  const connectivity = read('../src/ExchangeConnectivity.jsx');
+  assert.match(app, /initialMarketType=\{page === 'Futures' \? 'futures' : 'spot'\}/);
+  assert.match(connectivity, /initialMarketType = 'spot'/);
+  assert.match(connectivity, /useState\(initialMarketType \|\| 'spot'\)/);
+});
+
+test('API-source listener refreshes its exchange capture when the selected exchange changes', () => {
+  const chart = read('../src/LiveCandlestickChart.jsx');
+  assert.match(chart, /setMarketType\(\(current\) => mode === 'direct' && exchange !== 'bitget' \? 'spot' : current\)/);
+  assert.match(chart, /return subscribeApiSource\(syncSource\);\n  \}, \[exchange\]\);/);
+});
