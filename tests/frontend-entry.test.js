@@ -39,8 +39,11 @@ test('vite base path is explicit and never inferred from GITHUB_ACTIONS', () => 
 
 test('Cloudflare Pages is the only web deployment workflow', () => {
   const pages = readFileSync(new URL('../.github/workflows/cloudflare-pages.yml', import.meta.url), 'utf8');
-  assert.match(pages, /cloudflare\/wrangler-action/);
-  assert.match(pages, /pages deploy dist --project-name jpti/);
+  assert.match(pages, /npx --no-install wrangler d1 migrations apply JPTI_DB --remote/);
+  assert.match(pages, /npx --no-install wrangler pages deploy dist --project-name jpti/);
+  assert.doesNotMatch(pages, /cloudflare\/wrangler-action/);
+  const packageJson = readFileSync(new URL('../package.json', import.meta.url), 'utf8');
+  assert.match(packageJson, /"wrangler": "4\.167\.0"/);
   assert.doesNotMatch(pages, /onrender|render\.com|JPTI_API_ORIGIN/i);
   assert.doesNotMatch(pages, /JPTI_BASE_PATH:\s*\/JPTI\//);
 });
