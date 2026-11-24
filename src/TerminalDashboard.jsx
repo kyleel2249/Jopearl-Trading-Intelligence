@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Menu, Newspaper, Pencil, PieChart, Radar, Settings, Settings2, ShieldAlert, ShieldCheck, TrendingUp, TriangleAlert, Wallet, X
 } from 'lucide-react';
 import TerminalChart from './TerminalChart.jsx';
+import SessionLiquidityIntelligence from './SessionLiquidityIntelligence.jsx';
 import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
 import { mergeLiveTick } from './chart-live.js';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
@@ -543,6 +544,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
         </section>
         <div className="td-col td-right">
           <SessionAnalytics rows={analytics} profile={profile} ready={Boolean(historyState.data)}/>
+          <SessionLiquidityIntelligence exchange={exchange} symbol={symbol} marketType={marketType} timeframe={timeframe} candles={candles} tickerSnapshot={ticker} fetchTicker={false}/>
           <VolatilityRisk view={vol} profile={profile}/>
           <TradingControls symbol={symbol} profile={profile} ticker={ticker} atrPips={vol.atrPips} health={health}/>
         </div>
