@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '../../../src/lib/api.js';
 import { analyzeSignal } from '../engines/signal-engine.js';
+import { classifyMarketRegime, detectSignalCollisions, rankOpportunities } from '../engines/advanced-intelligence.js';
 
 const WATCHLIST = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'BNB/USDT', 'XRP/USDT'];
 const EXCHANGES = ['bitget', 'binance', 'bybit', 'okx'];
@@ -74,8 +75,10 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
   }, [signals]);
 
   const selected = snapshots[symbol] || null;
-  const topSignals = useMemo(() => signals.filter((signal) => signal.status !== 'no-trade').slice(0, 10), [signals]);
+  const collisions = useMemo(() => detectSignalCollisions(signals), [signals]);
+  const regime = useMemo(() => classifyMarketRegime(signals), [signals]);
+  const topSignals = useMemo(() => rankOpportunities(signals).slice(0, 10), [signals]);
   const addToWatchlist = useCallback((pair) => setWatchlist((current) => current.includes(pair) ? current : [...current, pair].slice(0, 12)), []);
   const removeFromWatchlist = useCallback((pair) => setWatchlist((current) => current.length > 1 ? current.filter((item) => item !== pair) : current), []);
-  return { exchange, setExchange, marketType, setMarketType, symbol, setSymbol, timeframe, setTimeframe, watchlist, addToWatchlist, removeFromWatchlist, snapshots, selected, signals, topSignals, history, loading, error, lastUpdated, autoRefresh, setAutoRefresh, refresh: load, exchanges: EXCHANGES, marketTypes: MARKET_TYPES };
+  return { exchange, setExchange, marketType, setMarketType, symbol, setSymbol, timeframe, setTimeframe, watchlist, addToWatchlist, removeFromWatchlist, snapshots, selected, signals, topSignals, collisions, regime, history, loading, error, lastUpdated, autoRefresh, setAutoRefresh, refresh: load, exchanges: EXCHANGES, marketTypes: MARKET_TYPES };
 }
