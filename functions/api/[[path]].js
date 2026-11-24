@@ -796,9 +796,14 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           '/api/exchanges/compare/ticker',
           '/api/exchanges/:id/markets',
           '/api/exchanges/:id/ticker/:symbol',
-          '/api/exchanges/:id/ohlcv/:symbol'
+          '/api/exchanges/:id/ohlcv/:symbol',
+          '/api/journal/entries',
+          '/api/session/memory',
+          '/api/session/memory/batch',
+          '/api/alpha/gainz/outcomes',
+          '/api/mentor/analyze'
         ],
-        note: 'Public chart data is available without an external API gateway. Private trading and persistent server services require separate Cloudflare-native implementations.'
+        note: 'Public chart data, private reflective journal, session outcome memory and GainzAlpha outcome persistence run on Cloudflare Pages Functions and D1. Private account access and order execution remain disabled.'
       }, request);
     }
 
