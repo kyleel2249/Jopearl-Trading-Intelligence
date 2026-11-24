@@ -1,5 +1,6 @@
 import express from 'express';
 import { withExchange } from './exchanges.js';
+import { tokensMatch, requestApiToken } from './token-auth.js';
 
 export const providerRouter = express.Router();
 
@@ -118,7 +119,7 @@ providerRouter.get('/providers/alpaca/crypto-bars', async (req, res) => {
 providerRouter.get('/providers/alpaca/account', async (req, res) => {
   try {
     const expectedToken = process.env.JPTI_API_TOKEN;
-    if (!expectedToken || req.get('x-jpti-api-token') !== expectedToken) return res.status(401).json({ error: 'Valid x-jpti-api-token required for private broker account data.' });
+    if (!tokensMatch(expectedToken, requestApiToken(req))) return res.status(401).json({ error: 'Valid x-jpti-api-token required for private broker account data.' });
     const key = requireKey('JPTI_ALPACA_API_KEY', 'Alpaca');
     const secret = requireKey('JPTI_ALPACA_API_SECRET', 'Alpaca');
     const data = await requestJson('https://paper-api.alpaca.markets/v2/account', { headers: { 'APCA-API-KEY-ID': key, 'APCA-API-SECRET-KEY': secret } });
@@ -129,7 +130,7 @@ providerRouter.get('/providers/alpaca/account', async (req, res) => {
 providerRouter.get('/providers/alpaca/activities', async (req, res) => {
   try {
     const expectedToken = process.env.JPTI_API_TOKEN;
-    if (!expectedToken || req.get('x-jpti-api-token') !== expectedToken) return res.status(401).json({ error: 'Valid x-jpti-api-token required for private broker activity.' });
+    if (!tokensMatch(expectedToken, requestApiToken(req))) return res.status(401).json({ error: 'Valid x-jpti-api-token required for private broker activity.' });
     const key = requireKey('JPTI_ALPACA_API_KEY', 'Alpaca');
     const secret = requireKey('JPTI_ALPACA_API_SECRET', 'Alpaca');
     const activityType = String(req.query.activity_type || 'FILL');

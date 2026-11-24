@@ -1,5 +1,8 @@
-import { timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
+import { tokensMatch } from './token-auth.js';
+
+// Re-exported so existing imports of tokensMatch from this module keep working.
+export { tokensMatch };
 
 export const orderSchema = z.object({
   symbol: z.string().min(3).max(40),
@@ -13,19 +16,6 @@ export const orderSchema = z.object({
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['price'], message: 'A positive limit price is required.' });
   }
 });
-
-// Constant-time comparison so response timing cannot be used to recover the API token.
-export function tokensMatch(expected, provided) {
-  if (typeof expected !== 'string' || !expected || typeof provided !== 'string') return false;
-  const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(provided, 'utf8');
-  if (a.length !== b.length) {
-    // Compare against itself to keep the work comparable, then reject.
-    timingSafeEqual(a, a);
-    return false;
-  }
-  return timingSafeEqual(a, b);
-}
 
 export function assertLiveTradingAllowed(req, exchange, market, order, referencePrice) {
   if (process.env.JPTI_TRADING_MODE !== 'live' || process.env.JPTI_ENABLE_LIVE_TRADING !== 'true') {

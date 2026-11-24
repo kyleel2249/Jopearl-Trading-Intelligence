@@ -1,9 +1,44 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   CONFIG_REGISTRY, CONFIG_CATEGORIES, classifyKey, validateValue, auditConfiguration,
   restartRequiredFor, isServerEligibleKey, exchangeEnvKey
 } from './config-registry.js';
+
+test('every JPTI_ variable the API reads is registered, so the control center and audit can see it', () => {
+  // JPTI_CONFIG_ENCRYPTION_KEY protects the stored configuration itself and is deliberately
+  // not an editable registry entry (see isServerEligibleKey).
+  const intentionallyUnregistered = new Set(['JPTI_CONFIG_ENCRYPTION_KEY']);
+  const registered = new Set(CONFIG_REGISTRY.map((entry) => entry.name));
+  const directory = fileURLToPath(new URL('.', import.meta.url));
+  const missing = new Map();
+  for (const file of readdirSync(directory).filter((name) => /\.js$/.test(name) && !/\.test\.js$/.test(name))) {
+    const source = readFileSync(join(directory, file), 'utf8');
+    for (const match of source.matchAll(/process\.env\.(JPTI_[A-Z0-9_]+)|\benv\.(JPTI_[A-Z0-9_]+)|['"](JPTI_[A-Z0-9_]+)['"]/g)) {
+      const name = match[1] || match[2] || match[3];
+      if (registered.has(name) || intentionallyUnregistered.has(name)) continue;
+      if (!missing.has(name)) missing.set(name, new Set());
+      missing.get(name).add(file);
+    }
+  }
+  const report = [...missing].map(([name, files]) => name + ' (' + [...files].join(', ') + ')');
+  assert.deepEqual(report, [], 'register these variables in api/config-registry.js:\n' + report.join('\n'));
+});
+
+test('newly registered limits carry the same bounds and defaults the code enforces', () => {
+  const entry = (name) => CONFIG_REGISTRY.find((item) => item.name === name);
+  assert.deepEqual([entry('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT').min, entry('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT').max, entry('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT').defaultValue], [1, 30, '10']);
+  assert.deepEqual([entry('JPTI_TBOTS_MAX_DRAWDOWN_PCT').min, entry('JPTI_TBOTS_MAX_DRAWDOWN_PCT').max, entry('JPTI_TBOTS_MAX_DRAWDOWN_PCT').defaultValue], [1, 50, '10']);
+  assert.deepEqual([entry('JPTI_PORTFOLIO_STRESS_SHOCK_PERCENT').min, entry('JPTI_PORTFOLIO_STRESS_SHOCK_PERCENT').max], [0, 100]);
+  assert.equal(entry('JPTI_MARKET_CACHE_TTL_MS').min, 30000);
+  assert.equal(validateValue(entry('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT'), '10').ok, true);
+  assert.equal(validateValue(entry('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT'), '45').ok, false);
+  assert.equal(isServerEligibleKey('JPTI_TRUST_PROXY'), true);
+  assert.equal(classifyKey('JPTI_TRUST_PROXY').name, 'JPTI_TRUST_PROXY');
+});
 
 test('every registry entry is unique, categorised and complete', () => {
   const names = CONFIG_REGISTRY.map((entry) => entry.name);

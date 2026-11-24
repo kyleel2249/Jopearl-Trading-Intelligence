@@ -409,8 +409,11 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
   }, request);
   const length = Number(request.headers.get('content-length') || 0);
   if (length > 96000) return json(413, { error: 'Mentor review request exceeds the 96 KB limit.' }, request);
+  // Content-Length is optional (chunked uploads omit it), so the real byte size is enforced too.
+  const rawBody = await request.text();
+  if (new TextEncoder().encode(rawBody).byteLength > 96000) return json(413, { error: 'Mentor review request exceeds the 96 KB limit.' }, request);
   let body;
-  try { body = await request.json(); } catch { return json(400, { error: 'A valid JSON mentor-review request is required.' }, request); }
+  try { body = JSON.parse(rawBody); } catch { return json(400, { error: 'A valid JSON mentor-review request is required.' }, request); }
   const entry = body?.entry;
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json(400, { error: 'Send the active journal entry in the entry field.' }, request);
   const symbol = String(entry.symbol || '').slice(0, 40);

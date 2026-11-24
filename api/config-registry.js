@@ -66,6 +66,8 @@ add(
   E('JPTI_API_PORT', 'API and Backend', 'JPTI API', 'API listening port (PORT takes precedence).', { format: 'port', defaultValue: '8787' }),
   E('PORT', 'API and Backend', 'JPTI API', 'Platform-provided listening port; overrides JPTI_API_PORT.', { format: 'port' }),
   E('JPTI_CORS_ORIGINS', 'API and Backend', 'JPTI API', 'Comma-separated browser/WebView origins allowed to call the API (include the Capacitor WebView origin for the Android app).', { format: 'origin-list', dependencies: ['VITE_API_BASE_URL'] }),
+  E('JPTI_CORS_ORIGINS_EXTRA', 'API and Backend', 'JPTI API', 'Comma-separated origins merged into the CORS allow-list without replacing the built-in or JPTI_CORS_ORIGINS entries. Wildcards must look like https://*.example.com.', { format: 'origin-list' }),
+  E('JPTI_TRUST_PROXY', 'API and Backend', 'JPTI API', 'Number of trusted reverse-proxy hops (for example 1 behind Cloudflare) so rate limits see real client IPs. "true" means one hop; blank, 0 or false disables it.', { format: 'string' }),
   E('JPTI_ALLOW_LOCAL_PRIVATE_ACCESS', 'API and Backend', 'JPTI API', 'Desktop-only: allow private routes without a token when bound to loopback.', { format: 'boolean', defaultValue: 'false' }),
   E('JPTI_ALLOW_REMOTE_API', 'API and Backend', 'JPTI API', 'Required acknowledgement before binding to a non-loopback host.', { format: 'boolean', defaultValue: 'false', dependencies: ['JPTI_API_HOST', 'JPTI_API_TOKEN'] }),
   E('JPTI_SERVE_WEB', 'API and Backend', 'JPTI API', 'Serve the built web app (dist) from the API process, giving app and API one public origin.', { format: 'boolean', defaultValue: 'false' }),
@@ -87,6 +89,9 @@ add(
   secret('DATABASE_URL', 'Database', 'PostgreSQL', 'PostgreSQL connection string. Required when JPTI_STORAGE_BACKEND=postgres.', { format: 'url', protocols: ['postgres:', 'postgresql:'], test: 'database', dependencies: ['JPTI_STORAGE_BACKEND'] }),
   E('JPTI_DATABASE_SSL', 'Database', 'PostgreSQL', 'Enable TLS for managed/cloud PostgreSQL.', { format: 'boolean', defaultValue: 'false' }),
   E('JPTI_DATABASE_SSL_REJECT_UNAUTHORIZED', 'Database', 'PostgreSQL', 'Keep TLS certificate verification on (recommended).', { format: 'boolean', defaultValue: 'true' }),
+  E('JPTI_DATABASE_SSL_CA', 'Database', 'PostgreSQL', 'PEM CA certificate (literal \\n allowed) or base64-encoded PEM used to verify the database TLS certificate. Takes precedence over JPTI_DATABASE_SSL_CA_FILE.', { dependencies: ['JPTI_DATABASE_SSL'] }),
+  E('JPTI_DATABASE_SSL_CA_FILE', 'Database', 'PostgreSQL', 'Path to a PEM CA certificate file used to verify the database TLS certificate.', { format: 'path', dependencies: ['JPTI_DATABASE_SSL'] }),
+  E('JPTI_DATABASE_QUERY_TIMEOUT_MS', 'Database', 'PostgreSQL', 'Client-side query timeout in milliseconds.', { format: 'integer', min: 1, defaultValue: '60000' }),
   E('JPTI_DATABASE_POOL_MAX', 'Database', 'PostgreSQL', 'Maximum pooled connections.', { format: 'integer', min: 1, max: 500, defaultValue: '10' })
 );
 
@@ -115,6 +120,7 @@ add(
   E('JPTI_FILL_SYNC_MAX_PAGES', 'Trading Exchanges', 'Fill sync', 'Maximum pages per sync.', { format: 'integer', min: 1, max: 1000, defaultValue: '20' }),
   E('JPTI_FILL_SYNC_OVERLAP_MINUTES', 'Trading Exchanges', 'Fill sync', 'Overlap window that recovers late-arriving fills.', { format: 'integer', min: 0, max: 1440, defaultValue: '3' }),
   E('JPTI_TBOTS_CEX_MARKETS', 'Trading Exchanges', 'T-Bots', 'Cross-exchange spot paper watchlist (exchange:symbol, max 30).', { format: 'markets', max: 30 }),
+  E('JPTI_MARKET_CACHE_TTL_MS', 'Trading Exchanges', 'CCXT gateway', 'Exchange market-metadata cache lifetime in milliseconds (values below 30000 are raised to 30000).', { format: 'integer', min: 30000, defaultValue: '300000' }),
   E('JPTI_CROSS_VENUE_OUTLIER_PERCENT', 'Trading Exchanges', 'Cross-exchange comparison', 'Cross-exchange quote outlier threshold (percent).', { format: 'number', min: 0, defaultValue: '0.5' }),
   E('JPTI_FUTURES_CACHE_MS', 'Trading Exchanges', 'Futures intelligence', 'Futures data cache lifetime (ms).', { format: 'integer', min: 0, defaultValue: '2000' }),
   E('JPTI_FUTURES_ESTIMATED_TAKER_FEE_BPS', 'Trading Exchanges', 'Futures intelligence', 'Estimated taker fee in basis points.', { format: 'number', min: 0, defaultValue: '6' }),
@@ -129,6 +135,9 @@ add(
   E('JPTI_GOVERNANCE_VALIDATED_SIZE_PCT', 'Trading Risk and Governance', 'Paper governance', 'Validated position size (percent).', { format: 'number', min: 0, max: 100, defaultValue: '2' }),
   E('JPTI_TBOTS_MAX_CONSECUTIVE_LOSSES', 'Trading Risk and Governance', 'T-Bots', 'Consecutive-loss circuit breaker.', { format: 'integer', min: 1, defaultValue: '3' }),
   E('JPTI_TBOTS_DAILY_LOSS_LIMIT_USD', 'Trading Risk and Governance', 'T-Bots', 'Daily loss limit in USD.', { format: 'number', min: 0, defaultValue: '100' }),
+  E('JPTI_TBOTS_DAILY_LOSS_LIMIT_PCT', 'Trading Risk and Governance', 'T-Bots', 'Shared paper-equity drawdown (percent) that pauses T-Bots integration; values are clamped to 1-30.', { format: 'number', min: 1, max: 30, defaultValue: '10', restart: false }),
+  E('JPTI_TBOTS_MAX_DRAWDOWN_PCT', 'Trading Risk and Governance', 'T-Bots', 'Shared paper drawdown (percent) at which the universal engine pauses trading; values are clamped to 1-50.', { format: 'number', min: 1, max: 50, defaultValue: '10', restart: false }),
+  E('JPTI_PORTFOLIO_STRESS_SHOCK_PERCENT', 'Trading Risk and Governance', 'Portfolio risk', 'Uniform downside shock (percent) applied in the portfolio stress estimate; values are clamped to 0-100.', { format: 'number', min: 0, max: 100, defaultValue: '10', restart: false }),
   E('JPTI_TBOTS_PREFLIGHT_MAX_EVIDENCE_AGE_SECONDS', 'Trading Risk and Governance', 'T-Bots', 'Maximum age of pre-flight evidence (15-300 seconds).', { format: 'integer', min: 15, max: 300, defaultValue: '90' }),
   E('JPTI_FUTURES_PAPER_MAX_NOTIONAL_USD', 'Trading Risk and Governance', 'Futures paper desk', 'Maximum simulated notional per futures paper leg (USD).', { format: 'number', min: 0, defaultValue: '1000' })
 );

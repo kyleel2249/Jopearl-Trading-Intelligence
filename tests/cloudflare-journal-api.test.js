@@ -119,6 +119,30 @@ test('AI mentor endpoint reports missing Workers AI binding without pretending t
   assert.equal(data.code, 'WORKERS_AI_BINDING_MISSING');
 });
 
+test('AI mentor endpoint enforces its size limit on the real body even without a Content-Length header', async () => {
+  const db = fakeDb();
+  let aiCalls = 0;
+  const ai = { async run() { aiCalls += 1; return { response: 'should never run' }; } };
+  const oversized = JSON.stringify({ entry: { id: 'entry-big', symbol: 'SOPH/USDT', openingNarrative: 'x'.repeat(120000) } });
+  const req = new Request('https://jpti.example/api/mentor/analyze', { method: 'POST', headers: { 'x-jpti-api-token': 'test-private-token', 'content-type': 'application/json' }, body: oversized });
+  assert.equal(req.headers.get('content-length'), null, 'the request must not advertise its size');
+  const response = await handler(db)({ request: req, env: { JPTI_DB: db, JPTI_JOURNAL_TOKEN: 'test-private-token', AI: ai } });
+  const data = await response.json();
+  assert.equal(response.status, 413);
+  assert.match(data.error, /96 KB/);
+  assert.equal(aiCalls, 0);
+});
+
+test('AI mentor endpoint rejects malformed JSON before calling Workers AI', async () => {
+  const db = fakeDb();
+  let aiCalls = 0;
+  const ai = { async run() { aiCalls += 1; return { response: 'should never run' }; } };
+  const req = new Request('https://jpti.example/api/mentor/analyze', { method: 'POST', headers: { 'x-jpti-api-token': 'test-private-token', 'content-type': 'application/json' }, body: '{"entry": ' });
+  const response = await handler(db)({ request: req, env: { JPTI_DB: db, JPTI_JOURNAL_TOKEN: 'test-private-token', AI: ai } });
+  assert.equal(response.status, 400);
+  assert.equal(aiCalls, 0);
+});
+
 const privateRequest=(path,method,body,token='test-private-token')=>new Request('https://jpti.example'+path,{method,headers:{...(token?{'x-jpti-api-token':token}:{}),...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
 test('Cloudflare session memory API persists, summarizes and de-duplicates outcomes in D1',async()=>{
  const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'};

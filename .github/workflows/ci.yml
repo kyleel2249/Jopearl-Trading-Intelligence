@@ -3,9 +3,20 @@ on:
   push:
     branches: [main]
   pull_request:
+
+# Validation only reads the repository, so the workflow token gets no write scope.
+permissions:
+  contents: read
+
+# A newer push to the same branch or pull request supersedes the run in progress.
+concurrency:
+  group: jpti-ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   validate:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
