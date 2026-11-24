@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, ClipboardList, Download, FileText, Lightbulb, MessageSquareText, Plus, RefreshCw, ShieldAlert, Target, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
+import { analyzeTimeframe, buildTradingDevelopmentAssessment } from './trading-development-engine.js';
 import './ReflectiveJournal.css';
 
 const STORAGE_KEY = 'jpti.reflective-journal.v1';
@@ -19,6 +20,7 @@ const INITIAL_ENTRY = {
   quantity: 689973,
   margin: 28.7,
   leverage: 20,
+  liquidationPrice: 0.000226,
   stopLoss: null,
   takeProfit: null,
   allocationPercent: 7,
@@ -58,6 +60,8 @@ export default function ReflectiveJournal() {
   const [lesson, setLesson] = useState('');
   const [nextAction, setNextAction] = useState('');
   const [market, setMarket] = useState(null);
+  const [selectedExchange, setSelectedExchange] = useState('');
+  const [assessment, setAssessment] = useState(null);
   const [marketState, setMarketState] = useState('not-checked');
   const [marketError, setMarketError] = useState('');
   const [tab, setTab] = useState('journal');
@@ -79,22 +83,27 @@ export default function ReflectiveJournal() {
     setNote(''); setLesson(''); setNextAction('');
   };
   const checkMarket = async () => {
+    if (selectedExchange !== 'bitget') { setMarketState('unavailable'); setMarketError('Select Bitget USDT-M futures for this Cloudflare market-data adapter. Other execution venues must be verified separately.'); return; }
     setMarketState('loading'); setMarketError('');
     try {
-      const symbol = active.symbol.replace('/', '');
-      const [tickerResponse, candlesResponse] = await Promise.all([
-        apiFetch('/api/exchanges/bitget/ticker/' + encodeURIComponent(active.symbol) + '?type=futures', { cache: 'no-store' }),
-        apiFetch('/api/exchanges/bitget/ohlcv/' + encodeURIComponent(active.symbol) + '?type=futures&timeframe=15m&limit=100', { cache: 'no-store' })
-      ]);
-      const [ticker, candles] = await Promise.all([tickerResponse.json(), candlesResponse.json()]);
-      if (!tickerResponse.ok) throw new Error(ticker.error || 'Ticker request failed');
-      if (!candlesResponse.ok) throw new Error(candles.error || 'Candlestick request failed');
-      setMarket({ ticker, candles, checkedAt: new Date().toISOString(), symbol });
+      const timeframes = ['15m','1h','4h','1d'];
+      const responses = await Promise.all(timeframes.map(timeframe =>
+        apiFetch('/api/exchanges/' + selectedExchange + '/ohlcv/' + encodeURIComponent(active.symbol) + '?type=futures&timeframe=' + timeframe + '&limit=120', { cache: 'no-store' })
+      ));
+      const payloads = await Promise.all(responses.map(response => response.json()));
+      const failed = responses.findIndex(response => !response.ok);
+      if (failed >= 0) throw new Error(payloads[failed]?.error || 'Market data request failed for ' + timeframes[failed]);
+      const analyzed = Object.fromEntries(timeframes.map((timeframe, index) => {
+        const payload = payloads[index];
+        const candles = Array.isArray(payload) ? payload : payload.data || payload.candles || payload.ohlcv || payload.result?.list || [];
+        return [timeframe, analyzeTimeframe(candles, timeframe)];
+      }));
+      const result = buildTradingDevelopmentAssessment({ direction: active.direction, timeframes: analyzed, trade: active });
+      setMarket({ timeframes: analyzed, checkedAt: new Date().toISOString(), exchange: selectedExchange, symbol: active.symbol });
+      setAssessment(result);
+      updateActive({ technicalAssessment: result, researchCheckedAt: result.generatedAt, exchange: selectedExchange });
       setMarketState('live');
-    } catch (error) {
-      setMarketState('unavailable');
-      setMarketError(error.message || 'Live market context unavailable');
-    }
+    } catch (error) { setMarketState('unavailable'); setMarketError(error.message || 'Live market context unavailable'); }
   };
   const exportJournal = () => {
     const blob = new Blob([JSON.stringify({ product: 'JPTI Reflective Trading Journal', exportedAt: new Date().toISOString(), entries }, null, 2)], { type: 'application/json' });
@@ -143,6 +152,7 @@ export default function ReflectiveJournal() {
             <div><small>Market type</small><b>{active.marketType}</b></div>
             <div><small>Order type</small><b>{active.orderType}</b></div>
             <div><small>Stop-loss</small><b className="negative">Not set</b></div>
+            <div><small>Reported liquidation</small><b>{price(active.liquidationPrice)}</b></div>
             <div><small>Take-profit</small><b>Not supplied</b></div>
             <div><small>Order expiry</small><b>12 hours after placement</b></div>
             <div><small>Market bias reported</small><b className="negative">Bearish</b></div>
@@ -165,10 +175,20 @@ export default function ReflectiveJournal() {
           <div className="rj-scenario-list">{scenarios.map(s => <div className="rj-scenario" key={s.move}><span>{s.move}% price move</span><div className="rj-bar"><i style={{ width: Math.min(100, Math.abs(s.pnl) / Math.max(active.margin || 1, 1) * 100) + '%' }}/></div><b className="negative">{money(s.pnl)}</b></div>)}</div>
           <div className="rj-footnote">Assumes a linear USDT-margined position with unchanged quantity. It does not model liquidation fees, maintenance margin tiers, funding or exchange-specific rules.</div>
           <div className="rj-market-box">
-            <div className="rj-panel-title"><div><span className="rj-eyebrow">LIVE MARKET CHECK</span><h4>Public futures market-data cross-check (Bitget adapter; execution venue not confirmed)</h4></div><button className="rj-secondary" onClick={checkMarket} disabled={marketState === 'loading'}><RefreshCw size={14}/>{marketState === 'loading' ? 'Checking…' : 'Check now'}</button></div>
-            {marketState === 'live' && market && <div className="rj-live-result"><b>Market response received</b><span>Checked {new Date(market.checkedAt).toLocaleString()}</span><pre>{JSON.stringify({ ticker: market.ticker, latestCandles: Array.isArray(market.candles?.data) ? market.candles.data.slice(-3) : market.candles?.data || market.candles }, null, 2).slice(0, 1800)}</pre></div>}
-            {marketState === 'unavailable' && <p className="rj-footnote">{marketError}. The public-data adapter may not support this symbol format or product category. No market values have been invented.</p>}
-            {marketState === 'not-checked' && <p className="rj-footnote">Live quote and candles have not yet been checked from this screen. Use the main JPTI chart to confirm the exact contract and product category.</p>}
+            <div className="rj-panel-title"><div><span className="rj-eyebrow">MULTI-TIMEFRAME MARKET ASSESSMENT</span><h4>Closed-candle technical review</h4></div><button className="rj-secondary" onClick={checkMarket} disabled={marketState === "loading" || !selectedExchange}><RefreshCw size={14}/>{marketState === "loading" ? "Assessing…" : "Run assessment"}</button></div>
+            <label className="rj-market-select">Execution venue
+              <select value={selectedExchange} onChange={event => setSelectedExchange(event.target.value)}>
+                <option value="">Select venue before fetching data</option>
+                <option value="bitget">Bitget · USDT-M futures</option>
+              </select>
+            </label>
+            {marketState === "live" && market && <div className="rj-live-result"><b>Technical assessment completed · {market.exchange.toUpperCase()}</b><span>Checked {new Date(market.checkedAt).toLocaleString()} · {market.symbol}</span>
+              <div className="rj-timeframe-grid">{Object.entries(market.timeframes).map(([tf, result]) => <div key={tf}><small>{tf}</small><b className={result.bias === "bullish" ? "positive" : result.bias === "bearish" ? "negative" : ""}>{result.bias}</b><span>Score {result.score ?? "—"} · RSI {result.rsi14?.toFixed?.(1) ?? "—"}</span><span>Trend {result.trend || "—"}</span></div>)}</div>
+              {assessment && <div className="rj-callout warn"><AlertTriangle size={17}/><div><b>Engine assessment: {assessment.decision.status.toUpperCase()}</b><p>Multi-timeframe bias: {assessment.market.bias}. Evidence status: {assessment.status}. Deterministic research assessment, not a probability or order instruction.</p></div></div>}
+              <pre>{JSON.stringify({ market: assessment?.market, process: assessment?.process, risk: assessment?.risk, coaching: assessment?.coaching }, null, 2).slice(0, 3200)}</pre>
+            </div>}
+            {marketState === "unavailable" && <p className="rj-footnote">{marketError}. No missing market values have been invented.</p>}
+            {marketState === "not-checked" && <p className="rj-footnote">Select the actual execution venue first. The current Cloudflare futures adapter supports Bitget for this multi-timeframe check. This fetches public candles; it does not verify your private order or liquidation price.</p>}
           </div>
         </section>
 
