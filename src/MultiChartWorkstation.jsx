@@ -16,7 +16,7 @@ function readSaved(mode) {
   return { layout: 2, height: 560, syncSymbol: false, syncTimeframe: false, tiles: [makeTile(0, mode), makeTile(1, mode)] };
 }
 
-export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USDT', onSymbolChange, terminalFocus = false }) {
+export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USDT', onSymbolChange, terminalFocus = false, dedicatedTerminal = false }) {
   const [config, setConfig] = useState(() => readSaved(mode));
   const [sharedCrosshair, setSharedCrosshair] = useState(null);
   const [crosshairSync, setCrosshairSync] = useState(true);
@@ -44,6 +44,31 @@ export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USD
     });
     if (key === 'symbol' && id === config.tiles[0]?.id) onSymbolChange?.(value);
   };
+  if (dedicatedTerminal) {
+    const primary = config.tiles[0] || makeTile(0, mode);
+    const quickMarkets = ['BTC/USDT','ETH/USDT','SOL/USDT','BNB/USDT','XRP/USDT','SOPH/USDT'];
+    return <section className="jpti-multi-workstation jpti-dedicated-chart-terminal" aria-label="Full-screen market chart terminal">
+      <header className="jpti-dedicated-terminal-toolbar">
+        <div className="jpti-dedicated-terminal-market">
+          <span className="jpti-terminal-live-indicator" />
+          <div><b>{primary.symbol}</b><small>{primary.exchange.toUpperCase()} · {primary.timeframe.toUpperCase()} · {mode === 'futures' ? 'DERIVATIVES' : 'SPOT'}</small></div>
+        </div>
+        <div className="jpti-dedicated-terminal-actions">
+          <label>VENUE<select value={primary.exchange} onChange={e => changeTile(primary.id, 'exchange', e.target.value)}>{EXCHANGES.map(x => <option key={x} value={x}>{x.toUpperCase()}</option>)}</select></label>
+          <button type="button" onClick={saveLayout}><Save size={13}/> Save setup</button>
+          <button type="button" onClick={() => { resetLayout(); setSavedAt(''); }}>Reset</button>
+        </div>
+      </header>
+      <nav className="jpti-terminal-watchstrip" aria-label="Quick market watchlist">
+        <span>QUICK MARKETS</span>
+        {quickMarkets.map(item => <button type="button" key={item} className={primary.symbol === item ? 'active' : ''} onClick={() => changeTile(primary.id, 'symbol', item)}>{item}</button>)}
+      </nav>
+      <div className="jpti-dedicated-chart-stage">
+        <LiveCandlestickChart terminalFocus exchange={primary.exchange} symbol={primary.symbol} onSymbolChange={value => changeTile(primary.id, 'symbol', value)} initialTimeframe={primary.timeframe} onTimeframeChange={value => changeTile(primary.id, 'timeframe', value)} initialMarketType={primary.marketType} onMarketTypeChange={value => changeTile(primary.id, 'marketType', value)} onExchangeChange={value => changeTile(primary.id, 'exchange', value)} />
+      </div>
+      <footer className="jpti-dedicated-terminal-foot"><span>ONE CHART · MAXIMUM WORKSPACE</span><span>Indicators, SMC structure, liquidity, signals and strategy overlays remain linked to the active candle feed</span><span>{savedAt ? 'SETUP SAVED ' + savedAt : 'LOCAL SETUP · SAVE TO KEEP'}</span></footer>
+    </section>;
+  }
   return <section className="jpti-multi-workstation">
     <header className="jpti-workstation-toolbar">
       <div className="jpti-workstation-title"><span className="jpti-workstation-icon"><Activity size={17}/></span><div><b>MARKET WORKSTATION</b><small>{mode === 'futures' ? 'DERIVATIVES MULTI-CHART' : 'SPOT MULTI-CHART'} · LIVE EXCHANGE FEEDS</small></div></div>
