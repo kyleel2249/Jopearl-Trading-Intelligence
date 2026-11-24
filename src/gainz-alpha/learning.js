@@ -37,8 +37,8 @@ export function summarize(records, filter = {}, minSample = MIN_SAMPLE) {
     avgWinR: num(mean(wins.map((r) => Number(r.returnR)))), avgLossR: num(mean(losses.map((r) => Number(r.returnR)))),
     expectancy: n ? num(mean(R)) : null, netR: num(R.reduce((s, v) => s + v, 0)),
     profitFactor: grossLoss > 0 ? num(grossWin / grossLoss) : grossWin > 0 ? null : null,
-    avgMfeR: num(mean(rows.map((r) => Number(r.mfeR)).filter(Number.isFinite))), avgMaeR: num(mean(rows.map((r) => Number(r.maeR)).filter(Number.isFinite))),
-    avgBars: num(mean(rows.map((r) => Number(r.bars)).filter(Number.isFinite))), maxConsecutiveLosses: maxStreak, maxDrawdownR: num(dd),
+    avgMfeR: num(mean(rows.filter((r) => r.mfeR !== null && r.mfeR !== undefined && r.mfeR !== '').map((r) => Number(r.mfeR)).filter(Number.isFinite))), avgMaeR: num(mean(rows.filter((r) => r.maeR !== null && r.maeR !== undefined && r.maeR !== '').map((r) => Number(r.maeR)).filter(Number.isFinite))),
+    avgBars: num(mean(rows.filter((r) => r.bars !== null && r.bars !== undefined && r.bars !== '').map((r) => Number(r.bars)).filter(Number.isFinite))), maxConsecutiveLosses: maxStreak, maxDrawdownR: num(dd),
     falseRate: n ? num(rows.filter((r) => r.falseSignal).length / n) : null
   };
 }
@@ -92,7 +92,7 @@ export function falseSignalReport(records) {
 }
 
 export function calibrationTable(records, { minBucket = 20 } = {}) {
-  const rows = (Array.isArray(records) ? records : []).filter((r) => Number.isFinite(Number(r.confidence)) && r.outcome);
+  const rows = (Array.isArray(records) ? records : []).filter((r) => r.confidence !== null && r.confidence !== undefined && r.confidence !== '' && Number.isFinite(Number(r.confidence)) && r.outcome);
   const table = [];
   for (let lo = 0; lo < 100; lo += 10) {
     const b = rows.filter((r) => r.confidence >= lo && r.confidence < lo + 10);
@@ -119,7 +119,7 @@ export function adaptModel(model, records, { minSample = MIN_SAMPLE, lr = 0.1, m
   const keys = new Set(rows.flatMap((r) => Object.keys(r.factors)));
   for (const k of keys) {
     // Missing factors are unknown, not negative observations.
-    const measured = rows.filter((r) => Object.prototype.hasOwnProperty.call(r.factors, k) && Number.isFinite(Number(r.factors[k])));
+    const measured = rows.filter((r) => Object.prototype.hasOwnProperty.call(r.factors, k) && r.factors[k] !== null && r.factors[k] !== undefined && r.factors[k] !== '' && Number.isFinite(Number(r.factors[k])));
     const a = measured.filter((r) => Number(r.factors[k]) >= 0.25), b = measured.filter((r) => Number(r.factors[k]) < 0.25);
     if (a.length < minSample || b.length < Math.ceil(minSample / 3)) continue;
     const step = clamp(lr * (mean(a.map(R)) - mean(b.map(R))), -maxStep, maxStep);

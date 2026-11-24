@@ -211,8 +211,8 @@ test('adaptive learning: guarded steps, minimum sample, versioning, rollback, no
   const back = rollbackModel(r.model); assert.equal(back.rolledBack, true); assert.deepEqual(back.model.weights, {});
 });
 test('adaptive learning ignores missing factor observations instead of treating them as negative evidence', () => {
-  const rows=[...Array.from({length:10},(_,i)=>({returnR:1,factors:{trend:1},candleTs:i})),...Array.from({length:10},(_,i)=>({returnR:-1,factors:{trend:0},candleTs:i+10})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{volume:1},candleTs:i+20}))];
-  const result=adaptModel(createModel(),rows,{minSample:10});assert.ok(result.model.weights.trend>1);assert.equal(result.n,30);
+  const rows=[...Array.from({length:10},(_,i)=>({returnR:1,factors:{trend:1},candleTs:i})),...Array.from({length:10},(_,i)=>({returnR:-1,factors:{trend:0},candleTs:i+10})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{volume:1},candleTs:i+20})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{trend:null},candleTs:i+30}))];
+  const result=adaptModel(createModel(),rows,{minSample:10});assert.ok(result.model.weights.trend>1);assert.equal(result.n,40);
   assert.equal(adaptModel(createModel(),[{returnR:null,factors:{trend:1}}],{minSample:1}).n,0);
 });
 test('false-signal report flags overtrading clusters', () => {
