@@ -25,8 +25,8 @@ const sessionStorageSafe = () => {
   try { return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null; } catch { return null; }
 };
 function isPrivateJournalRoute(path) {
-  const value = String(path || '').replace(/^https?:\\/\\/[^/]+/i, '').split('?')[0];
-  return /^\\/api\\/(?:journal\\/entries|mentor\\/analyze)\\/?$/i.test(value);
+  const value = String(path || '').split('?')[0];
+  return value === '/api/journal/entries' || value === '/api/mentor/analyze';
 }
 
 export function getApiToken() {
@@ -302,7 +302,7 @@ export async function apiRequest(path, {
     if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', onAbort, { once: true }); }
     const headers = new Headers(extraHeaders || {});
     const token = getApiToken();
-    if (token && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+    if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
     if (json !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const started = Date.now();
     try {
