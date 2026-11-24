@@ -72,7 +72,7 @@ export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.init
   equity+=n(t.netPnlUsd);peak=Math.max(peak,equity);maxDd=Math.max(maxDd,peak?((peak-equity)/peak)*100:0);
   const day=String(t.closedAt||t.closed_at||'').slice(0,10);daily.set(day,(daily.get(day)||0)+n(t.netPnlUsd));
  }
- let dailyEquity=startingEquity;const returns=[];for(const [,pnl] of [...daily].sort((a,b)=>a[0].localeCompare(b[0]))){if(dailyEquity>0)returns.push(pnl/dailyEquity);dailyEquity+=pnl;}
+ let dailyEquity=startingEquity;const returns=[];const firstDay=daily.size?Date.parse([...daily.keys()].sort()[0]+'T00:00:00Z'):null;const lastDay=new Date(now);lastDay.setUTCHours(0,0,0,0);if(firstDay!==null){for(let day=firstDay;day<=lastDay.getTime();day+=86400000){const key=new Date(day).toISOString().slice(0,10),pnl=daily.get(key)||0;if(dailyEquity>0)returns.push(pnl/dailyEquity);dailyEquity+=pnl;}}
  const avg=mean(returns),variance=mean(returns.map(v=>(v-avg)**2)),sharpe=variance?avg/Math.sqrt(variance)*Math.sqrt(365):0;
  const times=closed.map(t=>Date.parse(t.openedAt||t.opened_at)).filter(Number.isFinite),days=times.length?Math.max(0,(now-Math.min(...times))/86400000):0;
  const regimes=['trend','range','high-volatility'].map(regime=>({regime,trades:closed.filter(t=>t.regime===regime).length}));
