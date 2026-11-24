@@ -65,7 +65,7 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
 export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.initialEquityUsd,now=Date.now()){
  const closed=trades.filter(t=>t.status==='closed'),wins=closed.filter(t=>n(t.netPnlUsd)>0),losses=closed.filter(t=>n(t.netPnlUsd)<0);
  const grossWin=wins.reduce((s,t)=>s+n(t.netPnlUsd),0),grossLoss=Math.abs(losses.reduce((s,t)=>s+n(t.netPnlUsd),0));
- const rs=closed.map(t=>n(t.rMultiple)),expectancy=mean(rs);
+ const rs=closed.map(t=>n(t.rMultiple)),expectancy=mean(rs),netPnl=closed.reduce((s,t)=>s+n(t.netPnlUsd),0);
  let streak=0,maxStreak=0;for(const t of [...closed].sort((a,b)=>Date.parse(a.closedAt||a.closed_at)-Date.parse(b.closedAt||b.closed_at))){streak=n(t.netPnlUsd)<0?streak+1:0;maxStreak=Math.max(maxStreak,streak);}
  let equity=startingEquity,peak=startingEquity,maxDd=0;const daily=new Map();
  for(const t of [...closed].sort((a,b)=>Date.parse(a.closedAt||a.closed_at)-Date.parse(b.closedAt||b.closed_at))){
@@ -76,7 +76,18 @@ export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.init
  const avg=mean(returns),variance=mean(returns.map(v=>(v-avg)**2)),sharpe=variance?avg/Math.sqrt(variance)*Math.sqrt(365):0;
  const times=closed.map(t=>Date.parse(t.openedAt||t.opened_at)).filter(Number.isFinite),days=times.length?Math.max(0,(now-Math.min(...times))/86400000):0;
  const regimes=['trend','range','high-volatility'].map(regime=>({regime,trades:closed.filter(t=>t.regime===regime).length}));
- return{closedTrades:closed.length,wins:wins.length,losses:losses.length,winRatePct:closed.length?wins.length/closed.length*100:0,profitFactor:grossLoss?grossWin/grossLoss:grossWin>0?999:0,netPnlUsd:closed.reduce((s,t)=>s+n(t.netPnlUsd),0),equityUsd:startingEquity+closed.reduce((s,t)=>s+n(t.netPnlUsd),0),maxDrawdownPct:maxDd,expectancyR:expectancy,sharpe,maxConsecutiveLosses:maxStreak,observationDays:days,regimes,riskBreaches:closed.filter(t=>t.riskBreach===true).length};
+ const averageWinUsd=wins.length?grossWin/wins.length:0,averageLossUsd=losses.length?grossLoss/losses.length:0;
+ const fees=closed.reduce((s,t)=>s+n(t.entryFeeUsd??t.entry_fee_usd)+n(t.exitFeeUsd??t.exit_fee_usd),0);
+ const holdMinutes=closed.map(t=>{const a=Date.parse(t.openedAt||t.opened_at),b=Date.parse(t.closedAt||t.closed_at);return Number.isFinite(a)&&Number.isFinite(b)?Math.max(0,(b-a)/60000):null;}).filter(v=>v!==null);
+ const recoveryFactor=maxDd>0?netPnl/(maxDd/100*startingEquity):netPnl>0?999:0;
+ return{closedTrades:closed.length,wins:wins.length,losses:losses.length,winRatePct:closed.length?wins.length/closed.length*100:0,
+ profitFactor:grossLoss?grossWin/grossLoss:grossWin>0?999:0,netPnlUsd:netPnl,equityUsd:startingEquity+netPnl,
+ maxDrawdownPct:maxDd,expectancyR:expectancy,expectancyUsd:closed.length?netPnl/closed.length:0,
+ averageWinUsd,averageLossUsd,payoffRatio:averageLossUsd?averageWinUsd/averageLossUsd:averageWinUsd>0?999:0,
+ totalFeesUsd:fees,bestTradeUsd:closed.length?Math.max(...closed.map(t=>n(t.netPnlUsd))):0,
+ worstTradeUsd:closed.length?Math.min(...closed.map(t=>n(t.netPnlUsd))):0,
+ recoveryFactor,averageHoldMinutes:mean(holdMinutes),sharpe,maxConsecutiveLosses:maxStreak,
+ observationDays:days,regimes,riskBreaches:closed.filter(t=>t.riskBreach===true).length};
 }
 export function assessAgentKpis(metrics={},policy=PAPER_POLICY,outOfSampleTrades=0){
  const checks=[
@@ -100,8 +111,10 @@ export function simulatePaperFill({direction,price,quantity,feeRate=PAPER_POLICY
  const adverse=(slippageBps+spreadBps/2)/10000,entry=price*(direction==='LONG'?1+adverse:1-adverse),fee=entry*quantity*feeRate;
  return{entryPrice:entry,entryFeeUsd:fee,quantity,slippageBps,spreadBps,feeRate};
 }
-export function settlePaperTrade(trade,exitPrice,feeRate=PAPER_POLICY.feeRate,slippageBps=PAPER_POLICY.slippageBps){
- const adverse=slippageBps/10000,exit=exitPrice*(trade.direction==='LONG'?1-adverse:1+adverse),gross=(exit-trade.entryPrice)*trade.quantity*(trade.direction==='LONG'?1:-1);
+// Exit execution models the adverse half-spread as well as slippage. Keeping the
+// spread argument explicit prevents a runtime ReferenceError during settlement.
+export function settlePaperTrade(trade,exitPrice,feeRate=PAPER_POLICY.feeRate,slippageBps=PAPER_POLICY.slippageBps,spreadBps=PAPER_POLICY.spreadBps){
+ const adverse=(slippageBps+spreadBps/2)/10000,exit=exitPrice*(trade.direction==='LONG'?1-adverse:1+adverse),gross=(exit-trade.entryPrice)*trade.quantity*(trade.direction==='LONG'?1:-1);
  const exitFee=exit*trade.quantity*feeRate,net=gross-n(exitFee)-n(trade.entryFeeUsd),risk=Math.max(.00000001,n(trade.riskUsd));
  return{exitPrice:exit,exitFeeUsd:exitFee,grossPnlUsd:gross,netPnlUsd:net,rMultiple:net/risk,exitSlippageBps:slippageBps,exitSpreadBps:spreadBps};
 }
