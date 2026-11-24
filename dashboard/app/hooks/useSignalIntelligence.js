@@ -89,11 +89,11 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
       signals.forEach((signal) => map.set(signal.signalId, { ...signal, observedAt: new Date().toISOString() }));
       const next = [...map.values()].sort((a, b) => Date.parse(b.observedAt) - Date.parse(a.observedAt)).slice(0, 500);
       try { localStorage.setItem(HISTORY_KEY, JSON.stringify(next)); } catch { /* browser storage can be disabled */ }
-      apiFetch('/api/signal-intelligence/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signals }) })
-        .then((response) => { if (response.ok) setHistorySource('cloudflare-d1'); })
-        .catch(() => { /* local observation history remains available during D1 outages */ });
       return next;
     });
+    apiFetch('/api/signal-intelligence/observations', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ signals }) })
+      .then((response) => { if (response.ok) setHistorySource('cloudflare-d1'); })
+      .catch(() => { /* local observation history remains available during D1 outages */ });
   }, [signals]);
 
   const selected = snapshots[symbol] || null;
