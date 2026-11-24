@@ -62,6 +62,6 @@ export default function SessionLiquidityIntelligence({exchange,symbol,marketType
   {!!analytics.alerts.length&&<div className="sli-alerts">{analytics.alerts.map(alert=><p key={alert.code} className={'sli-alert '+alert.severity}><ShieldAlert size={14}/><span>{alert.message}</span></p>)}</div>}
   {!analytics.alerts.length&&<p className="subtle-note"><Activity size={13}/> No 24-hour level interaction or volatility alert is currently confirmed by the loaded data.</p>}
   <p className="subtle-note">{analytics.methodology}</p>
-  <button type="button" className="sli-refresh" onClick={()=>setRefresh(value=>value+1)}><RefreshCw size={13}/> Refresh ticker snapshot</button>
+  {fetchTicker&&<button type="button" className="sli-refresh" onClick={()=>setRefresh(value=>value+1)}><RefreshCw size={13}/> Refresh ticker snapshot</button>}
  </section>;
 }
