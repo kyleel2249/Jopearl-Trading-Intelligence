@@ -20,7 +20,7 @@ npm run db:d1:list
 npm run db:d1:apply
 ```
 
-Review the migration list before applying. The apply command changes the remote D1 database. It creates the JPTI event store, migration tracker, synchronization cursors, scheduler lease table and transactional outbox.
+Review the migration list before applying. The apply command changes the remote D1 database. It creates the JPTI event store, migration tracker, synchronization cursors, scheduler lease table and transactional outbox. Migration `0005_reflective_journal_entries.sql` adds the private journal-entry table. Session outcomes and GainzAlpha learning records are stored as typed `jpti_events` records (`session-outcome` and `gainz-alpha-outcome`) and use the existing `jpti_events_kind_time` index for bounded recent-history reads.
 
 ## Verify KV access
 
@@ -43,4 +43,4 @@ After changing Wrangler bindings, redeploy Pages. Production and Preview are sep
 
 ## Current scope
 
-This setup declares the bindings and provides a D1-compatible durable schema. It does not, by itself, port all legacy Express/Node services or private exchange execution into Pages Functions. Each service must be explicitly migrated to use `env.JPTI_DB`, `env.JPTI_KV`, and Cloudflare-compatible runtime APIs. Never report a feature as operational until its deployed endpoint has passed integration tests.
+The Pages runtime uses `env.JPTI_DB` and `env.JPTI_KV` directly. Reflective journal entries, session-outcome memory and GainzAlpha outcome history are implemented as private same-origin D1 routes. The optional mentor route uses the Workers AI `AI` binding. This does not port all legacy Express/Node services or private exchange execution into Pages Functions. Each remaining service must be explicitly migrated to Cloudflare-compatible runtime APIs and must pass deployed integration tests before it is reported as operational.

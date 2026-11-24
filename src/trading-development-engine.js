@@ -147,7 +147,7 @@ export function buildTradingDevelopmentAssessment(input = {}) {
 
 export function buildReflectiveReport(entry = {}, assessment = null) {
   const money = value => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
-    ? 'Not recorded' : '$' + Number(value).toFixed(2);
+    ? 'Not recorded' : Number(value).toFixed(2);
   const price = value => value === null || value === undefined || value === '' || !Number.isFinite(Number(value))
     ? 'Not recorded' : String(value);
   const lines = [

@@ -1,9 +1,15 @@
-# Local Cloudflare Pages Functions secrets for: npx wrangler pages dev dist
-# Copy to .dev.vars and replace the placeholder with a long random secret.
+# Cloudflare Pages Functions local development variables.
+# Public exchange market data does not need API keys or a separate gateway.
+JPTI_TRADING_MODE=paper
+JPTI_ENABLE_LIVE_TRADING=false
+# Native app CORS is restricted in the Pages Function to standard Capacitor origins.
+
+# Private D1 journal, session-memory and GainzAlpha outcome synchronization.
+# Copy this file to .dev.vars and replace the placeholder with a long random secret.
 # Never commit the real .dev.vars file.
 JPTI_JOURNAL_TOKEN=replace-with-a-long-random-secret
 
-# Optional: only required for signed Bitget CFD read-only endpoints.
+# Optional Bitget CFD market-data credentials for a local Cloudflare Pages dev session.
 JPTI_BITGET_API_KEY=
 JPTI_BITGET_API_SECRET=
 JPTI_BITGET_API_PASSPHRASE=
