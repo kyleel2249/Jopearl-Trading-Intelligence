@@ -71,6 +71,8 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const visible = Math.max(30, Math.min(count, valid.length));
   const rows = useMemo(() => valid.slice(-visible), [valid, visible]);
   const offset = valid.length - rows.length;
+  const baseVisible = Math.max(1, Math.min(96, valid.length));
+  const canvasWidth = Math.max(size.w, Math.ceil(size.w * (rows.length / baseVisible)));
 
   const smc = useMemo(() => (overlays.institutional ? detectSmartMoney(valid.slice(0, -1), 3) : null), [valid, overlays.institutional]);
   const bands = useMemo(() => (overlays.bands ? bollinger(valid.map((c) => c[4])).slice(offset) : null), [valid, overlays.bands, offset]);
@@ -92,12 +94,12 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const { pip } = resolvePipSize({ symbol, price: lastClose, profilePip: profile.pip });
     const axis = buildPriceAxis({ min: lo, max: hi, heightPx: priceBottom - top, pip, minLabelPx: 14 });
     const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatPrice(lastClose, profile)]);
-    const right = Math.max(left + 80, size.w - axisW);
+    const right = Math.max(left + 80, canvasWidth - axisW);
     const slot = (right - left) / rows.length;
     const x = (i) => left + (i + 0.5) * slot;
     const y = (p) => top + ((hi - p) / (hi - lo)) * (priceBottom - top);
-    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, decimals: axis.decimals };
-  }, [rows, size, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
+    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, width: canvasWidth, decimals: axis.decimals };
+  }, [rows, size, canvasWidth, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
 
   const focus = useMemo(() => {
     const active = strip?.snapshot?.activeSessionIds || [];
@@ -142,6 +144,8 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     wrapEl.addEventListener('wheel', onNativeWheel, { passive: false });
     return () => wrapEl.removeEventListener('wheel', onNativeWheel);
   }, [wrapEl]);
+  // Keep the newest candles visible after changing the historical range.
+  useEffect(() => { if (wrapEl) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [count]);
 
   if (error && !valid.length) return <div className="tc-empty tc-error" role="alert"><b>Market data unavailable</b><span>{error}</span></div>;
   if (!geo) return <div className="tc-empty"><span>{loading ? 'Loading market data…' : 'No candle data for this market and timeframe.'}</span></div>;
@@ -183,6 +187,13 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       </>}
       {countdown && !countdown.expired && <span className="tc-count" title="Time until the forming candle closes">Closes in<b>{countdown.label}</b></span>}
     </div>
+    <div className="tc-zoom-controls" role="group" aria-label="Horizontal chart zoom">
+      <button type="button" onClick={() => setCount((value) => Math.max(40, value - 12))} title="Zoom in to fewer candles">＋</button>
+      <button type="button" onClick={() => setCount((value) => Math.min(valid.length, value + 12))} title="Zoom out to reveal more candles">－</button>
+      <button type="button" onClick={() => setCount(Math.min(96, valid.length))} title="Fit the default candle range">Fit</button>
+      <span>{rows.length} / {valid.length} candles</span>
+      <span>Scroll horizontally for history</span>
+    </div>
     <div className="tc-legend" role="group" aria-label="Chart overlays">
       {[['sessions', 'Sessions'], ['institutional', 'Institutional Liquidity'], ['bands', 'Volatility Bands'], ['liquidity', 'Liquidity Pools']].map(([key, label]) =>
         <button key={key} type="button" aria-pressed={overlays[key]} className={overlays[key] ? 'on' : ''} onClick={() => onOverlayChange(key)}><i/>{label}</button>)}
@@ -210,9 +221,9 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <span>{ci.liquidation?.basis === 'estimated-model' ? 'Liquidation modelled' : ci.liquidation?.basis || 'Liquidation unavailable'}</span>
       </div>}
     </details>
-    <svg ref={svgRef} width={size.w} height={size.h} viewBox={'0 0 ' + size.w + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
+    <svg ref={svgRef} width={geo.width} height={size.h} viewBox={'0 0 ' + geo.width + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
       onMouseMove={onMove} onMouseLeave={() => { setHover(null); setHoverY(null); }} onDoubleClick={(event) => { if (event.clientX - event.currentTarget.getBoundingClientRect().left > geo.right) setPriceZoom(1); }} xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width={size.w} height={size.h} fill="#091221"/>
+      <rect x="0" y="0" width={geo.width} height={size.h} fill="#091221"/>
       {geo.minor.map((p) => <line key={'m' + p} x1={geo.left} x2={rightEdge} y1={y(p)} y2={y(p)} stroke="#0f1b2e" strokeWidth="1"/>)}
       {geo.ticks.map((t) => <g key={t.price}><line x1={geo.left} x2={rightEdge} y1={y(t.price)} y2={y(t.price)} stroke="#16243a" strokeWidth="1"/><text x={rightEdge + 8} y={y(t.price) + 3} fill={t.major ? '#93a4bc' : '#7f91aa'} fontSize="10" fontFamily="DM Sans, sans-serif">{t.label}</text></g>)}
       <line x1={rightEdge} x2={rightEdge} y1={geo.top} y2={geo.priceBottom} stroke="#1a2a44" strokeWidth="1"/>
