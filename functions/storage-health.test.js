@@ -7,7 +7,8 @@ const TABLES = [
   'jpti_outbox',
   'jpti_scheduler_leases',
   'jpti_schema_migrations',
-  'jpti_sync_cursors'
+  'jpti_sync_cursors',
+  'jpti_journal_entries'
 ];
 const SNAPSHOT_INDEX = 'jpti_events_market_snapshot_lookup';
 
