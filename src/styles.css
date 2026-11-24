@@ -283,3 +283,15 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 /* The workstation is a direct workspace child in the full-screen shell. */
 .jpti-market-fullscreen .page-content>.jpti-multi-workstation{flex:1;min-height:0}
 .jpti-chart-grid.layout-4 .jpti-chart-tile{height:clamp(300px,calc((100dvh - 205px)/2),560px)}
+
+/* Focused full-screen terminal: retain chart-linked indicators, signals and strategy intelligence. */
+.jpti-market-fullscreen .jpti-terminal-focus-chart .jpti-chart-session-strip,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .market-context-panel,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .smc-event-strip,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .smc-method-note,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .live-order-flow-panel,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .jpti-session-candle-intel,
+.jpti-market-fullscreen .jpti-terminal-focus-chart .chart-footer { display:none !important; }
+.jpti-market-fullscreen .jpti-terminal-focus-chart { margin:0; padding:10px; }
+.jpti-market-fullscreen .jpti-terminal-focus-chart .candlestick-svg-wrap { height:clamp(340px,55vh,760px); }
+.jpti-market-fullscreen .jpti-terminal-focus-chart .chart-toolbar { position:sticky; top:0; z-index:4; background:#0e1726; padding:7px 0; }

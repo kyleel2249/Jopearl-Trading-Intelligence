@@ -16,7 +16,7 @@ function readSaved(mode) {
   return { layout: 2, height: 560, syncSymbol: false, syncTimeframe: false, tiles: [makeTile(0, mode), makeTile(1, mode)] };
 }
 
-export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USDT', onSymbolChange }) {
+export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USDT', onSymbolChange, terminalFocus = false }) {
   const [config, setConfig] = useState(() => readSaved(mode));
   const [sharedCrosshair, setSharedCrosshair] = useState(null);
   const [crosshairSync, setCrosshairSync] = useState(true);
@@ -76,7 +76,7 @@ export default function MultiChartWorkstation({ mode = 'spot', symbol = 'BTC/USD
           </div>
         </header>
         <div className="jpti-chart-tile-body">
-          <LiveCandlestickChart exchange={tile.exchange} symbol={tile.symbol} onSymbolChange={value => changeTile(tile.id, 'symbol', value)} initialTimeframe={tile.timeframe} onTimeframeChange={value => changeTile(tile.id, 'timeframe', value)} initialMarketType={tile.marketType} onMarketTypeChange={value => changeTile(tile.id, 'marketType', value)} onExchangeChange={value => changeTile(tile.id, 'exchange', value)} synchronizedCrosshair={crosshairSync ? sharedCrosshair : null} onCrosshairChange={value => { if (crosshairSync) setSharedCrosshair(value); }}/>
+          <LiveCandlestickChart terminalFocus={terminalFocus} exchange={tile.exchange} symbol={tile.symbol} onSymbolChange={value => changeTile(tile.id, 'symbol', value)} initialTimeframe={tile.timeframe} onTimeframeChange={value => changeTile(tile.id, 'timeframe', value)} initialMarketType={tile.marketType} onMarketTypeChange={value => changeTile(tile.id, 'marketType', value)} onExchangeChange={value => changeTile(tile.id, 'exchange', value)} synchronizedCrosshair={crosshairSync ? sharedCrosshair : null} onCrosshairChange={value => { if (crosshairSync) setSharedCrosshair(value); }}/>
         </div>
       </article>)}
     </div>

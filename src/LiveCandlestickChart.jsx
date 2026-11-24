@@ -82,7 +82,7 @@ const timeLabel = (stamp, timeframe) => {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, onExchangeChange, alphaLevels = [], synchronizedCrosshair = null, onCrosshairChange }) {
+export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, onExchangeChange, alphaLevels = [], synchronizedCrosshair = null, onCrosshairChange, terminalFocus = false }) {
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
@@ -459,7 +459,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     setMarketType(choice.marketType);
   };
 
-  return <section className="panel exchange-connect trading-chart-panel">
+  return <section className={"panel exchange-connect trading-chart-panel" + (terminalFocus ? " jpti-terminal-focus-chart" : "")}>
     <div className="panelhead">
       <span><b>Live market chart</b><small>OHLCV exchange data · {exchange.toUpperCase()}</small></span>
       <i className={candles.length ? "running" : "standby"}>{candles.length ? "LIVE MARKET DATA" : loading ? "CONNECTING" : "NO DATA"}</i>
