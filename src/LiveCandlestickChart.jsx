@@ -14,7 +14,7 @@ import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
 import { resolvePrecision, formatInstrumentPrice } from './chart-intelligence/precision.js';
 import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
-import { getExpandedCanvasWidth } from './chart-canvas.js';
+import { getExpandedCanvasWidth, getExpandedCanvasHeight } from './chart-canvas.js';
 
 const TIMEFRAMES = [
   ['1m', '1m'], ['3m', '3m'], ['5m', '5m'], ['15m', '15m'], ['30m', '30m'],
@@ -393,20 +393,21 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     const count = Math.max(25, Math.min(liveCandles.length, Math.floor(baseCount / zoom)));
     const rows = liveCandles.slice(-count);
     const canvasWidth = getExpandedCanvasWidth(plotSize.w, count, baseCount);
+    const canvasHeight = getExpandedCanvasHeight(plotSize.h, count, baseCount);
     const levelPrices = [...(alphaLevels || []).map(level => Number(level.price)).filter(Number.isFinite), ...ciPlanPrices];
     const min = Math.min(...rows.map((c) => c[3]), ...levelPrices);
     const max = Math.max(...rows.map((c) => c[2]), ...levelPrices);
     const padding = (max - min || max * 0.002 || 1) * 0.06;
     const lastClose = rows[rows.length - 1][4];
     const { low, high } = applyPriceZoom(min - padding, max + padding, priceZoom, priceZoom > 1 ? lastClose : undefined);
-    const left = 4, top = 10, bottom = Math.max(top + 60, plotSize.h - 22);
+    const left = 4, top = 10, bottom = Math.max(top + 60, canvasHeight - 22);
     const axis = buildPriceAxis({ min: low, max: high, heightPx: bottom - top, pip: pipInfo.pip, minLabelPx: 14 });
     const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatInstrumentPrice(lastClose, precisionMeta, { maximumFractionDigits: 12 })]);
     const right = Math.max(left + 80, canvasWidth - axisW);
     const x = (i) => left + (i + 0.5) * ((right - left) / rows.length);
     const y = (price) => top + ((high - price) / (high - low)) * (bottom - top);
     const points = (values) => values.slice(liveCandles.length - count).map((value, i) => Number.isFinite(value) ? x(i) + ',' + y(value) : null).filter(Boolean).join(' ');
-    return { rows, count, min: low, max: high, left, right, top, priceBottom: bottom, bottom, width: canvasWidth, viewportWidth: plotSize.w, height: plotSize.h, axisW, axis, pip: pipInfo.pip, x, y, points };
+    return { rows, count, min: low, max: high, left, right, top, priceBottom: bottom, bottom, width: canvasWidth, viewportWidth: plotSize.w, height: canvasHeight, viewportHeight: plotSize.h, axisW, axis, pip: pipInfo.pip, x, y, points };
   }, [liveCandles, zoom, candleSpacing, alphaLevels, ciPlanPrices, priceZoom, plotSize, pipInfo, precisionMeta]);
 
   const activeCandle = (crosshair !== null && geometry ? geometry.rows[crosshair.i] : null) || metrics.last;
@@ -438,7 +439,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     return () => wrapEl.removeEventListener('wheel', onWheel);
   }, [wrapEl]);
   // Keep the newest candles in view after the visible history expands or contracts.
-  useEffect(() => { if (wrapEl && followLatest) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [zoom, liveCandles.length, liveCandles.at(-1)?.[0], followLatest]);
+  useEffect(() => { if (wrapEl && followLatest) { wrapEl.scrollLeft = wrapEl.scrollWidth; wrapEl.scrollTop = wrapEl.scrollHeight; } }, [zoom, liveCandles.length, liveCandles.at(-1)?.[0], followLatest]);
   useEffect(() => {
     if (!expanded) return undefined;
     const onKey = (event) => { if (event.key === 'Escape') setExpanded(false); };
@@ -579,7 +580,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     </div>
     {error ? <div className="chart-error">{error}</div> : !geometry ? <div className="chart-wait">{loading ? 'Loading live OHLC candles…' : 'Waiting for exchange candle data…'}</div> :
       <div className={'candlestick-svg-wrap' + (expanded ? ' chart-expanded' : '')} ref={setWrapEl}>
-        <svg width={geometry.width} height={plotSize.h} viewBox={'0 0 ' + geometry.width + ' ' + plotSize.h} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => setCrosshair(null)} onMouseMove={(event) => {
+        <svg width={geometry.width} height={geometry.height} viewBox={'0 0 ' + geometry.width + ' ' + geometry.height} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => setCrosshair(null)} onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const px = event.clientX - rect.left, py = event.clientY - rect.top;
           if (px > geometry.right || px < geometry.left) { setCrosshair(null); return; }
