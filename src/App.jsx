@@ -21,6 +21,7 @@ const SignalIntelligenceDashboard = lazy(() => import('../dashboard/app/Dashboar
 const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
 const AgentCommandCenter = lazy(() => import('./AgentCommandCenter.jsx'));
+const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -532,7 +533,8 @@ function App() {
     if (['Portfolio Stress','Pre-trade Gate','Strategy Registry','Market Replay','System Diagnostics','Production Readiness'].includes(page)) return <Phase15To21Workspaces key={page} page={page}/>;
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
-    if (page === 'AI Agent Command Center' || page === 'Trading Bots') return <AgentCommandCenter/>;
+    if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
+    if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
     if (page === 'Universal Engine') return <UniversalEngine localPrivateAccess={health?.localPrivateAccess === true}/>;
     if (page === 'Overview') return renderOverview();

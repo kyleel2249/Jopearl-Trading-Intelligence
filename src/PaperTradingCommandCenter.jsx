@@ -1,0 +1,46 @@
+import React,{useCallback,useEffect,useState} from 'react';
+import {Activity,ShieldCheck,RefreshCw,PlayCircle,CalendarClock,Lock,AlertTriangle,Award,UserPlus,PauseCircle,Skull} from 'lucide-react';
+import {apiFetch} from './lib/api.js';
+import './PaperTradingCommandCenter.css';
+const money=v=>Number(v||0).toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:4});
+const pct=v=>Number(v||0).toFixed(2)+'%';
+const stamp=v=>v?new Date(v).toLocaleString():'—';
+const statusLabel=s=>({active:'RESEARCH',live_ready:'LIVE READY · APPROVAL REQUIRED',suspended:'SUSPENDED',retired:'RETIRED'}[s]||String(s||'RESEARCH').toUpperCase());
+export default function PaperTradingCommandCenter(){
+ const [data,setData]=useState(null),[reviews,setReviews]=useState([]),[busy,setBusy]=useState(''),[error,setError]=useState(''),[notice,setNotice]=useState('');
+ const load=useCallback(async()=>{
+  try{const [a,b]=await Promise.all([apiFetch('/api/paper/overview',{cache:'no-store'}),apiFetch('/api/paper/reviews',{cache:'no-store'})]);const x=await a.json(),y=await b.json();if(!a.ok)throw new Error(x.error||'Paper overview unavailable');setData(x);if(b.ok)setReviews(y.reviews||[]);setError('');}
+  catch(e){setError(e.message||'Paper trading service unavailable.');}
+ },[]);
+ const action=useCallback(async kind=>{
+  setBusy(kind);setError('');setNotice('');
+  try{const path=kind==='cycle'?'/api/paper/cycle':'/api/paper/daily-review';const r=await apiFetch(path,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({symbol:'BTCUSDT'})});const p=await r.json();if(!r.ok)throw new Error(p.error||'Paper operation failed');setNotice(kind==='cycle'?'Paper cycle completed.': 'Daily fleet review saved.');await load();}
+  catch(e){setError(e.message||'Paper operation failed.');}finally{setBusy('');}
+ },[load]);
+ useEffect(()=>{load();const timer=setInterval(load,30000);return()=>clearInterval(timer);},[load]);
+ const agents=data?.agents||[],trades=agents.reduce((s,a)=>s+a.metrics.closedTrades,0),pnl=agents.reduce((s,a)=>s+a.metrics.netPnlUsd,0);
+ const liveReady=agents.filter(a=>a.tier==='LIVE_READY').length,research=agents.filter(a=>a.tier==='RESEARCH').length;
+ return <section className="glass-panel detail-workspace paper-workspace">
+  <header className="section-heading ops-title"><div><span className="eyebrow">AUTONOMOUS AGENT FLEET · REAL MARKET DATA / VIRTUAL EXECUTION</span><h3>Agent Research & Qualification Centre</h3><p>Every candidate starts with one virtual dollar. Qualified agents move to Live Ready status and automatically create successor candidates.</p></div><span className="paper-chip"><Lock size={13}/> PAPER ONLY · LIVE ORDERS DISABLED</span></header>
+  <div className="paper-safety"><ShieldCheck/><div><b>Live-ready is not live-authorised</b><span>Passing the research KPIs qualifies an agent for a human-reviewed live-readiness gate. This service cannot submit exchange orders. Live activation requires separate approval, exchange-minimum checks, key isolation and a controlled canary deployment.</span></div></div>
+  <div className="paper-actions"><button className="refresh-button" onClick={()=>action('cycle')} disabled={!!busy}><PlayCircle size={15}/>{busy==='cycle'?'Running paper cycle…':'Run paper cycle now'}</button><button className="small-refresh" onClick={()=>action('review')} disabled={!!busy}><CalendarClock size={14}/>{busy==='review'?'Reviewing…':'Run daily review'}</button><button className="small-refresh" onClick={load} disabled={!!busy}><RefreshCw size={14}/>Refresh</button></div>
+  {error&&<p className="quote-error">{error}</p>}{notice&&<p className="paper-notice">{notice}</p>}
+  <div className="paper-kpi-grid">
+   <div><span>COMBINED PAPER NET P&L</span><b>{money(pnl)}</b></div><div><span>CLOSED PAPER TRADES</span><b>{trades.toLocaleString()}</b></div><div><span>RESEARCH CANDIDATES</span><b>{research}</b></div><div><span>LIVE-READY AGENTS</span><b>{liveReady}</b></div>
+  </div>
+  <div className="paper-policy"><div><b>$1 starting account per agent</b><span>Independent virtual ledgers. Fractional paper sizing is permitted; exchange minimum order sizes are checked separately before any live review.</span></div><div><b>98% observed win-rate gate</b><span>At least 200 closed trades, 90 observation days, positive net profit and no recorded risk breaches. No win rate guarantees future results.</span></div><div><b>Capital survival gates</b><span>0.25% risk/trade · 2% daily loss stop · 5% maximum drawdown · 1x virtual leverage · profit factor 1.5 · expectancy 0.15R · Sharpe 0.8.</span></div></div>
+  <div className="paper-fleet-note"><UserPlus size={15}/><span>Automatic succession: every qualified agent creates a new $1 research candidate with the same strategy lineage. Failed agents can be suspended or retired; their records remain available for review.</span></div>
+  <div className="section-heading"><div><h4>Named agent roster</h4><p className="subtle-note">Each role has a specific mandate. Agents are evaluated independently and cannot change their own risk limits.</p></div></div>
+  <div className="paper-agent-list">{agents.map(agent=><article className="paper-agent-card" key={agent.id}>
+   <div className="paper-agent-heading"><div><span className="eyebrow">{agent.id.toUpperCase()} · GEN {agent.generation||1}</span><h4>{agent.name}</h4><p><b>{agent.role||agent.edge}</b></p><p>{agent.responsibility||agent.edge}</p></div><span className={'paper-tier '+(agent.tier==='LIVE_READY'?'pro':'')}>{agent.tier==='LIVE_READY'?<Award size={13}/>:agent.status==='suspended'?<PauseCircle size={13}/>:agent.status==='retired'?<Skull size={13}/>:<Activity size={13}/>} {statusLabel(agent.status)}</span></div>
+   <div className="paper-agent-stats"><div><span>VIRTUAL EQUITY</span><b>{money(agent.metrics.equityUsd)}</b></div><div><span>WIN RATE</span><b>{pct(agent.metrics.winRatePct)}</b></div><div><span>NET P&L</span><b>{money(agent.metrics.netPnlUsd)}</b></div><div><span>PROFIT FACTOR</span><b>{Number(agent.metrics.profitFactor||0).toFixed(2)}</b></div><div><span>MAX DRAWDOWN</span><b>{pct(agent.metrics.maxDrawdownPct)}</b></div><div><span>TRADES / DAYS</span><b>{agent.metrics.closedTrades} / {Math.floor(agent.metrics.observationDays)}</b></div></div>
+   <div className="paper-gates"><b>{agent.kpi.eligibleForPromotion?'All KPI gates passed · Live readiness candidate': 'KPI assessment'}</b><span>{agent.kpi.checks.filter(c=>!c.pass).map(c=>c.id).join(' · ')||'No outstanding KPI gates'}</span></div>
+   <details><summary>Responsibilities, resources and KPI evidence</summary><p className="subtle-note">Strategy mandate: {agent.responsibility||agent.edge}</p><div className="paper-checks">{agent.kpi.checks.map(c=><span key={c.id} className={c.pass?'pass':'fail'}>{c.pass?'✓':'○'} {c.id}: {Array.isArray(c.actual)?c.actual.map(x=>x.regime+': '+x.trades).join(', '):Number(c.actual||0).toFixed(2)} / {c.target}</span>)}</div><p className="subtle-note">Resources: {(agent.resources||[]).join(' · ')}</p><p className="subtle-note">Virtual starting capital: $1.00 · Open paper positions: {agent.openTrades?.length||0} · Promoted: {stamp(agent.promotedAt)}</p>{agent.liveReadiness&&<p className="subtle-note">Live status: human approval required; live execution permission remains disabled.</p>}{agent.suspensionReason&&<p className="subtle-note">Suspension: {agent.suspensionReason}</p>}{agent.retirementReason&&<p className="subtle-note">Retirement: {agent.retirementReason}</p>}</details>
+  </article>)}</div>
+  <div className="section-heading"><div><h4>Open simulated positions</h4><p className="subtle-note">Stops, targets, time exits and loss circuit-breakers are checked during each scheduler cycle.</p></div></div>
+  {data?.openTrades?.length?<div className="scanner-table paper-table"><div><span>AGENT</span><span>MARKET / SIDE</span><span>ENTRY</span><span>STOP / TARGET</span><span>RISK</span></div>{data.openTrades.map(t=><div key={t.trade_id}><b>{t.agentName}</b><span>{t.symbol} · {t.direction}</span><span>{money(t.entry_price)}</span><span>{money(t.stop_price)} / {money(t.target_price)}</span><span>{money(t.risk_usd)}</span></div>)}</div>:<p className="subtle-note">No open simulated positions.</p>}
+  <div className="section-heading"><div><h4>Daily performance reviews</h4><p className="subtle-note">UTC snapshots cover every agent, risk status, promotion, retirement and market-data quality.</p></div></div>
+  {reviews.length?reviews.map(r=><details className="paper-review" key={r.date}><summary>{r.date} · {r.agents?.length||0} agents · {r.fleet?.liveReady||0} live-ready</summary><p>{r.dataQuality}</p>{r.agents?.map(a=><span key={a.agentId}>{a.name}: {pct(a.metrics.winRatePct)} win rate · {money(a.metrics.netPnlUsd)} · {a.tier||a.kpi.status}</span>)}</details>):<p className="subtle-note">No daily review stored yet. The scheduler is configured for 00:05 UTC; you can also run one now.</p>}
+  <p className="paper-footnote"><AlertTriangle size={13}/> No system can promise a winning trade every time. The 98% threshold is a strict historical qualification target, not a forecast. A Live Ready label never authorises live orders. Last dashboard refresh: {stamp(data?.updatedAt)}.</p>
+ </section>;
+}
