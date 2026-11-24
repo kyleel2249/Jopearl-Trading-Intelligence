@@ -150,11 +150,11 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       setCloudflareMode(mode === 'cloudflare-edge');
       // Browser-direct mode still supports Bitget public Spot, Margin and derivatives.
       // Only force Spot when the selected venue cannot serve the active product.
-      if (mode === 'direct' && exchange !== 'bitget') setMarketType('spot');
+      setMarketType((current) => mode === 'direct' && exchange !== 'bitget' ? 'spot' : current);
     };
     syncSource();
     return subscribeApiSource(syncSource);
-  }, []);
+  }, [exchange]);
   useEffect(() => { const timer = setInterval(() => setSessionClock(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const sessionSnapshot = useMemo(() => getSessionSnapshot(sessionClock), [sessionClock]);
   const sessionAnalytics = useMemo(() => analyzeSessionCandles(candles, sessionClock), [candles, sessionClock]);
