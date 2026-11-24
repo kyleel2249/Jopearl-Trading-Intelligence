@@ -56,6 +56,7 @@
     "electron-builder": "^26.0.12",
     "typescript": "^5.8.3",
     "esbuild": "^0.24.2",
+    "jsdom": "^31.0.1",
     "wrangler": "4.167.0"
   },
   "main": "desktop/main.cjs",

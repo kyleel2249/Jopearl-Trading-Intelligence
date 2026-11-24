@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
 import { detectSmartMoney } from './smartMoney.js';
 import { getSessionSnapshot, analyzeSessionCandles } from './session-intelligence.js';
@@ -186,12 +186,31 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const marketInstrumentQuery = marketInstrumentId ? '&instrumentId=' + encodeURIComponent(marketInstrumentId) : '';
   const marketSideQuery = marketType === 'cfd' ? '&side=' + encodeURIComponent(marketSide) : '';
 
-  useEffect(() => { if (initialMarketType && initialMarketType !== marketType) setMarketType(initialMarketType); }, [initialMarketType, marketType]);
-  useEffect(() => { if (onMarketTypeChange) onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
-  useEffect(() => { if (onMarketSideChange) onMarketSideChange(marketSide); }, [marketSide, onMarketSideChange]);
+  // Product sync is one-directional per event: a new parent prop is applied once, and a user
+  // selection is reported up. Re-applying the prop on every local change made the parent and the
+  // chart overwrite each other, snapping the product back (to Spot) or looping.
+  const appliedInitialMarketType = useRef(initialMarketType);
+  useEffect(() => {
+    if (initialMarketType && initialMarketType !== appliedInitialMarketType.current) {
+      appliedInitialMarketType.current = initialMarketType;
+      setMarketType(initialMarketType);
+    }
+  }, [initialMarketType]);
+  const reportedMarketType = useRef(null);
+  useEffect(() => {
+    if (reportedMarketType.current === marketType) return;
+    reportedMarketType.current = marketType;
+    if (onMarketTypeChange) onMarketTypeChange(marketType);
+  }, [marketType, onMarketTypeChange]);
+  const reportedMarketSide = useRef(null);
+  useEffect(() => {
+    if (reportedMarketSide.current === marketSide) return;
+    reportedMarketSide.current = marketSide;
+    if (onMarketSideChange) onMarketSideChange(marketSide);
+  }, [marketSide, onMarketSideChange]);
 
   useEffect(() => {
-    if (directMode && exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot');
+    if ((directMode && exchange !== 'bitget' && marketType !== 'spot') || (exchange !== 'bitget' && marketType === 'cfd')) setMarketType('spot');
     let active = true;
     const refreshCatalog = async () => {
       try {
