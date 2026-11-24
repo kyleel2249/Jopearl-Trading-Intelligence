@@ -2,7 +2,7 @@
 // subscribe. Handles signal registry, outcome tracking, learning loop, events, persistence and diagnostics.
 import { analyzeGainzAlpha, toAlphaEvidence } from './engine.js';
 import { PRESETS, resolvePreset, MODEL_VERSION } from './presets.js';
-import { createModel, adaptModel, rollbackModel, evaluateOutcome, signalToRecord, summarize } from './learning.js';
+import { createModel, adaptModel, rollbackModel, evaluateOutcome, signalToRecord, summarize, MIN_SAMPLE } from './learning.js';
 import { normalizeCandles, splitClosed, timeframeMs } from './indicators.js';
 
 export const SCHEMA = 1, STORAGE_KEY = 'jpti.gainz-alpha.v1';
@@ -164,6 +164,12 @@ export function createHub({ storage = null, now = () => Date.now(), maxContexts 
       remote = adapter;
       try {
         const records = await adapter.load(scope); const added = mergeOutcomes(records);
+        // A fresh browser/device can reconstruct a first guarded model snapshot from D1 history.
+        // Existing learned versions and explicit user rollbacks are never overwritten.
+        if (state.settings.adaptiveLearning && state.model.version === 1 && state.outcomes.length >= MIN_SAMPLE) {
+          const rebuilt = adaptModel(state.model, state.outcomes.slice(-500));
+          if (rebuilt.changed) { state.model = rebuilt.model; version++; persist(); }
+        }
         const known = new Set(records.map((r) => r.id));
         unsynced = state.outcomes.filter((r) => !known.has(r.id));
         status.remote = { ok: true, loaded: records.length, added, pending: unsynced.length };

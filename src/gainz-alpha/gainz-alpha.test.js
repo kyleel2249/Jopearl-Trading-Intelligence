@@ -277,6 +277,12 @@ test('hub adaptive model learns from the shared outcome pool across symbol/timef
   t=base+(rows.length+26)*TF;hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,...future]});
   assert.ok(hub.getState().model.version>1);
 });
+test('remote D1 outcome history reconstructs a first adaptive model on a fresh device', async () => {
+  const hub=createHub();
+  const records=Array.from({length:60},(_,i)=>({id:'remote-'+i,symbol:i%2?'ETH/USDT':'BTC/USDT',timeframe:'15m',preset:'balanced',setupType:'confluence',direction:'bullish',session:'london',regime:'trend',volRegime:'normal',candleTs:i+1,outcome:i<35?'win':'loss',returnR:i<35?1.5:-1,falseSignal:i>=35,factors:{trend:i<35?1:0,volume:i%3?1:0}}));
+  const result=await hub.attachRemote({async load(){return records;},async save(){return {saved:0};}});
+  assert.equal(result.ok,true);assert.equal(hub.getState().outcomes.length,60);assert.ok(hub.getState().model.version>1);
+});
 test('manual journal outcomes enter the shared hub once and are eligible for adaptive learning', () => {
   const hub=createHub({learnEvery:1}), state=hub.getState();
   state.outcomes.push(...Array.from({length:30},(_,i)=>({id:'prior-'+i,symbol:i%2?'ETH/USDT':'SOL/USDT',timeframe:'15m',candleTs:i+1,outcome:i%2?'win':'loss',returnR:i%2?1.5:-1,factors:{trend:i%2?1:0}})));
