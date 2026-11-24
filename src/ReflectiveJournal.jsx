@@ -106,6 +106,9 @@ export default function ReflectiveJournal() {
   const [journalToken, setJournalToken] = useState('');
   const [journalConnected, setJournalConnected] = useState(false);
   const [syncStatus, setSyncStatus] = useState('Not connected to Cloudflare D1');
+  const [mentorState, setMentorState] = useState('idle');
+  const [mentorReview, setMentorReview] = useState('');
+  const [mentorError, setMentorError] = useState('');
   const [marketState, setMarketState] = useState('not-checked');
   const [marketError, setMarketError] = useState('');
   const [tab, setTab] = useState('journal');
@@ -210,6 +213,21 @@ export default function ReflectiveJournal() {
   const copyReport = async () => {
     try { await navigator.clipboard.writeText(buildReflectiveReport(active, assessment || active.technicalAssessment || null)); setToast('Reflective report copied'); }
     catch { setToast('Clipboard unavailable — export the Markdown report instead'); }
+  };
+  const runMentorReview = async () => {
+    if (!journalConnected) { setMentorError('Connect your private Cloudflare D1 journal first.'); return; }
+    setMentorState('loading'); setMentorError('');
+    try {
+      const response = await apiFetch('/api/mentor/analyze', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ entry: active, technicalAssessment: assessment || active.technicalAssessment || null, research: active.researchSnapshot || null, history: entries.slice(-30) })
+      });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'AI mentor review failed.');
+      setMentorReview(data.review || '');
+      updateActive({ mentorReview: data.review || '', aiResearch: data.research || null, aiReviewAt: data.generatedAt, aiModel: data.model });
+      setMentorState('complete');
+    } catch (error) { setMentorError(error.message || 'AI mentor review unavailable.'); setMentorState('error'); }
   };
   const markStatus = (status) => updateActive({ orderStatus: status });
   const accountEstimate = active.margin && active.allocationPercent ? Number(active.margin) / (Number(active.allocationPercent) / 100) : null;
@@ -348,7 +366,13 @@ export default function ReflectiveJournal() {
 
     {tab === 'coach' && <div className="rj-coach-grid">
       <section className="rj-panel">
-        <span className="rj-eyebrow">INITIAL TRADER PROFILE · LOW CONFIDENCE</span><h2>What this first decision suggests</h2>
+        <span className="rj-eyebrow">AI TRADING COUNCIL · CLOUDFLARE WORKERS AI</span><h2>Personal mentor and research review</h2>
+        <p className="rj-lead">The AI review researches the pair through public asset and news sources, then assesses your journal, technical evidence, risk and behaviour. It must identify source conflicts and missing evidence.</p>
+        <div className="rj-ai-actions"><button className="rj-primary" onClick={runMentorReview} disabled={mentorState === 'loading'}><Brain size={15}/>{mentorState === 'loading' ? 'Researching and reviewing…' : 'Run full AI mentor review'}</button><span className="rj-footnote">{mentorState === 'complete' ? 'Review saved to this trade record.' : 'Requires Cloudflare D1 connection and the Workers AI binding.'}</span></div>
+        {mentorError && <div className="rj-callout danger"><AlertTriangle size={17}/><div>{mentorError}</div></div>}
+        {(mentorReview || active.mentorReview) && <div className="rj-ai-report"><div className="rj-panel-title"><b>Latest AI mentor report</b><span className="rj-footnote">{active.aiReviewAt ? new Date(active.aiReviewAt).toLocaleString() : ''}</span></div><pre>{mentorReview || active.mentorReview}</pre></div>}
+        <div className="rj-divider"/>
+        <span className="rj-eyebrow">RULES-BASED PROFILE · LOW CONFIDENCE</span><h2>What this first decision suggests</h2>
         <div className="rj-callout warn"><Brain size={18}/><div><b>Honest capability boundary</b><p>This workspace currently provides deterministic, rules-based coaching and a structured journal. It does not contain a connected generative AI model, and it will not pretend to perform autonomous research or exchange actions. The conversational research, writing, mentoring and pair-specific analysis will be supplied here and recorded in the journal as you share updates.</p></div></div>
         <p className="rj-lead">This is a preliminary behavioural hypothesis based on one planned trade and the rules you supplied. It is not a fixed personality label or a statistically reliable trader profile.</p>
         <div className="rj-assessment"><div><TrendingUp/><b>Strengths emerging</b><ul><li>You are setting explicit operating rules.</li><li>You are documenting the trade before execution.</li><li>You want software-supported decisions and independent review.</li><li>You have a defined profit-retention policy.</li><li>You are willing to review and adapt rather than hide mistakes.</li></ul></div><div><AlertTriangle/><b>Risks and blind spots</b><ul><li>Long exposure conflicts with your stated bearish market view unless a countertrend setup is documented.</li><li>20× leverage and no stop-loss expose the margin to rapid depletion.</li><li>“Take profit whenever possible” is subjective without a planned exit framework.</li><li>“Confidence” needs evidence and invalidation conditions, not feeling alone.</li><li>Testing how daring you can be may reward risk-taking rather than good process.</li></ul></div></div>
