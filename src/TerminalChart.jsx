@@ -7,7 +7,7 @@ import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.
 import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
 import { candleCountdown, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
-import { getExpandedCanvasWidth } from './chart-canvas.js';
+import { getExpandedCanvasWidth, getExpandedCanvasHeight } from './chart-canvas.js';
 
 const UP = '#22c58b', DOWN = '#ef5361';
 const SESSION_TINT = { sydney: '#8b7cf6', tokyo: '#4a9bf5', london: '#3b82f6', 'new-york': '#f0a848' };
@@ -75,6 +75,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   const offset = valid.length - rows.length;
   const baseVisible = Math.max(1, Math.min(96, valid.length));
   const canvasWidth = getExpandedCanvasWidth(size.w, rows.length, baseVisible);
+  const canvasHeight = getExpandedCanvasHeight(size.h, rows.length, baseVisible);
 
   const smc = useMemo(() => (overlays.institutional ? detectSmartMoney(valid.slice(0, -1), 3) : null), [valid, overlays.institutional]);
   const bands = useMemo(() => (overlays.bands ? bollinger(valid.map((c) => c[4])).slice(offset) : null), [valid, overlays.bands, offset]);
@@ -83,7 +84,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
   // The plot fills the whole panel: candles run from the left edge to the price axis and from the top to the time axis.
   const geo = useMemo(() => {
     if (!rows.length) return null;
-    const left = 6, top = 10, bottom = size.h - 22;
+    const left = 6, top = 10, bottom = canvasHeight - 22;
     const priceBottom = bottom;
     const extra = [];
     if (overlays.liquidity) { if (ranges.buySide) extra.push(ranges.buySide.high); if (ranges.sellSide) extra.push(ranges.sellSide.low); }
@@ -100,8 +101,8 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const slot = (right - left) / rows.length;
     const x = (i) => left + (i + 0.5) * slot;
     const y = (p) => top + ((hi - p) / (hi - lo)) * (priceBottom - top);
-    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, width: canvasWidth, decimals: axis.decimals };
-  }, [rows, size, canvasWidth, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
+    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, width: canvasWidth, height: canvasHeight, decimals: axis.decimals };
+  }, [rows, size, canvasWidth, canvasHeight, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
 
   const focus = useMemo(() => {
     const active = strip?.snapshot?.activeSessionIds || [];
@@ -149,7 +150,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     return () => wrapEl.removeEventListener('wheel', onNativeWheel);
   }, [wrapEl]);
   // Keep the newest candles visible after changing the historical range.
-  useEffect(() => { if (wrapEl && followLatest) wrapEl.scrollLeft = wrapEl.scrollWidth; }, [count, valid.length, valid.at(-1)?.[0], followLatest]);
+  useEffect(() => { if (wrapEl && followLatest) { wrapEl.scrollLeft = wrapEl.scrollWidth; wrapEl.scrollTop = wrapEl.scrollHeight; } }, [count, valid.length, valid.at(-1)?.[0], followLatest]);
 
   if (error && !valid.length) return <div className="tc-empty tc-error" role="alert"><b>Market data unavailable</b><span>{error}</span></div>;
   if (!geo) return <div className="tc-empty"><span>{loading ? 'Loading market data…' : 'No candle data for this market and timeframe.'}</span></div>;
@@ -226,13 +227,13 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <span>{ci.liquidation?.basis === 'estimated-model' ? 'Liquidation modelled' : ci.liquidation?.basis || 'Liquidation unavailable'}</span>
       </div>}
     </details>
-    <svg ref={svgRef} width={geo.width} height={size.h} viewBox={'0 0 ' + geo.width + ' ' + size.h} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
+    <svg ref={svgRef} width={geo.width} height={geo.height} viewBox={'0 0 ' + geo.width + ' ' + geo.height} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
       onMouseMove={onMove} onMouseLeave={() => { setHover(null); setHoverY(null); }} onDoubleClick={(event) => { if (event.clientX - event.currentTarget.getBoundingClientRect().left > geo.right) setPriceZoom(1); }} xmlns="http://www.w3.org/2000/svg">
-      <rect x="0" y="0" width={geo.width} height={size.h} fill="#091221"/>
+      <rect x="0" y="0" width={geo.width} height={geo.height} fill="#091221"/>
       {geo.minor.map((p) => <line key={'m' + p} x1={geo.left} x2={rightEdge} y1={y(p)} y2={y(p)} stroke="#0f1b2e" strokeWidth="1"/>)}
       {geo.ticks.map((t) => <g key={t.price}><line x1={geo.left} x2={rightEdge} y1={y(t.price)} y2={y(t.price)} stroke="#16243a" strokeWidth="1"/><text x={rightEdge + 8} y={y(t.price) + 3} fill={t.major ? '#93a4bc' : '#7f91aa'} fontSize="10" fontFamily="DM Sans, sans-serif">{t.label}</text></g>)}
       <line x1={rightEdge} x2={rightEdge} y1={geo.top} y2={geo.priceBottom} stroke="#1a2a44" strokeWidth="1"/>
-      {rows.map((c, i) => (i % Math.max(1, Math.round(rows.length / 8)) === 0) && <g key={'t' + c[0]}><line x1={x(i)} x2={x(i)} y1={geo.top} y2={geo.bottom - 4} stroke="#122035" strokeWidth="1"/><text x={x(i)} y={size.h - 7} textAnchor="middle" fill="#6f819b" fontSize="10" fontFamily="DM Sans, sans-serif">{timeLabel(c[0], timeframe)}</text></g>)}
+      {rows.map((c, i) => (i % Math.max(1, Math.round(rows.length / 8)) === 0) && <g key={'t' + c[0]}><line x1={x(i)} x2={x(i)} y1={geo.top} y2={geo.bottom - 4} stroke="#122035" strokeWidth="1"/><text x={x(i)} y={geo.height - 7} textAnchor="middle" fill="#6f819b" fontSize="10" fontFamily="DM Sans, sans-serif">{timeLabel(c[0], timeframe)}</text></g>)}
 
       {sessionBands.map(({ session, runs }) => runs.map(([a, b]) => {
         const isFocus = session.id === focus && a === runs.at(-1)[0];
