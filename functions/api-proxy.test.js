@@ -23,6 +23,19 @@ test('Pages API forwards Bitget derivative chart requests with their product typ
   assert.equal((await response.json()).exchange, 'bitget');
 });
 
+test('Pages API forwards exact Bitget instrument IDs into intelligence-context candles', async () => {
+  let requested = '';
+  const candles = Array.from({ length: 30 }, (_, index) => [1700000000000 + index * 3600000, 100 + index, 102 + index, 99 + index, 101 + index, 10 + index]);
+  const handler = createPagesApiHandler({ marketProvider: { request: async (path) => {
+    requested = path;
+    return { status: 200, body: { exchange: 'bitget', symbol: 'BTC/USD:BTC', timeframe: '1h', candles } };
+  } } });
+  const response = await handler({ request: new Request('https://jpti.pages.dev/api/intelligence/market/bitget/BTC-USD%3ABTC/context?timeframe=1h&type=coin-futures&instrumentId=BTCUSD_CM') });
+  assert.equal(response.status, 200);
+  assert.match(requested, /type=coin-futures/);
+  assert.match(requested, /instrumentId=BTCUSD_CM/);
+});
+
 test('Pages API does not claim derivative support for other direct-only exchanges', async () => {
   const handler = createPagesApiHandler({ marketProvider: { request: async () => { throw new Error('should not call provider'); } } });
   const response = await handler({ request: new Request('https://jpti.pages.dev/api/exchanges/binance/ohlcv/BTC-USDT?timeframe=1h&type=futures') });
