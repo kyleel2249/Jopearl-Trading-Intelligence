@@ -110,6 +110,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [marketSide, setMarketSide] = useState('buy');
   const [directMode, setDirectMode] = useState(() => getApiSource().mode === 'direct');
   const [marketSearch, setMarketSearch] = useState('');
+  const [catalogError, setCatalogError] = useState('');
   const [marketCounts, setMarketCounts] = useState(null);
   const [drawMode, setDrawMode] = useState('off');
   const [drawings, setDrawings] = useState([]);
@@ -189,8 +190,14 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       try {
         const response = await apiFetch('/api/exchanges/' + exchange + '/markets?type=' + marketType + '&search=' + encodeURIComponent(marketSearch));
         const data = await response.json();
-        if (!active || !response.ok) return;
+        if (!active) return;
+        if (!response.ok) {
+          const message = data.error || 'Bitget market catalogue is unavailable for this product.';
+          if (marketType === 'cfd') { setMarketSymbols([]); setMarketInstrumentIds({}); setMarketCounts(null); setSupportedTimeframes(null); setCatalogError(message); }
+          return;
+        }
         const markets = Array.isArray(data.markets) ? data.markets : [];
+        setCatalogError('');
         const symbols = markets.map((market) => market.symbol);
         setMarketInstrumentIds(Object.fromEntries(markets.filter((market) => market.symbol && market.id).map((market) => [market.symbol, market.id])));
         setMarketSymbols(symbols);
@@ -202,7 +209,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         const frames = Array.isArray(data.timeframes) && data.timeframes.length ? data.timeframes : null;
         setSupportedTimeframes(frames);
         if (frames && !frames.includes(timeframe)) setTimeframe(frames.includes('1h') ? '1h' : frames[0]);
-      } catch { /* Keep the last successful catalog visible during temporary exchange outages. */ }
+      } catch (error) { if (active && marketType === 'cfd') setCatalogError(error.message || 'Bitget CFD instrument catalogue is unavailable.'); /* Keep the last successful crypto catalogue visible during temporary exchange outages. */ }
     };
     refreshCatalog();
     const timer = setInterval(refreshCatalog, 300000);
@@ -210,6 +217,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   }, [exchange, marketType, marketSearch, directMode]);
 
   const load = async () => {
+    if (marketType === 'cfd' && catalogError) { setError(catalogError); setCandles([]); setLoading(false); return; }
+    if (marketType === 'cfd' && marketSymbols.length && !marketSymbols.includes(symbol)) { setError('Select a listed Bitget CFD instrument before loading its chart.'); setCandles([]); setLoading(false); return; }
     setLoading(true);
     const encodedSymbol = symbol.replace('/', '-');
     const request = async (path) => {
@@ -243,6 +252,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     let controller = null;
     const refresh = async () => {
       if (inFlight) return;
+      if (marketType === 'cfd' && catalogError) { setError(catalogError); setCandles([]); setLoading(false); return; }
+      if (marketType === 'cfd' && marketSymbols.length && !marketSymbols.includes(symbol)) { setError('Select a listed Bitget CFD instrument before loading its chart.'); setCandles([]); setLoading(false); return; }
       inFlight = true;
       controller = new AbortController();
       const { signal } = controller;
@@ -293,7 +304,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       clearInterval(timer);
       controller?.abort();
     };
-  }, [exchange, symbol, timeframe, marketType, marketInstrumentId, marketSide]);
+  }, [exchange, symbol, timeframe, marketType, marketInstrumentId, marketSide, marketSymbols, catalogError]);
 
   const metrics = useMemo(() => {
     const closes = candles.map((c) => c[4]);
@@ -397,6 +408,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <option value="options" disabled>Options (not enabled in this adapter)</option>
       </select>
       {directMode && <span className="subtle-note" role="status">{exchange === 'bitget' ? (marketType === 'cfd' ? 'Bitget CFD chart data uses the separate signed UTA read-only API. Configure the three Bitget credentials as Cloudflare Pages secrets. CFD candle history is side-specific and does not provide traded volume.' : 'Bitget public instruments: Spot, Margin, USDT-M, Coin-M and USDC-M. CFD is available through the separate authenticated Cloudflare feed.') : 'This direct adapter currently exposes spot markets for this exchange. Select Bitget for supported derivatives, margin and CFD markets.'}</span>}
+      {catalogError && marketType === 'cfd' && <span className="subtle-note" role="alert">{catalogError}</span>}
       {marketType === 'cfd' && <label>CFD quote side <select aria-label="CFD candle side" value={marketSide} onChange={(e) => setMarketSide(e.target.value)}><option value="buy">Buy / Ask-side</option><option value="sell">Sell / Bid-side</option></select></label>}
       <input className="market-search" aria-label="Search markets" placeholder="Search pair…" value={marketSearch} onChange={(e) => setMarketSearch(e.target.value)} />
       <label htmlFor="jpti-symbol">Pair</label>
