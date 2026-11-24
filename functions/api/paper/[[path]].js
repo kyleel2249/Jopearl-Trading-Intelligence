@@ -115,8 +115,9 @@ async function dashboard(db){
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade),metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);
   const outOfSample=trades.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSample);
-  const row=await db.prepare('SELECT tier,status,promoted_at FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
-  agents.push({...agent,tier:row?.tier||'RESEARCH',status:row?.status||'active',promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
+  const row=await db.prepare('SELECT tier,status,promoted_at,payload FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
+  let stored={};try{stored=JSON.parse(row?.payload||'{}')}catch{}
+  agents.push({...agent,...stored,tier:row?.tier||'RESEARCH',status:row?.status||'active',promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
  }
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
  return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
