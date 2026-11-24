@@ -81,7 +81,7 @@ export function analyzeLiquidityTargets(input=[],{timeframe='15m',now=Date.now()
  const nearestBuy=buy.slice().sort((x,y)=>Math.abs(x.price-last)-Math.abs(y.price-last))[0]||null;
  const nearestSell=sell.slice().sort((x,y)=>Math.abs(x.price-last)-Math.abs(y.price-last))[0]||null;
  const inducement=setup?{state:'possible-inducement',direction:setup.direction,level:setup.liquidityPool.price,confirmedBy:'wick-through-and-close-back-inside',timestamp:setup.timestamp}:null;
- return {status:last==null?'insufficient':'ready',asOf:new Date(now).toISOString(),timeframe,last,atr:a,
+ return {status:last==null||sample.length<12?'insufficient':'ready',asOf:new Date(now).toISOString(),timeframe,last,atr:a,
   pools:{buySide:buy,sellSide:sell},swingPoints:{highs:swingHighs,lows:swingLows},
   targets:{above:nearestBuy,below:nearestSell},setup,inducement,
   formingCandles:forming.length,closedCandles:closed.length,
