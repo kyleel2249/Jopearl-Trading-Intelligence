@@ -100,7 +100,7 @@ const timeLabel = (stamp, timeframe) => {
     : date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 };
 
-export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, alphaLevels = [] }) {
+export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange, initialTimeframe, initialMarketType = 'futures', onTimeframeChange, onMarketTypeChange, onMarketSideChange, alphaLevels = [] }) {
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
@@ -180,6 +180,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
 
   useEffect(() => { if (initialMarketType && initialMarketType !== marketType) setMarketType(initialMarketType); }, [initialMarketType, marketType]);
   useEffect(() => { if (onMarketTypeChange) onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
+  useEffect(() => { if (onMarketSideChange) onMarketSideChange(marketSide); }, [marketSide, onMarketSideChange]);
 
   useEffect(() => {
     if (directMode && exchange !== 'bitget' && marketType !== 'spot') setMarketType('spot');

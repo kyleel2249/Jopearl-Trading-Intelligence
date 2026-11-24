@@ -24,20 +24,27 @@ export default function InstitutionalMarketIntelligence({exchange='bitget',onExc
  const [error,setError]=useState('');
  const [loading,setLoading]=useState(false);
  const [view,setView]=useState('Overview');
+ const [marketType,setMarketType]=useState('spot');
+ const [marketSide,setMarketSide]=useState('buy');
+ const [marketCatalog,setMarketCatalog]=useState([]);
  const [history,setHistory]=useState([]);
  const requestVersion=useRef(0);
 
  useEffect(()=>{setSelectedExchange(exchange);},[exchange]);
  useEffect(()=>{let active=true;apiFetch('/api/exchanges',{cache:'no-store'}).then(r=>r.json()).then(data=>{if(active&&Array.isArray(data.exchanges)){const supported=data.exchanges.filter(item=>item.capabilities?.ohlcv);if(supported.length)setExchangeOptions(supported);}}).catch(()=>{});return()=>{active=false;};},[]);
+ useEffect(()=>{let active=true;apiFetch('/api/exchanges/'+encodeURIComponent(selectedExchange)+'/markets?type='+encodeURIComponent(marketType),{cache:'no-store'}).then(r=>r.json()).then(data=>{if(active&&Array.isArray(data.markets))setMarketCatalog(data.markets);}).catch(()=>{if(active)setMarketCatalog([]);});return()=>{active=false;};},[selectedExchange,marketType]);
  const load=useCallback(async()=>{
   const id=++requestVersion.current;
   setLoading(true);setError('');
   try{
    const market=symbol.replace('/','-');
+   const selectedMarket=marketCatalog.find(item=>item.symbol===symbol);
+   const instrumentQuery=selectedMarket?.id?'&instrumentId='+encodeURIComponent(selectedMarket.id):'';
+   const sideQuery=marketType==='cfd'?'&side='+encodeURIComponent(marketSide):'';
    const urls=[
-    '/api/exchanges/'+encodeURIComponent(selectedExchange)+'/ohlcv/'+encodeURIComponent(market)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=240&type='+encodeURIComponent(marketType),
-    '/api/intelligence/market/'+encodeURIComponent(selectedExchange)+'/'+encodeURIComponent(market)+'/context?timeframe='+encodeURIComponent(timeframe)+'&type='+encodeURIComponent(marketType),
-    '/api/institutional/context/'+encodeURIComponent(selectedExchange)+'/'+encodeURIComponent(market)+'?timeframe='+encodeURIComponent(timeframe)+'&type='+encodeURIComponent(marketType)
+    '/api/exchanges/'+encodeURIComponent(selectedExchange)+'/ohlcv/'+encodeURIComponent(market)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=240&type='+encodeURIComponent(marketType)+instrumentQuery+sideQuery,
+    '/api/intelligence/market/'+encodeURIComponent(selectedExchange)+'/'+encodeURIComponent(market)+'/context?timeframe='+encodeURIComponent(timeframe)+'&type='+encodeURIComponent(marketType)+instrumentQuery+sideQuery,
+    '/api/institutional/context/'+encodeURIComponent(selectedExchange)+'/'+encodeURIComponent(market)+'?timeframe='+encodeURIComponent(timeframe)+'&type='+encodeURIComponent(marketType)+instrumentQuery+sideQuery
    ];
    const responses=await Promise.all(urls.map(url=>apiFetch(url,{cache:'no-store'})));
    const payloads=await Promise.all(responses.map(response=>response.json()));
@@ -49,7 +56,7 @@ export default function InstitutionalMarketIntelligence({exchange='bitget',onExc
    setInstitutional(payloads[2]);
   }catch(e){if(id===requestVersion.current)setError(e.message||'Institutional intelligence refresh failed.');}
   finally{if(id===requestVersion.current)setLoading(false);}
- },[selectedExchange,symbol,timeframe]);
+ },[selectedExchange,symbol,timeframe,marketType,marketSide,marketCatalog]);
  useEffect(()=>{load();const timer=setInterval(load,45000);return()=>{clearInterval(timer);requestVersion.current++;};},[load]);
 
  const snap=useMemo(()=>analyzeIMI(candles,symbol,timeframe,marketContext),[candles,symbol,timeframe,marketContext]);
@@ -97,8 +104,8 @@ export default function InstitutionalMarketIntelligence({exchange='bitget',onExc
   <header className="imi-hero"><div><span>JPTI / INSTITUTIONAL INTELLIGENCE FUSION</span><h2>Institutional Market Intelligence</h2><p>Liquidity, macro releases, central-bank communications, news and volatility risk fused with the active live chart.</p></div><div className="imi-status">{loading?'SYNCING LIVE EVIDENCE':snap.status==='ready'?'LIVE CHART LINKED':'INSUFFICIENT DATA'}<small>{institutional?.generatedAt?new Date(institutional.generatedAt).toLocaleTimeString():'Awaiting snapshot'}</small></div></header>
   <div className="imi-chart-controls"><label>Chart exchange<select value={selectedExchange} onChange={e=>{setSelectedExchange(e.target.value);onExchangeChange(e.target.value);}}>{exchangeOptions.map(item=><option key={item.id} value={item.id}>{item.name||item.id.toUpperCase()}{item.configured?' · configured':''}</option>)}</select></label><div><b>{symbol}</b><small>Pair is selected on the live chart below</small></div><div><b>{timeframe}</b><small>Timeframe is synchronized with the live chart</small></div><button onClick={load} disabled={loading}>{loading?'Refreshing…':'Refresh all intelligence'}</button></div>
   {error&&<div className="imi-warning">{error}</div>}
-  <div className="imi-chart"><LiveCandlestickChart exchange={selectedExchange} symbol={symbol} onSymbolChange={onSymbolChange} initialTimeframe={timeframe} initialMarketType={marketType} onTimeframeChange={onTimeframeChange} onMarketTypeChange={setMarketType} alphaLevels={[...(snap.levels||[]),...forecastLevels,...(liquidity.pools||[]).slice(0,8).map(pool=>({price:pool.level,label:(pool.side==='buy-side'?'BSL':'SSL')+' '+pool.kind,color:pool.side==='buy-side'?'#e6b86a':'#79bce8'})),...(liquidity.visibleDepth?.walls||[]).slice(0,4).map(wall=>({price:wall.price,label:(wall.side==='bid'?'Bid':'Ask')+' depth wall',color:wall.side==='bid'?'#64c6a3':'#e58a91'}))]}/></div>
-  <RangeForecastEngine exchange={selectedExchange} symbol={symbol} timeframe={timeframe} marketType={marketType} onForecastLevels={setForecastLevels}/>
+  <div className="imi-chart"><LiveCandlestickChart exchange={selectedExchange} symbol={symbol} onSymbolChange={onSymbolChange} initialTimeframe={timeframe} initialMarketType={marketType} onTimeframeChange={onTimeframeChange} onMarketTypeChange={setMarketType} onMarketSideChange={setMarketSide} alphaLevels={[...(snap.levels||[]),...forecastLevels,...(liquidity.pools||[]).slice(0,8).map(pool=>({price:pool.level,label:(pool.side==='buy-side'?'BSL':'SSL')+' '+pool.kind,color:pool.side==='buy-side'?'#e6b86a':'#79bce8'})),...(liquidity.visibleDepth?.walls||[]).slice(0,4).map(wall=>({price:wall.price,label:(wall.side==='bid'?'Bid':'Ask')+' depth wall',color:wall.side==='bid'?'#64c6a3':'#e58a91'}))]}/></div>
+  <RangeForecastEngine exchange={selectedExchange} symbol={symbol} timeframe={timeframe} marketType={marketType} instrumentId={marketCatalog.find(item=>item.symbol===symbol)?.id} marketSide={marketSide} onForecastLevels={setForecastLevels}/>
   <div className="imi-toolbar"><div><b>{selectedExchange.toUpperCase()} · {symbol} · {timeframe}</b><small>{quality.validCandles||candles.length} valid candles · {scores.confidence||'pending'} confidence · refresh every 45s</small></div><span className="imi-risk-state">EVENT RISK · {riskLabel(risk.state)}</span></div>
   <nav className="imi-tabs">{views.map(v=><button key={v} className={view===v?'active':''} onClick={()=>setView(v)}>{v}</button>)}</nav>
   <section className="imi-panel">{content()}</section>
