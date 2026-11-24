@@ -24,6 +24,9 @@ test('closed-candle signal engine evaluates all ten specialist roles without run
  for(let i=0;i<100;i++){const open=p;p*=1+(i%7===0?-.0005:.0008);candles.push([1700000000000+i*60000,open,p*1.002,open*.998,p,100+i]);}
  const ticker={last:p,bid:p-.01,ask:p+.01,timestamp:Date.now()};
  for(const a of PAPER_AGENTS){const result=derivePaperSignal(candles,ticker,a.strategyId);assert.ok(['WAIT','SIGNAL'].includes(result.action));}
+ const malformed=Array.from({length:40},(_,i)=>[i,100,NaN,99,100,10]);
+ const guarded=derivePaperSignal(candles,ticker,'trend',{timeframes:{'5m':malformed}});
+ assert.ok(Object.values(guarded.features.timeframeBias).every(Number.isFinite));
 });
 test('paper fill and exit settlement charge entry and exit spread, slippage and fees',()=>{
  const fill=simulatePaperFill({direction:'LONG',price:100,quantity:2,feeRate:.001,slippageBps:5,spreadBps:4});
