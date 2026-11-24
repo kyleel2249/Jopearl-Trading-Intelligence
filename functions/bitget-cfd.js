@@ -112,7 +112,7 @@ function normalizeCandles(payload, symbol, timeframe, side) {
 
 export function createBitgetCfdProvider({ fetchImpl = fetch, now = () => Date.now() } = {}) {
   return {
-    async request(env, { kind, symbol, timeframe = '1h', side = 'buy', search = '' } = {}) {
+    async request(env, { kind, symbol, timeframe = '1h', side = 'buy', search = '', limit = 100 } = {}) {
       if (kind === 'markets') {
         const payload = await signedGet(env, '/api/v3/cfd/account/instruments', {}, { fetchImpl, now });
         const all = normalizeInstruments(payload);
@@ -137,9 +137,9 @@ export function createBitgetCfdProvider({ fetchImpl = fetch, now = () => Date.no
         if (!frame) throw jsonError('Bitget CFD supports 1m, 15m, 1h, 4h and 1d candles.', 400, 'BITGET_CFD_TIMEFRAME_UNSUPPORTED');
         const candleSide = String(side).toLowerCase();
         if (!['buy', 'sell'].includes(candleSide)) throw jsonError('CFD candle side must be buy or sell.', 400, 'BITGET_CFD_SIDE_INVALID');
-        const limit = Math.min(100, Math.max(20, Number.parseInt(arguments[1]?.limit || '100', 10) || 100));
+        const candleLimit = Math.min(100, Math.max(20, Number.parseInt(limit || '100', 10) || 100));
         const payload = await signedGet(env, '/api/v3/cfd/market/history-candlestick', {
-          symbol: market, interval: frame, side: candleSide, limit
+          symbol: market, interval: frame, side: candleSide, limit: candleLimit
         }, { fetchImpl, now });
         return { status: 200, body: normalizeCandles(payload, market, frame, candleSide) };
       }
