@@ -24,6 +24,11 @@ function emitConfigChange() {
 const sessionStorageSafe = () => {
   try { return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null; } catch { return null; }
 };
+function isPrivateJournalRoute(path) {
+  const value = String(path || '').replace(/^https?:\\/\\/[^/]+/i, '').split('?')[0];
+  return /^\\/api\\/(?:journal\\/entries|mentor\\/analyze)\\/?$/i.test(value);
+}
+
 export function getApiToken() {
   const store = sessionStorageSafe();
   try { return String(store?.getItem(TOKEN_KEY) || ''); } catch { return ''; }
@@ -220,7 +225,7 @@ export async function apiFetch(path, options = {}) {
   }
   const headers = new Headers(options.headers || {});
   const token = getApiToken();
-  if (token && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+  if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
   let response;
   try {
     response = await fetch(apiUrl(path), { ...options, headers });
