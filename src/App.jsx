@@ -55,6 +55,7 @@ function WorkspaceFallback() {
 const navigation = [
   { label: 'Overview', icon: LayoutDashboard, group: 'COMMAND' },
   { label: 'Institutional Terminal', icon: Command, group: 'COMMAND' },
+  { label: 'Chart Terminal', icon: CandlestickChart, group: 'MARKETS' },
   { label: 'Spot & Markets', icon: CandlestickChart, group: 'MARKETS' },
   { label: 'Futures', icon: Activity, group: 'MARKETS' },
   { label: 'Futures Intelligence', icon: Radio, group: 'MARKETS' },
@@ -432,6 +433,7 @@ function App() {
   const pageDescription = {
     'Overview': 'A live operational view across markets, intelligence sources and risk controls.',
     'Institutional Terminal': 'A precision command surface for live market intelligence, watchlists and disciplined operator workflows.',
+    'Chart Terminal': 'A dedicated full-screen single-chart workstation with live market data, chart-linked indicators, signals and strategy intelligence.',
     'Spot & Markets': 'Live multi-exchange market data and technical analysis.',
     'Futures': 'Derivatives market discovery. Contract availability depends on exchange support.',
     'Futures Intelligence': 'Cross-exchange futures pricing, order-book depth, funding and paper arbitrage research.',
@@ -567,7 +569,8 @@ function App() {
          <p className="subtle-note">{labData.caveats.join(' ')}</p>
        </>}
      </section>;
-     if (page === 'Spot & Markets' || page === 'Futures') return <MultiChartWorkstation mode={page === 'Futures' ? 'futures' : 'spot'} symbol={symbol} onSymbolChange={setSymbol} terminalFocus/>;
+     if (page === 'Chart Terminal') return <MultiChartWorkstation mode="spot" symbol={symbol} onSymbolChange={setSymbol} terminalFocus dedicatedTerminal/>;
+    if (page === 'Spot & Markets' || page === 'Futures') return <MultiChartWorkstation mode={page === 'Futures' ? 'futures' : 'spot'} symbol={symbol} onSymbolChange={setSymbol} terminalFocus/>;
     if (page === 'Market Scanner') return <section className="glass-panel detail-workspace"><span className="eyebrow">LIVE MARKET MONITOR</span><h3>Monitored market universe</h3><p>JPTI samples real exchange tickers on the configured market-monitor interval. Add symbols to the server-side watchlist in your .env file.</p><pre>JPTI_MONITOR_MARKETS=binance:BTC/USDT,bitget:ETH/USDT</pre><div className="scanner-table"><div><span>EXCHANGE</span><span>SYMBOL</span><span>LAST</span><span>24H CHANGE</span><span>QUOTE VOLUME</span></div>{(marketJob?.lastSnapshot || []).map((item) => <div key={item.exchange + item.symbol}><b>{item.exchange}</b><b>{item.symbol}</b><strong>{fmt(item.last)}</strong><strong className={Number(item.percentage) >= 0 ? 'up' : 'down'}>{item.percentage == null ? '—' : fmt(item.percentage) + '%'}</strong><span>{fmt(item.quoteVolume)}</span></div>)}{!marketJob?.lastSnapshot?.length && <p className="empty-state">No live watchlist snapshot yet. Configure JPTI_MONITOR_MARKETS and wait for the next scheduler cycle.</p>}</div>{renderOperations()}</section>;
     if (page === 'Portfolio & Ledger') return <section className="glass-panel detail-workspace">
        <span className="eyebrow">PERSISTENT TRANSACTION JOURNAL</span><h3>Portfolio accounting & reconciliation</h3>
@@ -674,7 +677,7 @@ function App() {
   };
 
   const groups = [...new Set(navigation.map((item) => item.group))];
-  const marketTerminalMode = page === 'Spot & Markets' || page === 'Futures';
+  const marketTerminalMode = page === 'Chart Terminal' || page === 'Spot & Markets' || page === 'Futures';
   useEffect(() => {
     if (!marketTerminalMode) return undefined;
     const onKeyDown = (event) => { if (event.key === 'Escape') setPage('Overview'); };
@@ -686,10 +689,11 @@ function App() {
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
     {marketTerminalMode && <div className="jpti-market-terminal-bar">
       <div className="jpti-market-terminal-brand"><img src={`${import.meta.env.BASE_URL}jpti-icon.svg`} alt="JPTI"/><span><b>JPTI MARKET TERMINAL</b><small>FULL-SCREEN CHART WORKSTATION</small></span></div>
-      <div className="jpti-market-terminal-switch" aria-label="Market terminal mode">
+      {page !== 'Chart Terminal' && <div className="jpti-market-terminal-switch" aria-label="Market terminal mode">
         <button type="button" className={page === 'Spot & Markets' ? 'active' : ''} onClick={() => activeNav('Spot & Markets')}>SPOT MARKETS</button>
         <button type="button" className={page === 'Futures' ? 'active' : ''} onClick={() => activeNav('Futures')}>DERIVATIVES</button>
-      </div>
+      </div>}
+      {page === 'Chart Terminal' && <div className="jpti-chart-terminal-center-label">SINGLE MARKET · LIVE CANDLES · CHART-LINKED INTELLIGENCE</div>}
       <div className="jpti-market-terminal-actions"><span><i/> CHART WORKSPACE</span><button type="button" onClick={() => activeNav('Overview')}>EXIT TERMINAL <b>ESC</b></button></div>
     </div>}
     <aside className={'command-sidebar ' + (mobileOpen ? 'mobile-open' : '')}>

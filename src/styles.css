@@ -295,3 +295,40 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 .jpti-market-fullscreen .jpti-terminal-focus-chart { margin:0; padding:10px; }
 .jpti-market-fullscreen .jpti-terminal-focus-chart .candlestick-svg-wrap { height:clamp(340px,55vh,760px); }
 .jpti-market-fullscreen .jpti-terminal-focus-chart .chart-toolbar { position:sticky; top:0; z-index:4; background:#0e1726; padding:7px 0; }
+
+
+/* Dedicated single-chart terminal: maximize the chart without changing the existing multi-chart workspace. */
+.jpti-chart-terminal-center-label{font:700 8px 'DM Sans',sans-serif;letter-spacing:1.15px;color:#8fb4d8;text-align:center}
+.jpti-dedicated-chart-terminal{flex:1!important;width:100%;height:100%;min-height:0!important;overflow:hidden!important;gap:0!important;padding:0!important;background:#050b17}
+.jpti-dedicated-terminal-toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:8px 14px;background:#081629;border-bottom:1px solid #1d3856;min-height:49px}
+.jpti-dedicated-terminal-market{display:flex;align-items:center;gap:9px;min-width:0}
+.jpti-dedicated-terminal-market b,.jpti-dedicated-terminal-market small{display:block}
+.jpti-dedicated-terminal-market b{font:700 13px 'Space Grotesk',sans-serif;color:#f0f6ff;letter-spacing:.4px}
+.jpti-dedicated-terminal-market small{font:600 7px 'DM Sans',sans-serif;color:#7894b4;letter-spacing:1px;margin-top:3px}
+.jpti-terminal-live-indicator{width:7px;height:7px;flex:0 0 7px;border-radius:50%;background:#31d99a;box-shadow:0 0 10px #31d99a}
+.jpti-dedicated-terminal-actions{display:flex;align-items:center;gap:7px}
+.jpti-dedicated-terminal-actions label{display:flex;align-items:center;gap:6px;color:#7f9ab9;font:700 7px 'DM Sans',sans-serif;letter-spacing:.8px}
+.jpti-dedicated-terminal-actions select,.jpti-dedicated-terminal-actions button{border:1px solid #294665;border-radius:5px;background:#10243b;color:#c9d9eb;padding:7px 9px;font:700 8px 'DM Sans',sans-serif}
+.jpti-dedicated-terminal-actions button{display:flex;align-items:center;gap:5px}
+.jpti-terminal-watchstrip{display:flex;align-items:center;gap:5px;overflow-x:auto;white-space:nowrap;padding:6px 12px;background:#071222;border-bottom:1px solid #172e49}
+.jpti-terminal-watchstrip>span{font:700 7px 'DM Sans',sans-serif;letter-spacing:1px;color:#627f9f;margin-right:5px}
+.jpti-terminal-watchstrip button{border:1px solid #203954;border-radius:4px;background:#0d1e32;color:#91a9c4;padding:5px 8px;font:700 8px 'DM Sans',sans-serif}
+.jpti-terminal-watchstrip button.active{border-color:#287dc3;background:#123b62;color:#fff}
+.jpti-dedicated-chart-stage{display:flex;flex:1;min-height:0;overflow:hidden}
+.jpti-dedicated-chart-stage>.trading-chart-panel{display:flex;flex:1;min-width:0;min-height:0;height:100%;margin:0!important;border:0!important;border-radius:0!important;padding:8px 12px!important;flex-direction:column}
+.jpti-dedicated-chart-stage .candlestick-svg-wrap{height:100%!important;min-height:0!important;max-height:none!important;flex:1}
+.jpti-dedicated-chart-stage .chart-toolbar{position:sticky;top:0;z-index:5}
+.jpti-dedicated-terminal-foot{display:flex;justify-content:space-between;gap:10px;padding:5px 12px;background:#071222;border-top:1px solid #172e49;color:#607c9c;font:700 7px 'DM Sans',sans-serif;letter-spacing:.55px}
+.jpti-market-fullscreen .page-content>.jpti-dedicated-chart-terminal{flex:1;min-height:0;display:flex}
+@media(max-width:760px){
+ .jpti-chart-terminal-center-label{display:none}
+ .jpti-dedicated-terminal-toolbar{padding:7px 8px;min-height:43px}
+ .jpti-dedicated-terminal-actions{gap:4px}
+ .jpti-dedicated-terminal-actions label{font-size:6px}
+ .jpti-dedicated-terminal-actions select,.jpti-dedicated-terminal-actions button{padding:6px 5px;font-size:7px}
+ .jpti-terminal-watchstrip{padding:5px 7px}
+ .jpti-dedicated-chart-stage>.trading-chart-panel{padding:6px!important;overflow:visible}
+ .jpti-dedicated-chart-stage .candlestick-svg-wrap{min-height:200px!important}
+ .jpti-dedicated-terminal-foot{font-size:6px;padding:5px 7px}
+ .jpti-dedicated-terminal-foot span:nth-child(2){display:none}
+}
