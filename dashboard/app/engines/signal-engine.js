@@ -68,12 +68,12 @@ export function analyzeSignal(candles, { symbol = 'BTC/USDT', exchange = 'bitget
   const momentumBull = momentum != null && momentum >= 52 && momentum <= 74;
   const momentumBear = momentum != null && momentum <= 48 && momentum >= 26;
   const evidence = [
-    { key: 'trend', label: 'EMA 20 / 50 alignment', bullish: bullish ? 15 : 0, bearish: bearish ? 15 : 0, detail: bullish ? 'Price and fast EMA above slow EMA' : bearish ? 'Price and fast EMA below slow EMA' : 'Trend alignment is mixed' },
-    { key: 'structure', label: 'Structure / breakout', bullish: breakoutUp ? 15 : 0, bearish: breakoutDown ? 15 : 0, detail: breakoutUp ? 'Close cleared the prior 20-bar high' : breakoutDown ? 'Close broke the prior 20-bar low' : 'No confirmed 20-bar breakout' },
-    { key: 'momentum', label: 'RSI momentum', bullish: momentumBull ? 10 : 0, bearish: momentumBear ? 10 : 0, detail: momentum == null ? 'Unavailable' : 'RSI ' + momentum.toFixed(1) },
-    { key: 'volume', label: 'Relative volume', bullish: volumeConfirmed && Number(last[4]) >= Number(last[1]) ? 10 : 0, bearish: volumeConfirmed && Number(last[4]) < Number(last[1]) ? 10 : 0, detail: relativeVolume == null ? 'Unavailable' : relativeVolume.toFixed(2) + '× 20-bar average' },
-    { key: 'follow-through', label: 'Price follow-through', bullish: change20 > 0.25 ? 10 : 0, bearish: change20 < -0.25 ? 10 : 0, detail: change20.toFixed(2) + '% over 20 completed bars' },
-    { key: 'range', label: 'Range position', bullish: Number(last[4]) > (recentHigh + recentLow) / 2 ? 5 : 0, bearish: Number(last[4]) < (recentHigh + recentLow) / 2 ? 5 : 0, detail: '20-bar range ' + recentLow + ' – ' + recentHigh }
+    { key: 'trend', label: 'EMA 20 / 50 alignment', max: 15, bullish: bullish ? 15 : 0, bearish: bearish ? 15 : 0, detail: bullish ? 'Price and fast EMA above slow EMA' : bearish ? 'Price and fast EMA below slow EMA' : 'Trend alignment is mixed' },
+    { key: 'structure', label: 'Structure / breakout', max: 15, bullish: breakoutUp ? 15 : 0, bearish: breakoutDown ? 15 : 0, detail: breakoutUp ? 'Close cleared the prior 20-bar high' : breakoutDown ? 'Close broke the prior 20-bar low' : 'No confirmed 20-bar breakout' },
+    { key: 'momentum', label: 'RSI momentum', max: 10, bullish: momentumBull ? 10 : 0, bearish: momentumBear ? 10 : 0, detail: momentum == null ? 'Unavailable' : 'RSI ' + momentum.toFixed(1) },
+    { key: 'volume', label: 'Relative volume', max: 10, bullish: volumeConfirmed && Number(last[4]) >= Number(last[1]) ? 10 : 0, bearish: volumeConfirmed && Number(last[4]) < Number(last[1]) ? 10 : 0, detail: relativeVolume == null ? 'Unavailable' : relativeVolume.toFixed(2) + '× 20-bar average' },
+    { key: 'follow-through', label: 'Price follow-through', max: 10, bullish: change20 > 0.25 ? 10 : 0, bearish: change20 < -0.25 ? 10 : 0, detail: change20.toFixed(2) + '% over 20 completed bars' },
+    { key: 'range', label: 'Range position', max: 5, bullish: Number(last[4]) > (recentHigh + recentLow) / 2 ? 5 : 0, bearish: Number(last[4]) < (recentHigh + recentLow) / 2 ? 5 : 0, detail: '20-bar range ' + recentLow + ' – ' + recentHigh }
   ];
   const bullScore = evidence.reduce((sum, item) => sum + item.bullish, 0);
   const bearScore = evidence.reduce((sum, item) => sum + item.bearish, 0);
