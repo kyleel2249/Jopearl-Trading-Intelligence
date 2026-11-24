@@ -82,15 +82,13 @@ test('Cloudflare Pages has a dedicated signed Bitget CFD market route', () => {
 });
 
 
-test('Futures workspace initializes the shared chart with Futures instead of Spot', () => {
+test('Spot and Futures workspaces initialize the multi-chart terminal with the correct market mode', () => {
   const app = read('../src/App.jsx');
-  const connectivity = read('../src/ExchangeConnectivity.jsx');
-  assert.match(app, /initialExchange=\{page === 'Futures' \? 'bitget' : 'binance'\}/);
-  assert.match(app, /initialMarketType=\{page === 'Futures' \? 'futures' : 'spot'\}/);
-  assert.match(connectivity, /initialExchange = 'binance'/);
-  assert.match(connectivity, /initialMarketType = 'spot'/);
-  assert.match(connectivity, /useState\(initialExchange \|\| 'binance'\)/);
-  assert.match(connectivity, /useState\(initialMarketType \|\| 'spot'\)/);
+  const workstation = read('../src/MultiChartWorkstation.jsx');
+  assert.match(app, /<MultiChartWorkstation mode=\{page === 'Futures' \? 'futures' : 'spot'\}/);
+  assert.match(workstation, /mode === 'futures' \? 'futures' : 'spot'/);
+  assert.match(workstation, /index === 0 && mode === 'spot' \? 'binance' : 'bitget'/);
+  assert.match(workstation, /initialMarketType=\{tile\.marketType\}/);
 });
 
 test('API-source listener refreshes its exchange capture when the selected exchange changes', () => {
