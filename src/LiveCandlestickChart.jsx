@@ -428,7 +428,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     if (!wrapEl) return undefined;
     const onWheel = (event) => {
       const rect = wrapEl.getBoundingClientRect();
-      if (!axisEdgeRef.current || event.clientX - rect.left <= axisEdgeRef.current) return;
+      if (!axisEdgeRef.current || event.clientX - rect.left + wrapEl.scrollLeft <= axisEdgeRef.current) return;
       event.preventDefault();
       setPriceZoom((value) => Math.max(0.5, Math.min(12, value * (event.deltaY < 0 ? 1.12 : 1 / 1.12))));
     };
