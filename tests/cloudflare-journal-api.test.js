@@ -4,24 +4,21 @@ import { createPagesApiHandler } from '../functions/api/[[path]].js';
 
 function fakeDb() {
   const rows = new Map();
+  const events = new Map();
   return {
-    rows,
+    rows, events,
     prepare(sql) {
       return {
         bind(...values) {
           return {
             async all() {
-              if (sql.includes('SELECT payload, updated_at FROM jpti_journal_entries')) {
-                return { results: [...rows.values()].map(row => ({ payload: row.payload, updated_at: row.updated_at })) };
-              }
+              if (sql.includes('SELECT payload, updated_at FROM jpti_journal_entries')) return { results: [...rows.values()].map(row => ({ payload: row.payload, updated_at: row.updated_at })) };
+              if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0]; return { results:[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>a.occurred_at.localeCompare(b.occurred_at)).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
               return { results: [] };
             },
             async run() {
-              if (sql.includes('INSERT INTO jpti_journal_entries')) {
-                const [owner, id, symbol, payload] = values;
-                rows.set(owner + ':' + id, { owner_key: owner, entry_id: id, symbol, payload, updated_at: new Date().toISOString() });
-                return { success: true, meta: { changes: 1 } };
-              }
+              if (sql.includes('INSERT INTO jpti_journal_entries')) { const [owner,id,symbol,payload]=values; rows.set(owner+':'+id,{owner_key:owner,entry_id:id,symbol,payload,updated_at:new Date().toISOString()}); return {success:true,meta:{changes:1}}; }
+              if (sql.includes('INSERT OR IGNORE INTO jpti_events')) { const [id,kind,source,external_id,symbol,occurred_at,payload]=values; if(events.has(id))return{success:true,meta:{changes:0}}; events.set(id,{id,kind,source,external_id,symbol,occurred_at,payload}); return{success:true,meta:{changes:1}}; }
               return { success: true, meta: { changes: 0 } };
             },
             async first() { return null; }
@@ -94,4 +91,31 @@ test('AI mentor endpoint reports missing Workers AI binding without pretending t
   const data = await response.json();
   assert.equal(response.status, 503);
   assert.equal(data.code, 'WORKERS_AI_BINDING_MISSING');
+});
+
+const privateRequest=(path,method,body,token='test-private-token')=>new Request('https://jpti.example'+path,{method,headers:{...(token?{'x-jpti-api-token':token}:{}),...(body?{'content-type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});
+test('Cloudflare session memory API persists, summarizes and de-duplicates outcomes in D1',async()=>{
+ const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'};
+ const saved=await handler(db)({request:privateRequest('/api/session/memory','POST',{id:'session-1',session:'London',symbol:'BTC/USDT',strategy:'liquidity reclaim',volatility:'normal',outcome:'win',returnR:1.75}),env});
+ assert.equal(saved.status,201);assert.equal((await saved.json()).storage,'cloudflare-d1');
+ const duplicate=await handler(db)({request:privateRequest('/api/session/memory','POST',{id:'session-1',session:'London',symbol:'BTC/USDT',outcome:'win',returnR:1.75}),env});assert.equal((await duplicate.json()).duplicate,true);
+ const loaded=await handler(db)({request:privateRequest('/api/session/memory','GET'),env}),data=await loaded.json();assert.equal(data.count,1);assert.equal(data.summary[0].winRate,100);
+});
+test('Cloudflare session memory batch imports idempotently and validates outcomes',async()=>{
+ const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'},records=[{id:'b1',session:'Asia',symbol:'ETH/USDT',outcome:'loss',returnR:-1},{id:'b2',session:'London',symbol:'BTC/USDT',outcome:'breakeven',returnR:0}];
+ const first=await handler(db)({request:privateRequest('/api/session/memory/batch','POST',{records}),env});assert.equal((await first.json()).imported,2);
+ const again=await handler(db)({request:privateRequest('/api/session/memory/batch','POST',{records}),env});assert.equal((await again.json()).duplicates,2);
+ const invalid=await handler(db)({request:privateRequest('/api/session/memory','POST',{outcome:'invalid'}),env});assert.equal(invalid.status,400);
+});
+test('Cloudflare GainzAlpha outcomes API persists, filters and de-duplicates learning records',async()=>{
+ const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'};
+ const record={id:'gainz-1',setupId:'setup-1',symbol:'BTC/USDT',exchange:'bitget',timeframe:'15m',preset:'balanced',setupType:'sweep-reclaim',direction:'bullish',session:'london',regime:'trend',volRegime:'normal',candleTs:1795500000000,outcome:'win',returnR:1.5,confidence:72,factors:{liquidity:.8,volume:.4}};
+ const saved=await handler(db)({request:privateRequest('/api/alpha/gainz/outcomes','POST',{records:[record]}),env});assert.equal((await saved.json()).saved,1);
+ const duplicate=await handler(db)({request:privateRequest('/api/alpha/gainz/outcomes','POST',{records:[record]}),env});assert.equal((await duplicate.json()).duplicates,1);
+ const loaded=await handler(db)({request:privateRequest('/api/alpha/gainz/outcomes?symbol=BTC%2FUSDT&timeframe=15m','GET'),env});const data=await loaded.json();assert.equal(data.count,1);assert.equal(data.records[0].factors.liquidity,.8);
+ const invalid=await handler(db)({request:privateRequest('/api/alpha/gainz/outcomes','POST',{records:[{...record,outcome:'invalid'}]}),env});assert.equal((await invalid.json()).rejected.length,1);
+});
+test('Cloudflare session and learning routes reject unauthenticated requests',async()=>{
+ const db=fakeDb(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:'test-private-token'};
+ for(const path of ['/api/session/memory','/api/alpha/gainz/outcomes']){const response=await handler(db)({request:privateRequest(path,'GET',null,''),env});assert.equal(response.status,401);}
 });

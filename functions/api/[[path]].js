@@ -231,6 +231,71 @@ async function handleJournalRoute(request, env, url) {
   return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
 }
 
+const MAX_SESSION_OUTCOMES=20000,MAX_GAINZ_OUTCOMES=5000,MAX_GAINZ_BATCH=500;
+const btxt=(v,n,d='unknown')=>String(v??'').trim().slice(0,n)||d;
+const bnum=(v,lo,hi)=>{if(v===null||v===undefined||v==='')return null;const n=Number(v);return Number.isFinite(n)?Math.min(hi,Math.max(lo,n)):null;};
+function cleanSessionOutcome(input={}){
+ if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Outcome record must be an object.'),{status:400});
+ const outcome=String(input.outcome||'').toLowerCase();if(!['win','loss','breakeven'].includes(outcome))throw Object.assign(new Error('Outcome must be win, loss or breakeven.'),{status:400});
+ const returnR=bnum(input.returnR,-50,50);if(input.returnR!==null&&input.returnR!==undefined&&input.returnR!==''&&returnR===null)throw Object.assign(new Error('Return in R must be finite.'),{status:400});
+ const date=input.createdAt?new Date(input.createdAt):new Date();if(!Number.isFinite(date.getTime()))throw Object.assign(new Error('Invalid outcome timestamp.'),{status:400});
+ const id=btxt(input.id||crypto.randomUUID(),160,'');if(!/^[a-zA-Z0-9._:|/-]{1,160}$/.test(id))throw Object.assign(new Error('Outcome id is invalid.'),{status:400});
+ return{id,session:btxt(input.session,120),symbol:btxt(input.symbol,32).toUpperCase(),strategy:btxt(input.strategy,120,'Unspecified'),volatility:btxt(input.volatility,40),outcome,returnR,notes:String(input.notes||'').slice(0,500),createdAt:date.toISOString()};
+}
+function summarizeSessionOutcomes(records){
+ const groups=new Map();for(const r of records){const k=[r.session,r.symbol,r.strategy,r.volatility].join('|');const g=groups.get(k)||{session:r.session,symbol:r.symbol,strategy:r.strategy,volatility:r.volatility,trades:0,wins:0,losses:0,breakevens:0,totalR:0,scored:0};g.trades++;if(r.outcome==='win')g.wins++;else if(r.outcome==='loss')g.losses++;else g.breakevens++;if(Number.isFinite(r.returnR)){g.totalR+=r.returnR;g.scored++;}groups.set(k,g);}
+ return [...groups.values()].map(g=>({...g,winRate:g.trades?g.wins/g.trades*100:0,averageR:g.scored?g.totalR/g.scored:0}));
+}
+async function loadD1OutcomeRecords(env,kind,limit){
+ const result=await env.JPTI_DB.prepare('SELECT id, payload, occurred_at FROM jpti_events WHERE kind = ? ORDER BY occurred_at ASC LIMIT ?').bind(kind,limit).all(),seen=new Set(),out=[];
+ for(const row of result.results||[]){let event;try{event=typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{continue;}const r=event?.record||event;if(!r?.id||seen.has(r.id))continue;seen.add(r.id);out.push(r);}return out;
+}
+async function insertD1Outcome(env,id,kind,source,record){
+ const r=await env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_events (id, kind, source, external_id, symbol, occurred_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?)').bind(id,kind,source,record.id,record.symbol,record.createdAt||new Date(record.candleTs).toISOString(),JSON.stringify({record})).run();
+ return Number(r?.meta?.changes||0)>0;
+}
+async function handleSessionMemoryRoute(request,env,url){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  const records=await loadD1OutcomeRecords(env,'session-outcome',MAX_SESSION_OUTCOMES);
+  if(request.method==='GET')return json(200,{records,summary:summarizeSessionOutcomes(records),count:records.length,backend:true,storage:'cloudflare-d1'},request);
+  if(request.method!=='POST')return json(405,{error:'Session memory supports GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+  if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'Session outcome request exceeds the 512 KB limit.'},request);
+  let body;try{body=await request.json();}catch{return json(400,{error:'A valid JSON outcome record is required.'},request);}
+  if(url.pathname.replace(/\/+$/,'')==='/api/session/memory/batch'){
+   if(!Array.isArray(body?.records)||body.records.length>2000)return json(400,{error:'Send an array of up to 2,000 session outcome records.'},request);
+   const cleaned=body.records.map(cleanSessionOutcome),known=new Set(records.map(r=>r.id));let imported=0,duplicates=0;
+   for(const r of cleaned){if(known.has(r.id)){duplicates++;continue;}const ok=await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);known.add(r.id);if(ok){imported++;records.push(r);}else duplicates++;}
+   return json(201,{ok:true,imported,duplicates,count:records.length,summary:summarizeSessionOutcomes(records),storage:'cloudflare-d1'},request);
+  }
+  const r=cleanSessionOutcome(body),existing=records.find(x=>x.id===r.id),inserted=existing?false:await insertD1Outcome(env,'session:'+r.id,'session-outcome','jpti-session-intelligence',r);if(inserted)records.push(r);
+  return json(201,{ok:true,record:existing||r,duplicate:!!existing||!inserted,eventId:inserted?'session:'+r.id:null,count:records.length,summary:summarizeSessionOutcomes(records),storage:'cloudflare-d1',backend:true},request);
+ }catch(e){return json(e.status||500,{error:e.message||'Session outcome storage failed.'},request);}
+}
+function cleanGainzOutcome(input){
+ if(!input||typeof input!=='object'||Array.isArray(input))throw Object.assign(new Error('Outcome record must be an object.'),{status:400});
+ const outcome=String(input.outcome||'').toLowerCase(),direction=String(input.direction||'').toLowerCase();if(!['win','loss','timeout'].includes(outcome))throw Object.assign(new Error('Outcome must be win, loss or timeout.'),{status:400});if(!['bullish','bearish'].includes(direction))throw Object.assign(new Error('Direction must be bullish or bearish.'),{status:400});
+ const returnR=bnum(input.returnR,-20,50),candleTs=bnum(input.candleTs,1,8.64e15);if(returnR===null||candleTs===null)throw Object.assign(new Error('returnR and candleTs must be valid finite numbers.'),{status:400});
+ const symbol=btxt(input.symbol,32).toUpperCase(),timeframe=btxt(input.timeframe,8);if(symbol==='UNKNOWN'||timeframe==='unknown')throw Object.assign(new Error('symbol and timeframe are required.'),{status:400});
+ const factors={};if(input.factors&&typeof input.factors==='object'&&!Array.isArray(input.factors))for(const[k,v]of Object.entries(input.factors).slice(0,16)){const n=bnum(v,-2,2);if(n!==null)factors[btxt(k,24)]=n;}
+ const id=btxt(input.id,200,[symbol,timeframe,input.preset,candleTs,input.setupId].join('|'));
+ return{id,setupId:btxt(input.setupId,200,id),symbol,exchange:btxt(input.exchange,30),timeframe,preset:btxt(input.preset,20,'balanced').toLowerCase(),setupType:btxt(input.setupType,40,'confluence'),direction,session:btxt(input.session,30),regime:btxt(input.regime,20),volRegime:btxt(input.volRegime,12),candleTs,outcome,returnR,mfeR:bnum(input.mfeR,-50,50),maeR:bnum(input.maeR,-50,50),bars:bnum(input.bars,0,10000),falseSignal:input.falseSignal===true,confidence:bnum(input.confidence,0,100),score:bnum(input.score,-1,1),factors,confirmations:Array.isArray(input.confirmations)?input.confirmations.slice(0,12).map(v=>btxt(v,24)):[],modelVersion:btxt(input.modelVersion,40),tfMs:bnum(input.tfMs,0,3e9)};
+}
+async function handleGainzOutcomesRoute(request,env,url){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  const symbol=url.searchParams.get('symbol')?.toUpperCase()||null,timeframe=url.searchParams.get('timeframe')||null,records=await loadD1OutcomeRecords(env,'gainz-alpha-outcome',MAX_GAINZ_OUTCOMES);
+  if(request.method==='GET'){const rows=records.filter(r=>(!symbol||r.symbol===symbol)&&(!timeframe||r.timeframe===timeframe));return json(200,{records:rows,count:rows.length,backend:true,storage:'cloudflare-d1'},request);}
+  if(request.method!=='POST')return json(405,{error:'GainzAlpha outcomes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+  if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'GainzAlpha outcome request exceeds the 512 KB limit.'},request);
+  let body;try{body=await request.json();}catch{return json(400,{error:'A valid outcomes payload is required.'},request);}
+  if(!Array.isArray(body?.records)||body.records.length>MAX_GAINZ_BATCH)return json(400,{error:'Send an array of up to '+MAX_GAINZ_BATCH+' GainzAlpha outcome records.'},request);
+  const known=new Set(records.map(r=>r.id));let saved=0,duplicates=0;const rejected=[];
+  for(const[index,raw]of body.records.entries()){let r;try{r=cleanGainzOutcome(raw);}catch(e){rejected.push({index,error:e.message});continue;}if(known.has(r.id)){duplicates++;continue;}const ok=await insertD1Outcome(env,'gainz:'+r.id,'gainz-alpha-outcome','gainz-alpha',r);known.add(r.id);if(ok){saved++;records.push(r);}else duplicates++;}
+  return json(200,{saved,duplicates,rejected,count:records.length,storage:'cloudflare-d1'},request);
+ }catch(e){return json(e.status||500,{error:e.message||'GainzAlpha outcome storage failed.'},request);}
+}
+
 
 function decodeXml(value) {
   return String(value || '').replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, '$1')
@@ -383,6 +448,15 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       if (!['GET', 'HEAD', 'POST'].includes(request.method)) return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, HEAD, POST, OPTIONS' });
       if (request.method === 'HEAD') return json(200, { status: 'available' }, request);
       return handleJournalRoute(request, env, url);
+    }
+    const sessionPath = url.pathname.replace(/\/+$/, '');
+    if (sessionPath === '/api/session/memory' || sessionPath === '/api/session/memory/batch') {
+      if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'Session memory supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+      return handleSessionMemoryRoute(request, env, url);
+    }
+    if (url.pathname.replace(/\/+$/, '') === '/api/alpha/gainz/outcomes') {
+      if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'GainzAlpha outcomes support GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+      return handleGainzOutcomesRoute(request, env, url);
     }
     if (url.pathname === '/api/mentor/analyze') {
       if (request.method !== 'POST') return json(405, { error: 'Mentor analysis supports POST only.' }, request, { allow: 'POST, OPTIONS' });
