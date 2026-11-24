@@ -39,5 +39,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: jpti-windows-desktop
-          path: release/*.exe
+          path: |
+            release/*.exe
+            release/*.blockmap
           if-no-files-found: error
