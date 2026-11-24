@@ -589,7 +589,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           setCrosshair({ i: index, py });
           const candle = geometry.rows[index];
           const price = geometry.max - (py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
-          onCrosshairChange?.({ timestamp: candle?.[0] ?? null, price: Number.isFinite(price) ? price : null });
+          onCrosshairChange?.({ timestamp: candle?.[0] ?? null, price: Number.isFinite(price) ? price : null, symbol });
         }}>
           {geometry.axis.minor.map((price) => <line key={'minor-' + price} x1={geometry.left} y1={geometry.y(price)} x2={geometry.right} y2={geometry.y(price)} stroke="#18243a" strokeWidth="0.6"/>)}
           {geometry.axis.ticks.map((tick) => {
@@ -633,10 +633,11 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
             const sharedIndex = synchronizedCrosshair?.timestamp != null
               ? geometry.rows.reduce((best, candle, index, rows) => Math.abs(candle[0] - synchronizedCrosshair.timestamp) < Math.abs(rows[best][0] - synchronizedCrosshair.timestamp) ? index : best, 0)
               : crosshair.i;
-            const hoverPrice = synchronizedCrosshair?.price != null ? synchronizedCrosshair.price : geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
-            const yPrice = geometry.y(hoverPrice);
-            const inside = yPrice >= geometry.top && yPrice <= geometry.priceBottom, tagW = geometry.axisW - 2;
-            const pips = pipDistance(geometry.rows[geometry.rows.length - 1][4], hoverPrice, geometry.pip);
+            const sameInstrument = !synchronizedCrosshair || synchronizedCrosshair.symbol === symbol;
+            const hoverPrice = sameInstrument ? (synchronizedCrosshair?.price != null ? synchronizedCrosshair.price : geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min)) : null;
+            const yPrice = hoverPrice == null ? null : geometry.y(hoverPrice);
+            const inside = sameInstrument && yPrice >= geometry.top && yPrice <= geometry.priceBottom, tagW = geometry.axisW - 2;
+            const pips = hoverPrice == null ? null : pipDistance(geometry.rows[geometry.rows.length - 1][4], hoverPrice, geometry.pip);
             return <g pointerEvents="none"><line x1={geometry.x(sharedIndex)} y1={geometry.top} x2={geometry.x(sharedIndex)} y2={geometry.bottom} stroke="#a9b7c9" strokeDasharray="3 4"/>{inside && <><line x1={geometry.left} y1={yPrice} x2={geometry.right} y2={yPrice} stroke="#a9b7c9" strokeDasharray="3 4"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (yPrice - 15) + ')'}><rect width={tagW} height="30" rx="3" fill="#24344d" stroke="#4a6385"/><text x={tagW / 2} y="12" textAnchor="middle" fill="#e6eefb" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(hoverPrice, precisionMeta, { maximumFractionDigits: 12 })}</text><text x={tagW / 2} y="25" textAnchor="middle" fill={pips != null && pips < 0 ? '#f07883' : '#20c997'} fontSize="9.5">{pips == null ? '' : (pips > 0 ? '+' : '') + pips + ' pips'}</text></g></>}</g>;
           })()}
         </svg>
