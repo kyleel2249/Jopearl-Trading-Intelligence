@@ -147,6 +147,19 @@ export default function ReflectiveJournal() {
             <div><small>Order expiry</small><b>12 hours after placement</b></div>
             <div><small>Market bias reported</small><b className="negative">Bearish</b></div>
           </div>
+          <form className="rj-execution-form" onSubmit={event => { event.preventDefault(); const data = new FormData(event.currentTarget); updateActive({ fillPrice: data.get('fillPrice') ? Number(data.get('fillPrice')) : null, exitPrice: data.get('exitPrice') ? Number(data.get('exitPrice')) : null, realizedPnl: data.get('realizedPnl') ? Number(data.get('realizedPnl')) : null, fees: data.get('fees') ? Number(data.get('fees')) : 0, funding: data.get('funding') ? Number(data.get('funding')) : 0, setupThesis: String(data.get('setupThesis') || '').trim(), invalidation: String(data.get('invalidation') || '').trim() }); setToast('Execution details updated'); }}>
+            <div className="rj-subhead"><h4>Execution and outcome fields</h4><span>Update when order fills or closes</span></div>
+            <div className="rj-execution-grid">
+              <label>Average fill price<input name="fillPrice" type="number" step="any" defaultValue={active.fillPrice ?? ''} placeholder="Not filled yet"/></label>
+              <label>Exit price<input name="exitPrice" type="number" step="any" defaultValue={active.exitPrice ?? ''} placeholder="Open position"/></label>
+              <label>Realized P/L (USDT)<input name="realizedPnl" type="number" step="any" defaultValue={active.realizedPnl ?? ''} placeholder="Not realized"/></label>
+              <label>Fees (USDT)<input name="fees" type="number" step="any" defaultValue={active.fees ?? ''} placeholder="0"/></label>
+              <label>Funding (USDT)<input name="funding" type="number" step="any" defaultValue={active.funding ?? ''} placeholder="0"/></label>
+              <label>Invalidation condition<input name="invalidation" defaultValue={active.invalidation || ''} placeholder="What disproves the setup?"/></label>
+            </div>
+            <label className="rj-thesis-label">Actual setup thesis<textarea name="setupThesis" rows="2" defaultValue={active.setupThesis || active.thesis} placeholder="Document the evidence supporting this trade."/></label>
+            <button className="rj-primary" type="submit"><ClipboardList size={15}/> Save execution details</button>
+          </form>
           <div className="rj-callout danger"><ShieldAlert size={18}/><div><b>Risk review: 20× leverage with no stop-loss</b><p>A 5% adverse move in the underlying is approximately a $28.12 loss on the stated $562.33 notional, roughly equal to the stated $28.70 margin. Actual liquidation can occur earlier because of maintenance margin, fees and mark-price rules. This is a simplified exposure illustration, not an exchange liquidation calculation.</p></div></div>
           <div className="rj-subhead"><h4>Illustrative adverse-price scenarios</h4><span>Before fees and funding</span></div>
           <div className="rj-scenario-list">{scenarios.map(s => <div className="rj-scenario" key={s.move}><span>{s.move}% price move</span><div className="rj-bar"><i style={{ width: Math.min(100, Math.abs(s.pnl) / Math.max(active.margin || 1, 1) * 100) + '%' }}/></div><b className="negative">{money(s.pnl)}</b></div>)}</div>
@@ -197,6 +210,7 @@ export default function ReflectiveJournal() {
     {tab === 'coach' && <div className="rj-coach-grid">
       <section className="rj-panel">
         <span className="rj-eyebrow">INITIAL TRADER PROFILE · LOW CONFIDENCE</span><h2>What this first decision suggests</h2>
+        <div className="rj-callout warn"><Brain size={18}/><div><b>Honest capability boundary</b><p>This workspace currently provides deterministic, rules-based coaching and a structured journal. It does not contain a connected generative AI model, and it will not pretend to perform autonomous research or exchange actions. The conversational research, writing, mentoring and pair-specific analysis will be supplied here and recorded in the journal as you share updates.</p></div></div>
         <p className="rj-lead">This is a preliminary behavioural hypothesis based on one planned trade and the rules you supplied. It is not a fixed personality label or a statistically reliable trader profile.</p>
         <div className="rj-assessment"><div><TrendingUp/><b>Strengths emerging</b><ul><li>You are setting explicit operating rules.</li><li>You are documenting the trade before execution.</li><li>You want software-supported decisions and independent review.</li><li>You have a defined profit-retention policy.</li><li>You are willing to review and adapt rather than hide mistakes.</li></ul></div><div><AlertTriangle/><b>Risks and blind spots</b><ul><li>Long exposure conflicts with your stated bearish market view unless a countertrend setup is documented.</li><li>20× leverage and no stop-loss expose the margin to rapid depletion.</li><li>“Take profit whenever possible” is subjective without a planned exit framework.</li><li>“Confidence” needs evidence and invalidation conditions, not feeling alone.</li><li>Testing how daring you can be may reward risk-taking rather than good process.</li></ul></div></div>
       </section>
