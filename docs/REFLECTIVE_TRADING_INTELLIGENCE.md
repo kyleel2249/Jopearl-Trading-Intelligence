@@ -44,3 +44,18 @@ Cloudflare references:
 - Pages Functions Workers AI binding: https://developers.cloudflare.com/pages/functions/bindings/
 - Workers AI model catalogue: https://developers.cloudflare.com/workers-ai/models/
 - Llama 3.3 70B model details and pricing: https://developers.cloudflare.com/workers-ai/models/llama-3.3-70b-instruct-fp8-fast/
+
+## SOPH Alternative Pair Scanner
+
+The **SOPH Pair Scanner** workspace is available from the Intelligence navigation group. It queries the public Bitget UTA V3 USDT-FUTURES ticker and instrument endpoints through a Cloudflare Pages Function at `/api/market/pair-scanner`.
+
+The scanner:
+- Uses the live SOPHUSDT price as the reference and filters contracts by a configurable percentage distance and minimum 24-hour USDT turnover.
+- Displays 24-hour price change and turnover, best bid/ask spread, estimated USDT open-interest value, current funding, funding interval, maximum leverage, minimum order amount, and maker/taker fees when supplied by the instrument API.
+- Calculates Pearson correlation from log returns of closed candles matched by timestamp. Supported sampling intervals are 15m, 1H and 4H. At least 12 matched return observations are required.
+- Labels negative correlations at or below -0.35 as inverse-movement candidates and positive correlations at or above +0.65 as strong co-movement candidates. These are screening thresholds, not statistical significance tests.
+- Limits the correlation sample to the highest-turnover eligible alternatives to keep edge requests bounded. The visible pair table can include more contracts than the correlation subset.
+
+The endpoint uses Bitget public endpoints only; it requires no API key. It is read-only and never places or manages orders. Correlation is descriptive and sample-dependent: it can change across timeframes and market regimes, does not establish causation, and is not a guaranteed hedge. Open-interest USD value is approximated as base-coin open interest multiplied by mark price. The maximum leverage shown is the exchange's published ceiling, not a recommendation.
+
+Run `npm test` to execute the timestamp-alignment and Pearson-correlation tests in `src/pair-scanner-engine.test.js`.
