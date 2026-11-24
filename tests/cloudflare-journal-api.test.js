@@ -24,7 +24,7 @@ function fakeDb() {
               if (sql.includes('INSERT OR IGNORE INTO jpti_events')) { const [id,kind,source,external_id,symbol,occurred_at,payload]=values; if(events.has(id))return{success:true,meta:{changes:0}}; events.set(id,{id,kind,source,external_id,symbol,occurred_at,payload}); return{success:true,meta:{changes:1}}; }
               return { success: true, meta: { changes: 0 } };
             },
-            async first() { if (sql.includes("SELECT name FROM sqlite_master WHERE type = 'index'")) return { name: values[0] }; return null; }
+            async first() { if (sql.includes('sqlite_master') && /type\\s*=\\s*'index'/i.test(sql)) return { name: values[0] }; return null; }
           };
         }
       };

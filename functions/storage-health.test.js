@@ -11,12 +11,13 @@ const TABLES = [
   'jpti_journal_entries'
 ];
 const SNAPSHOT_INDEX = 'jpti_events_market_snapshot_lookup';
+const OUTCOME_INDEX = 'jpti_events_kind_time';
 
 function request() {
   return new Request('https://jpti.pages.dev/api/storage/health');
 }
 
-function storageEnv({ tables = TABLES, indexPresent = true, kvRead = null } = {}) {
+function storageEnv({ tables = TABLES, indexPresent = true, outcomeIndexPresent = true, kvRead = null } = {}) {
   return {
     JPTI_DB: {
       prepare(sql) {
@@ -24,7 +25,7 @@ function storageEnv({ tables = TABLES, indexPresent = true, kvRead = null } = {}
           return {
             bind(name) {
               return {
-                first: async () => indexPresent && name === SNAPSHOT_INDEX ? { name } : null
+                first: async () => (name === SNAPSHOT_INDEX ? indexPresent : name === OUTCOME_INDEX ? outcomeIndexPresent : false) ? { name } : null
               };
             }
           };
@@ -52,7 +53,7 @@ test('storage health verifies required D1 tables and index and performs a read-o
   const body = await response.json();
   assert.equal(body.status, 'ok');
   assert.equal(body.d1.connected, true);
-  assert.deepEqual(body.d1.indexes, [SNAPSHOT_INDEX]);
+  assert.deepEqual(body.d1.indexes, [SNAPSHOT_INDEX, OUTCOME_INDEX]);
   assert.deepEqual(body.d1.missingIndexes, []);
   assert.equal(body.kv.connected, true);
   assert.equal(kvRead, true);
@@ -67,6 +68,16 @@ test('storage health reports missing schema tables as migration-required', async
   assert.equal(body.status, 'migration-required');
   assert.ok(body.d1.missingTables.includes('jpti_outbox'));
   assert.deepEqual(body.d1.missingIndexes, []);
+});
+
+test('storage health reports a missing outcome-history index as migration-required', async () => {
+  const env = storageEnv({ outcomeIndexPresent: false });
+  const handler = createPagesApiHandler();
+  const response = await handler({ request: request(), env });
+  assert.equal(response.status, 503);
+  const body = await response.json();
+  assert.equal(body.status, 'migration-required');
+  assert.deepEqual(body.d1.missingIndexes, [OUTCOME_INDEX]);
 });
 
 test('storage health reports a missing market snapshot index as migration-required', async () => {
