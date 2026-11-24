@@ -39,6 +39,40 @@ async function ensureAgents(db){
    .bind(agent.id,PAPER_POLICY.initialEquityUsd,JSON.stringify({...agent,permissions:{paper:true,live:false}})).run();
  }
 }
+async function loadAgents(db){
+ const rows=await db.prepare("SELECT agent_id,tier,virtual_equity_usd,status,promoted_at,payload FROM jpti_paper_agents ORDER BY agent_id").all();
+ return (rows.results||[]).map(row=>{let p={};try{p=JSON.parse(row.payload||'{}')}catch{}
+  return {...p,id:row.agent_id,tier:row.tier,status:row.status,virtualEquityUsd:num(row.virtual_equity_usd),promotedAt:row.promoted_at||null,permissions:{paper:true,live:false}};
+ });
+}
+async function spawnSuccessor(db,agent){
+ const generation=num(agent.generation||1)+1,id=agent.id+'-g'+generation+'-'+Date.now().toString(36);
+ const successor={...agent,id,name:agent.name+' '+generation,role:agent.role+' · Candidate '+generation,generation,tier:'RESEARCH',status:'active',promotedAt:null,resources:[...AGENT_RESOURCES],permissions:{paper:true,live:false},parentAgentId:agent.id,createdAt:iso(),lifecycleNote:'Automatic successor; starts with $1 virtual capital.'};
+ await db.prepare("INSERT OR IGNORE INTO jpti_paper_agents(agent_id,tier,virtual_equity_usd,status,payload) VALUES (?,'RESEARCH',?,'active',?)").bind(id,PAPER_POLICY.initialEquityUsd,JSON.stringify(successor)).run();
+ return successor;
+}
+async function promoteOrRetire(db,agent,metrics,kpi){
+ const row=await db.prepare('SELECT tier,status FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
+ if(!row)return null;
+ if(kpi.eligibleForPromotion&&row.tier==='RESEARCH'){
+  const at=iso(),payload={...agent,tier:'LIVE_READY',status:'live_ready',promotedAt:at,liveReadiness:{approved:true,liveExecutionAuthorized:false,requiresHumanApproval:true},resources:[...AGENT_RESOURCES,'Live deployment and exchange-minimum preflight']};
+  await db.prepare("UPDATE jpti_paper_agents SET tier='LIVE_READY',status='live_ready',promoted_at=?,updated_at=?,payload=? WHERE agent_id=?").bind(at,at,JSON.stringify(payload),agent.id).run();
+  const successor=await spawnSuccessor(db,agent);
+  return {status:'LIVE_READY',promotedAt:at,successorId:successor.id};
+ }
+ if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct&&row.status==='active'){
+  const at=iso(),payload={...agent,status:'suspended',suspensionReason:'Maximum drawdown limit reached.',suspendedAt:at,permissions:{paper:false,live:false}};
+  await db.prepare("UPDATE jpti_paper_agents SET status='suspended',updated_at=?,payload=? WHERE agent_id=?").bind(at,JSON.stringify(payload),agent.id).run();
+  return {status:'SUSPENDED',reason:payload.suspensionReason};
+ }
+ if(metrics.closedTrades>=100&&metrics.netPnlUsd<0&&metrics.profitFactor<0.8&&metrics.expectancyR<0&&row.status==='active'){
+  const at=iso(),payload={...agent,status:'retired',retiredAt:at,retirementReason:'Persistent negative expectancy and weak profit factor after 100 closed trades.',permissions:{paper:false,live:false}};
+  await db.prepare("UPDATE jpti_paper_agents SET status='retired',updated_at=?,payload=? WHERE agent_id=?").bind(at,JSON.stringify(payload),agent.id).run();
+  const successor=await spawnSuccessor(db,agent);
+  return {status:'RETIRED',reason:payload.retirementReason,successorId:successor.id};
+ }
+ return null;
+}
 async function allTrades(db,agentId){
  const q=agentId
  ?await db.prepare('SELECT * FROM jpti_paper_trades WHERE agent_id=? ORDER BY opened_at DESC LIMIT 3000').bind(agentId).all()
