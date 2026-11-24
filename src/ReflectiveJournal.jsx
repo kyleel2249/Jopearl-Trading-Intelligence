@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, ClipboardList, Download, FileText, Lightbulb, MessageSquareText, Plus, RefreshCw, ShieldAlert, Target, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
-import { apiFetch } from './lib/api.js';
+import { apiFetch, setApiToken } from './lib/api.js';
 import { analyzeTimeframe, buildTradingDevelopmentAssessment } from './trading-development-engine.js';
 import './ReflectiveJournal.css';
 
@@ -62,6 +62,9 @@ export default function ReflectiveJournal() {
   const [market, setMarket] = useState(null);
   const [selectedExchange, setSelectedExchange] = useState('');
   const [assessment, setAssessment] = useState(null);
+  const [journalToken, setJournalToken] = useState('');
+  const [journalConnected, setJournalConnected] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('Not connected to Cloudflare D1');
   const [marketState, setMarketState] = useState('not-checked');
   const [marketError, setMarketError] = useState('');
   const [tab, setTab] = useState('journal');
@@ -75,6 +78,53 @@ export default function ReflectiveJournal() {
   }, [entries]);
 
   const updateActive = (patch) => setEntries(current => current.map(e => e.id === active.id ? { ...e, ...patch, updatedAt: new Date().toISOString() } : e));
+  const connectJournal = async () => {
+    try {
+      if (!journalToken.trim()) throw new Error('Enter the private JPTI journal token first.');
+      setApiToken(journalToken.trim());
+      setSyncStatus('Connecting…');
+      const response = await apiFetch('/api/journal/entries', { cache: 'no-store' });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || 'Cloudflare journal connection failed.');
+      const remote = Array.isArray(data.entries) ? data.entries : [];
+      if (remote.length) {
+        const merged = new Map(remote.map(entry => [entry.id, entry]));
+        for (const local of entries) {
+          const existing = merged.get(local.id);
+          if (!existing || String(local.updatedAt || local.createdAt || '') > String(existing.updatedAt || existing.createdAt || '')) merged.set(local.id, local);
+        }
+        setEntries([...merged.values()]);
+      } else {
+        for (const entry of entries) {
+          const saved = await apiFetch('/api/journal/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry }) });
+          if (!saved.ok) throw new Error((await saved.json()).error || 'Initial journal backup failed.');
+        }
+      }
+      setJournalConnected(true);
+      setSyncStatus('Connected · Cloudflare D1');
+    } catch (error) {
+      setApiToken('');
+      setJournalConnected(false);
+      setSyncStatus(error.message || 'Cloudflare D1 connection failed');
+    }
+  };
+
+  useEffect(() => {
+    if (!journalConnected) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        for (const entry of entries) {
+          const response = await apiFetch('/api/journal/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry }) });
+          if (!response.ok) throw new Error((await response.json()).error || 'Journal sync failed.');
+        }
+        if (!cancelled) setSyncStatus('Synced · Cloudflare D1');
+      } catch (error) {
+        if (!cancelled) setSyncStatus(error.message || 'Sync failed');
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [entries, journalConnected]);
   const addReflection = (event) => {
     event.preventDefault();
     if (!note.trim() && !lesson.trim() && !nextAction.trim()) return;
@@ -209,6 +259,13 @@ export default function ReflectiveJournal() {
             <button onClick={() => markStatus('expired-user-reported')}><CalendarDays size={14}/> Expired</button>
           </div>
           <p className="rj-footnote">These controls update your journal only. They do not place, cancel or verify an exchange order.</p>
+          <div className="rj-divider"/>
+          <span className="rj-eyebrow">PRIVATE CLOUD BACKUP</span>
+          <h4>Cloudflare D1 journal sync</h4>
+          <p className="rj-footnote">Use the private JPTI journal token configured as a Cloudflare Pages secret. The token stays in this browser session and is never included in exported journal files.</p>
+          <input className="rj-token-input" type="password" autoComplete="off" value={journalToken} onChange={event => setJournalToken(event.target.value)} placeholder="Private journal access token"/>
+          <button className="rj-secondary" onClick={connectJournal}>Connect and sync journal</button>
+          <p className="rj-footnote">{syncStatus}</p>
         </aside>
       </div>
 
