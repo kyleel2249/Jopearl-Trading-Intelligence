@@ -125,7 +125,7 @@ jobs:
         if: github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
         run: |
           APK=$(ls android/app/downloads/*.apk | head -n 1)
-          scripts/publish-apk.sh "$APK" "$(basename "$APK")"
+          bash scripts/publish-apk.sh "$APK" "$(basename "$APK")"
       - name: Upload Android APK and app bundle
         uses: actions/upload-artifact@v4
         with:
