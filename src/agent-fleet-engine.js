@@ -58,7 +58,7 @@ export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
   };
   const confidence = blocked ? 0 : clamp(agreement * .45 + Math.abs(weightedScore) * .35 + usable.length / agents.length * .2, 0, 1);
   return {
-    id: randomUUID(), generatedAt: new Date(now).toISOString(), symbol,
+    id: crypto.randomUUID(), generatedAt: new Date(now).toISOString(), symbol,
     evidence: { timestamp: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null, ageMs, maxAgeMs,
       freshness: stale ? 'stale_or_missing' : 'fresh', sourceCount: sources.length },
     agents, debate,
