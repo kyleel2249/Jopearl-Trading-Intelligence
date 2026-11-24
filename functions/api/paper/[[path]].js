@@ -85,7 +85,7 @@ export async function runCycle(db,symbol){
   }
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closed_at||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.net_pnl_usd)),0);
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&signal.features&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps/2)/10000);
    const quantity=Math.min(riskUsd/allInRiskPerUnit,metrics.equityUsd/price);
