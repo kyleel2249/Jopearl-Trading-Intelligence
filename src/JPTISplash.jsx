@@ -19,7 +19,7 @@ export default function JPTISplash() {
       <div className="jpti-splash-orbit jpti-splash-orbit-two" />
       <div className="jpti-splash-card">
         <div className="jpti-splash-icon-wrap">
-          <img className="jpti-splash-icon" src="/jpti-icon.svg" alt="" />
+          <img className="jpti-splash-icon" src={`${import.meta.env.BASE_URL}jpti-icon.svg`} alt="" />
           <span className="jpti-splash-pulse" />
         </div>
         <div className="jpti-splash-wordmark">JOPEARL</div>

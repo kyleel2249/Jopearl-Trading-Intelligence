@@ -195,3 +195,7 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 .sli-backtest-results{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;margin-top:9px}
 @media(max-width:760px){.sli-target-grid{grid-template-columns:1fr}.sli-setup-grid{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media(max-width:420px){.sli-backtest-results{grid-template-columns:repeat(2,minmax(0,1fr))}.sli-setup-heading{align-items:flex-start;flex-direction:column}}
+
+
+/* JPTI icon lockup: preserve crisp scaling in every shared dashboard shell. */
+.brand-mark{overflow:hidden;padding:0}.brand-mark img{display:block;width:100%;height:100%;object-fit:cover;border-radius:10px}

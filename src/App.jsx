@@ -677,7 +677,7 @@ function App() {
     {page === 'Overview' && mobileOpen && <button type="button" className="td-drawer-scrim" aria-label="Close workspace menu" onClick={() => setMobileOpen(false)}/>}
     <div className="ambient ambient-a"/><div className="ambient ambient-b"/>
     <aside className={'command-sidebar ' + (mobileOpen ? 'mobile-open' : '')}>
-      <div className="brand-lockup"><div className="brand-mark"><img src="/jpti-icon.svg" alt="JPTI" /></div><div><b>JOPEARL</b><small>TRADING INTELLIGENCE</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={17}/></button></div>
+      <div className="brand-lockup"><div className="brand-mark"><img src={`${import.meta.env.BASE_URL}jpti-icon.svg`} alt="JPTI" /></div><div><b>JOPEARL</b><small>TRADING INTELLIGENCE</small></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={17}/></button></div>
       <div className="workspace-pill"><span className="workspace-avatar">JP</span><span><b>JPTI COMMAND</b><small>Personal workspace</small></span><ChevronRight size={14}/></div>
       <label className="side-label">NAVIGATION</label>
       <div className="side-search"><Search size={14}/><input placeholder="Find a workspace" value={query} onChange={(e) => setQuery(e.target.value)}/><Command size={12}/></div>
