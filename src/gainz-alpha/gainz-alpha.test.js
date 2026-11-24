@@ -210,6 +210,11 @@ test('adaptive learning: guarded steps, minimum sample, versioning, rollback, no
   assert.ok(outlier.model.weights.trend <= 1.05);
   const back = rollbackModel(r.model); assert.equal(back.rolledBack, true); assert.deepEqual(back.model.weights, {});
 });
+test('adaptive learning ignores missing factor observations instead of treating them as negative evidence', () => {
+  const rows=[...Array.from({length:10},(_,i)=>({returnR:1,factors:{trend:1},candleTs:i})),...Array.from({length:10},(_,i)=>({returnR:-1,factors:{trend:0},candleTs:i+10})),...Array.from({length:10},(_,i)=>({returnR:5,factors:{volume:1},candleTs:i+20}))];
+  const result=adaptModel(createModel(),rows,{minSample:10});assert.ok(result.model.weights.trend>1);assert.equal(result.n,30);
+  assert.equal(adaptModel(createModel(),[{returnR:null,factors:{trend:1}}],{minSample:1}).n,0);
+});
 test('false-signal report flags overtrading clusters', () => {
   const recs = [0, 1, 2, 3].map((i) => ({ symbol: 'A', timeframe: '1m', candleTs: i * 60000, tfMs: 60000, falseSignal: true, session: 'asia', setupType: 'c', direction: 'bullish' }));
   const r = falseSignalReport(recs); assert.equal(r.overall, 1); assert.ok(r.overtradingClusters >= 2);
@@ -262,6 +267,15 @@ test('hub: preview is provisional, never recorded; confirmed signal flows to out
   hub.ingest({ exchange: 'ex', symbol: 'BTC/USDT', timeframe: '1m', candles: [...rows, ...future] });
   const out = hub.getState().outcomes; assert.equal(out.length, 1); assert.ok(['win', 'loss', 'timeout'].includes(out[0].outcome));
   assert.ok(hub.events().some((e) => e.type === 'GAINZ_ALPHA_OUTCOME')); assert.ok(hub.events().some((e) => e.type === 'GAINZ_ALPHA_LEARNING_UPDATE'));
+});
+test('hub adaptive model learns from the shared outcome pool across symbol/timeframe contexts', () => {
+  const rows=build(-1);let t=nowOf(rows);const hub=createHub({now:()=>t,learnEvery:1});
+  hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,[t,95,96,94,95,10]]});
+  const state=hub.getState();state.outcomes.push(...Array.from({length:30},(_,i)=>({id:'other-market-'+i,symbol:i%2?'ETH/USDT':'SOL/USDT',timeframe:i%2?'5m':'1h',candleTs:i+1,outcome:i%2?'win':'loss',returnR:i%2?2:-1,factors:{trend:i%2?1:0},falseSignal:i%2===0})));
+  const plan=state.pending[0].riskPlan,future=[];
+  for(let k=0;k<25;k++){const i=rows.length+k,close=plan.takeProfit1-k*.01;future.push([base+i*TF,close+.05,k===3?plan.takeProfit1-.5:close+.1,close-.1,close,1000]);}
+  t=base+(rows.length+26)*TF;hub.ingest({exchange:'ex',symbol:'BTC/USDT',timeframe:'1m',candles:[...rows,...future]});
+  assert.ok(hub.getState().model.version>1);
 });
 test('hub persistence, migration, graceful storage failure, settings import/export', () => {
   const st = memStorage(), rows = build(-1), t = nowOf(rows); const hub = createHub({ storage: st, now: () => t });
