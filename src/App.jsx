@@ -4,6 +4,7 @@ import Dashboard from './Dashboard.jsx';
 import TerminalDashboard from './TerminalDashboard.jsx';
 const FinancialIntelligence = lazy(() => import('./FinancialIntelligence.jsx'));
 const ReflectiveJournal = lazy(() => import('./ReflectiveJournal.jsx'));
+const PairScanner = lazy(() => import('./PairScanner.jsx'));
 const UniversalEngine = lazy(() => import('./UniversalEngine.jsx'));
 const ConnectionSettings = lazy(() => import('./ConnectionSettings.jsx'));
 const InstitutionalTerminal = lazy(() => import('./InstitutionalTerminal.jsx'));
@@ -61,6 +62,7 @@ const navigation = [
   { label: 'AI Intelligence', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Institutional Market Intelligence', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Market Scanner', icon: Search, group: 'INTELLIGENCE' },
+  { label: 'SOPH Pair Scanner', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Financial & On-chain', icon: Blocks, group: 'INTELLIGENCE' },
   { label: 'News & Events', icon: Newspaper, group: 'INTELLIGENCE' },
   { label: 'Portfolio & Ledger', icon: Wallet, group: 'OPERATIONS' },
@@ -513,6 +515,7 @@ function App() {
     if (page === 'Calendar & Sessions') return <CalendarSessions symbol={symbol} onSymbolChange={setSymbol}/>;
     if (page === 'Connection Settings') return <ConnectionSettings/>;
     if (page === 'Reflective Trade Journal') return <ReflectiveJournal/>;
+    if (page === 'SOPH Pair Scanner') return <PairScanner/>;
     if (page === 'Institutional Terminal') return <InstitutionalTerminal currentSymbol={symbol} onSymbolChange={setSymbol} onNavigate={activeNav}/>;
     if (page === 'Institutional Governance') return <InstitutionalGovernance/>;
     if (page === 'Futures Intelligence') return <FuturesIntelligence/>;
