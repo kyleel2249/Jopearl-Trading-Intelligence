@@ -18,8 +18,11 @@ test('candleReturns sorts candles and computes log returns', () => {
   assert.ok(Math.abs(result[0][1]-Math.log(2))<1e-12);
 });
 test('correlation aligns candles by timestamp rather than array position', () => {
-  const a=Array.from({length:16},(_,i)=>[i*60000,0,0,0,100*Math.pow(1.01,i),1]);
-  const b=Array.from({length:16},(_,i)=>[i*60000,0,0,0,200*Math.pow(0.99,i),1]);
+  const factors=[1.01,1.02,0.99,1.03,0.98,1.015,0.995,1.04,0.97,1.025,0.985,1.012,0.992,1.035,0.975];
+  const pricesA=[100],pricesB=[200];
+  for(const factor of factors){pricesA.push(pricesA.at(-1)*factor);pricesB.push(pricesB.at(-1)/factor);}
+  const a=pricesA.map((close,i)=>[i*3600000,0,0,0,close,1]);
+  const b=pricesB.map((close,i)=>[i*3600000,0,0,0,close,1]);
   const result=correlateCandleSeries(a,b,'TESTUSDT','1h');
   assert.equal(result.status,'measured');
   assert.ok(result.correlation < -0.99);
