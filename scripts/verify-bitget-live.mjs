@@ -2,7 +2,7 @@
 // Usage: JPTI_PAGES_URL=https://<your-pages-domain> node scripts/verify-bitget-live.mjs
 // Read-only: verifies public market data only. Bitget may return HTTP 403 to a
 // Cloudflare Pages Worker egress path; that condition is reported as a
-// regional warning, not misreported as an application or credential failure.
+// edge warning, not misreported as an application or credential failure.
 const base = String(process.env.JPTI_PAGES_URL || 'https://jpti.pages.dev').replace(/\/+$/, '');
 const bitget = 'https://api.bitget.com';
 const categories = [
@@ -140,10 +140,10 @@ for (const category of categories) {
   if (row.status === 'passed') console.log('PASS ' + category.label + ': ' + row.checks.join(', '));
 }
 const failures = results.filter((row) => row.status === 'failed');
-const regional = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
+const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
 console.log(JSON.stringify({
   target: base,
-  status: failures.length ? 'failed' : regional.length ? 'passed-with-edge-warnings' : 'passed',
+  status: failures.length ? 'failed' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
   results
 }, null, 2));
 if (failures.length) process.exitCode = 1;
