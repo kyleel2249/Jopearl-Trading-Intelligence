@@ -12,6 +12,7 @@ function fakeDb() {
         bind(...values) {
           return {
             async all() {
+              if (sql.includes("SELECT name FROM sqlite_master WHERE type = 'table'")) return { results: ['jpti_events','jpti_outbox','jpti_scheduler_leases','jpti_schema_migrations','jpti_sync_cursors','jpti_journal_entries'].map(name=>({name})) };
               if (sql.includes('SELECT payload, updated_at FROM jpti_journal_entries')) return { results: [...rows.values()].map(row => ({ payload: row.payload, updated_at: row.updated_at })) };
               if (sql.includes('SELECT id, payload, occurred_at FROM jpti_events')) { const kind=values[0],rows=[...events.values()].filter(row=>row.kind===kind).sort((a,b)=>b.occurred_at.localeCompare(a.occurred_at)); return { results:rows.slice(0,values[1]).map(row=>({id:row.id,payload:row.payload,occurred_at:row.occurred_at})) }; }
               if (sql.includes('SELECT COUNT(*) AS count FROM jpti_events')) { const kind=values[0]; return { results:[{count:[...events.values()].filter(row=>row.kind===kind).length}] }; }
@@ -23,7 +24,7 @@ function fakeDb() {
               if (sql.includes('INSERT OR IGNORE INTO jpti_events')) { const [id,kind,source,external_id,symbol,occurred_at,payload]=values; if(events.has(id))return{success:true,meta:{changes:0}}; events.set(id,{id,kind,source,external_id,symbol,occurred_at,payload}); return{success:true,meta:{changes:1}}; }
               return { success: true, meta: { changes: 0 } };
             },
-            async first() { return null; }
+            async first() { if (sql.includes("SELECT name FROM sqlite_master WHERE type = 'index'")) return { name: values[0] }; return null; }
           };
         }
       };
@@ -42,6 +43,13 @@ const request = (method, body, token = 'test-private-token') => new Request('htt
   body: body ? JSON.stringify(body) : undefined
 });
 
+test('Cloudflare storage health verifies the event-time index required for outcome history', async () => {
+  const db = fakeDb();
+  const response = await handler(db)({ request: new Request('https://jpti.example/api/storage/health'), env: { JPTI_DB: db, JPTI_KV: { async get() { return null; } } } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.deepEqual(data.d1.indexes.sort(), ['jpti_events_kind_time', 'jpti_events_market_snapshot_lookup']);
+});
 test('Cloudflare health reports private service readiness without exposing secrets', async () => {
   const db = fakeDb();
   const response = await handler(db)({ request: new Request('https://jpti.example/api/health'), env: { JPTI_DB: db, JPTI_JOURNAL_TOKEN: 'do-not-return-this', AI: {} } });
