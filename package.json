@@ -52,10 +52,10 @@
   "devDependencies": {
     "concurrently": "^9.1.2",
     "@capacitor/cli": "^7.4.3",
-    "electron": "^38.2.0",
-    "electron-builder": "^26.0.12",
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0",
     "typescript": "^5.8.3",
-    "esbuild": "^0.24.2",
+    "esbuild": "^0.28.2",
     "jsdom": "^31.0.1",
     "wrangler": "4.167.0"
   },
@@ -107,5 +107,8 @@
       ],
       "maintainer": "JPTI Maintainers <125039072+kyleel2249@users.noreply.github.com>"
     }
+  },
+  "overrides": {
+    "minimatch": "11.0.1"
   }
 }
