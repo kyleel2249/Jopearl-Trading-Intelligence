@@ -112,7 +112,7 @@ export async function runCycle(db,symbol){
     const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
-    report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});
+    report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});exposure.total=Math.max(0,exposure.total-1);exposure.bySymbol.set(open.symbol,Math.max(0,(exposure.bySymbol.get(open.symbol)||0)-1));exposure.byDirection.set(open.direction,Math.max(0,(exposure.byDirection.get(open.direction)||0)-1));
    }
   }
   const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id,{timeframes:market.timeframes});
