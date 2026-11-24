@@ -49,7 +49,7 @@ export function parseSymbol(raw) {
   return { base, quote, ...(settle ? { settle } : {}), symbol: base + '/' + quote + (settle ? ':' + settle : '') };
 }
 
-export const venueSymbol = (exchange, { base, quote }) => (exchange === 'okx' ? base + '-' + quote : base + quote);
+export const venueSymbol = (exchange, { base, quote, instrumentId }) => exchange === 'okx' ? base + '-' + quote : exchange === 'bitget' && instrumentId ? instrumentId : base + quote;
 
 const BITGET_MARKET_TYPE_ALIASES = Object.freeze({
   spot: 'spot',
@@ -310,6 +310,9 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       case 'ticker': {
         const marketType = normalizeBitgetMarketType(route.query.type || 'spot');
         const sym = parseSymbol(route.symbol);
+        const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
+        if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
+        if (route.exchange === 'bitget' && instrumentId) sym.instrumentId = instrumentId;
         sym.marketType = marketType;
         const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol, CACHE_TTL.ticker, async () => {
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
@@ -322,6 +325,9 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       case 'ohlcv': {
         const marketType = String(route.query.type || 'spot').toLowerCase();
         const sym = parseSymbol(route.symbol);
+        const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
+        if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
+        if (route.exchange === 'bitget' && instrumentId) sym.instrumentId = instrumentId;
         sym.marketType = marketType;
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
