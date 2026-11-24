@@ -92,6 +92,9 @@ export async function runCycle(db,symbol){
  await ensureAgents(db);
  const market=await marketSnapshot(symbol);
  const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
+ const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
+ const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
+ for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
  for(const agent of await loadAgents(db)){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
@@ -124,7 +127,7 @@ export async function runCycle(db,symbol){
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
    const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
@@ -136,10 +139,10 @@ export async function runCycle(db,symbol){
     try{
      await db.prepare("INSERT INTO jpti_paper_trades(trade_id,agent_id,symbol,direction,status,opened_at,entry_price,quantity,stop_price,target_price,risk_usd,entry_fee_usd,regime,source_candle_at,payload) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)")
       .bind(tradeId,agent.id,market.symbol,signal.direction,openedAt,fill.entryPrice,quantity,stop,target,riskUsd,fill.entryFeeUsd,signal.features.regime,signal.features.closedCandleAt,JSON.stringify(trade)).run();
-     report.opened.push(trade);action='PAPER_ORDER_OPENED';reason='Simulated entry accepted after market freshness and capital gates.';
+     report.opened.push(trade);exposure.total+=1;exposure.bySymbol.set(market.symbol,(exposure.bySymbol.get(market.symbol)||0)+1);exposure.byDirection.set(signal.direction,(exposure.byDirection.get(signal.direction)||0)+1);action='PAPER_ORDER_OPENED';reason='Simulated entry accepted after market freshness, per-agent and fleet exposure gates.';
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
-  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss or position-cap gate.';
+  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration or direction-concentration gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
@@ -160,7 +163,7 @@ async function dashboard(db){
 }
 export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
- const summary={date,mode:'PAPER_ONLY',fleet:{total:dash.agents.length,research:dash.agents.filter(a=>a.tier==='RESEARCH').length,liveReady:dash.agents.filter(a=>a.tier==='LIVE_READY').length,suspended:dash.agents.filter(a=>a.status==='suspended').length,retired:dash.agents.filter(a=>a.status==='retired').length,capitalPerNewAgentUsd:PAPER_POLICY.initialEquityUsd},agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
+ const summary={date,mode:'PAPER_ONLY',fleet:{total:dash.agents.length,research:dash.agents.filter(a=>a.tier==='RESEARCH').length,liveReady:dash.agents.filter(a=>a.tier==='LIVE_READY').length,suspended:dash.agents.filter(a=>a.status==='suspended').length,retired:dash.agents.filter(a=>a.status==='retired').length,capitalPerNewAgentUsd:PAPER_POLICY.initialEquityUsd},agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,maxFleetOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxOpenPerSymbol:PAPER_POLICY.maxOpenPerSymbol,maxSameDirectionOpenPositions:PAPER_POLICY.maxSameDirectionOpenPositions,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
   const lifecycle=await promoteOrRetire(db,agent,agent.metrics,agent.kpi);
   if(lifecycle){const item=summary.agents.find(a=>a.agentId===agent.id);if(item){item.tier=lifecycle.status;item.lifecycle=lifecycle;}}
