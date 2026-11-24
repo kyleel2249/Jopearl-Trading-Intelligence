@@ -50,7 +50,7 @@ async function saveAgent(db,agentId,metrics,kpi,tier){
  await db.prepare("UPDATE jpti_paper_agents SET tier=?,virtual_equity_usd=?,updated_at=?,payload=json_set(payload,'$.metrics',json(?),'$.kpi',json(?)) WHERE agent_id=?")
  .bind(tier,Math.max(0,PAPER_POLICY.initialEquityUsd+metrics.netPnlUsd),iso(),JSON.stringify(metrics),JSON.stringify(kpi),agentId).run();
 }
-async function runCycle(db,symbol){
+export async function runCycle(db,symbol){
  await ensureAgents(db);
  const market=await marketSnapshot(symbol);
  const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
@@ -108,7 +108,7 @@ async function dashboard(db){
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
  return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
 }
-async function dailyReview(db){
+export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
  const summary={date,mode:'PAPER_ONLY',agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
