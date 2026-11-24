@@ -60,7 +60,7 @@ export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
   const riskScore = riskVotes.length ? riskVotes.reduce((sum, a) => sum + a.score * a.confidence, 0) / riskVotes.reduce((sum, a) => sum + a.confidence, 0) : null;
   const sources = Array.isArray(e.sources) ? e.sources.slice(0, 20) : [];
   const sourceFailure = sources.some(source => source?.required && (source.status === 'error' || source.stale === true));
-  const blocked = stale || directional.length < 4 || sourceFailure || riskScore !== null && riskScore < -.62;
+  const blocked = stale || directional.length < 4 || sourceFailure || riskScore !== null && riskScore < -.48;
   const stance = blocked ? 'insufficient_evidence_or_risk_block' : weightedScore > .2 ? 'bullish_research_lean' : weightedScore < -.2 ? 'bearish_research_lean' : 'neutral_wait';
   const dissent = positive > 0 && negative > 0;
   const debate = {
