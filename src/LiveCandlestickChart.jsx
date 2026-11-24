@@ -257,7 +257,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       };
       try {
         // Start all requests together, but let the chart depend only on OHLCV.
-        const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+        const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery + marketSideQuery);
         const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
         const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
 
