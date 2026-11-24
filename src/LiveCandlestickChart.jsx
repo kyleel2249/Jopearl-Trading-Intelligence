@@ -509,7 +509,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         </svg>
       </div>}
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />
-    <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} candles={candles} />
+    <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} instrumentId={marketInstrumentId} candles={candles} />
     <div className="market-context-panel">
       <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
       {marketContext ? <>

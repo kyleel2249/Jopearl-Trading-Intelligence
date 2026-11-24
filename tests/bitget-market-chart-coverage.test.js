@@ -20,6 +20,7 @@ test('exact Bitget instrument IDs and CFD side selection reach every candle cons
   const forecast = read('../src/RangeForecastEngine.jsx');
   assert.match(chart, /marketInstrumentQuery/);
   assert.match(chart, /marketSideQuery/);
+  assert.match(chart, /instrumentId={marketInstrumentId}/);
   assert.match(terminal, /instrumentQuery/);
   assert.match(terminal, /sideQuery/);
   assert.match(imi, /marketCatalog\.find/);
@@ -31,6 +32,8 @@ test('exact Bitget instrument IDs and CFD side selection reach every candle cons
 test('CFD trade flow does not invent CVD or taker pressure from unavailable data', () => {
   const flow = read('../src/LiveOrderFlowPanel.jsx');
   assert.match(flow, /marketType === 'cfd'/);
+  assert.match(flow, /instrumentId = ''/);
+  assert.match(flow, /instId: String\(instrumentId \|\| pair\(symbol\)\)/);
   assert.match(flow, /CVD and taker pressure are intentionally unavailable/);
 });
 

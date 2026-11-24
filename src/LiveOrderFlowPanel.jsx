@@ -18,6 +18,7 @@ export default function LiveOrderFlowPanel({
   exchange = 'bitget',
   symbol = 'BTC/USDT',
   marketType = 'spot',
+  instrumentId = '',
   candles = []
 }) {
   const [trades, setTrades] = useState([]);
@@ -60,7 +61,7 @@ export default function LiveOrderFlowPanel({
             args: [{
               instType: ({ spot: 'SPOT', margin: 'SPOT', futures: 'USDT-FUTURES', perpetual: 'USDT-FUTURES', 'coin-futures': 'COIN-FUTURES', 'usdc-futures': 'USDC-FUTURES' })[marketType] || 'SPOT',
               channel: 'trade',
-              instId: pair(symbol)
+              instId: String(instrumentId || pair(symbol))
             }]
           }));
 
