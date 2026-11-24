@@ -20,6 +20,7 @@ const AlphaSignalEngine = lazy(() => import('./AlphaSignalEngine.jsx'));
 const SignalIntelligenceDashboard = lazy(() => import('../dashboard/app/DashboardApp.jsx'));
 const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
+const AgentCommandCenter = lazy(() => import('./AgentCommandCenter.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -81,6 +82,7 @@ const navigation = [
   { label: 'Production Readiness', icon: ShieldCheck, group: 'SYSTEM' },
   { label: 'Institutional Governance', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
+  { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Universal Engine', icon: Network, group: 'RESEARCH' },
   { label: 'Backtesting Lab', icon: BarChart3, group: 'RESEARCH' },
   { label: 'Forecast & Strategy', icon: Gauge, group: 'RESEARCH' },
@@ -439,6 +441,7 @@ function App() {
     'Futures Intelligence': 'Cross-exchange futures pricing, order-book depth, funding and paper arbitrage research.',
     'Asset Intelligence': 'Normalized spot, perpetual, dated-futures, options and margin instrument discovery across supported venues.',
     'AI Intelligence': 'Signal evidence, market context and explainable analysis.',
+    'AI Agent Command Center': 'Ten explainable specialist agents, multi-agent debate, risk vetoes and persistent research memory.',
     'Institutional Market Intelligence': 'Shared chart-linked market evidence, regime, structure, liquidity, flow and scenarios.',
     'Market Scanner': 'Configure market watchlists for scheduled live ticker monitoring.',
     'Financial & On-chain': 'Macro, digital-asset, provider and wallet intelligence.',
@@ -529,6 +532,7 @@ function App() {
     if (['Portfolio Stress','Pre-trade Gate','Strategy Registry','Market Replay','System Diagnostics','Production Readiness'].includes(page)) return <Phase15To21Workspaces key={page} page={page}/>;
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
+    if (page === 'AI Agent Command Center' || page === 'Trading Bots') return <AgentCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
     if (page === 'Universal Engine') return <UniversalEngine localPrivateAccess={health?.localPrivateAccess === true}/>;
     if (page === 'Overview') return renderOverview();
