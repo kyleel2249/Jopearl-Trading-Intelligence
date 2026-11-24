@@ -21,17 +21,26 @@ function emitConfigChange() {
   } catch { /* notification is best effort */ }
 }
 
-export function getApiToken() {
-  // Legacy API tokens are intentionally ignored: Cloudflare public market-data
-  // routes are same-origin and do not require a user-supplied gateway token.
-  const store = storage();
-  try { store?.removeItem(TOKEN_KEY); } catch { /* best-effort legacy cleanup */ }
-  return '';
+const sessionStorageSafe = () => {
+  try { return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null; } catch { return null; }
+};
+function isPrivateJournalRoute(path) {
+  const value = String(path || '').split('?')[0];
+  return value === '/api/journal/entries' || value === '/api/mentor/analyze';
 }
-export function setApiToken() {
-  const store = storage();
-  try { store?.removeItem(TOKEN_KEY); } catch { /* best-effort legacy cleanup */ }
-  return '';
+
+export function getApiToken() {
+  const store = sessionStorageSafe();
+  try { return String(store?.getItem(TOKEN_KEY) || ''); } catch { return ''; }
+}
+export function setApiToken(value = '') {
+  const store = sessionStorageSafe();
+  const token = String(value || '').trim();
+  try {
+    if (token) store?.setItem(TOKEN_KEY, token);
+    else store?.removeItem(TOKEN_KEY);
+  } catch { /* session-only token storage is best effort */ }
+  return token;
 }
 
 // ---------------------------------------------------------------------------
@@ -216,7 +225,7 @@ export async function apiFetch(path, options = {}) {
   }
   const headers = new Headers(options.headers || {});
   const token = getApiToken();
-  if (token && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+  if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
   let response;
   try {
     response = await fetch(apiUrl(path), { ...options, headers });
@@ -293,7 +302,7 @@ export async function apiRequest(path, {
     if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', onAbort, { once: true }); }
     const headers = new Headers(extraHeaders || {});
     const token = getApiToken();
-    if (token && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+    if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
     if (json !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const started = Date.now();
     try {

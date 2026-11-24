@@ -49,21 +49,22 @@ test('ignores and clears stale external API gateway settings in favour of the Cl
   }
 });
 
-test('legacy API tokens are cleared and never attached to Cloudflare API requests', async () => {
-  const previousWindow = globalThis.window, previousFetch = globalThis.fetch, store = new Map([['jpti.apiToken', 'old-secret']]);
-  globalThis.window = { location: { protocol: 'https:', origin: 'https://jpti.pages.dev', hostname: 'jpti.pages.dev' }, localStorage: {
-    getItem: key => store.get(key) || null,
-    setItem: (key, value) => store.set(key, value),
-    removeItem: key => store.delete(key)
-  } };
-  let captured = null;
-  globalThis.fetch = async (url, options) => { captured = { url, options }; return new Response(JSON.stringify({ status: 'ok' }), { status: 200, headers: { 'content-type': 'application/json', 'x-jpti-runtime': 'cloudflare-edge' } }); };
+test('private journal token stays in session storage and is sent only to private JPTI routes', async () => {
+  const previousWindow = globalThis.window, previousFetch = globalThis.fetch;
+  const local = new Map([['jpti.apiToken', 'old-secret']]), session = new Map();
+  const makeStore = map => ({ getItem: key => map.get(key) || null, setItem: (key, value) => map.set(key, value), removeItem: key => map.delete(key) });
+  globalThis.window = { location: { protocol: 'https:', origin: 'https://jpti.pages.dev', hostname: 'jpti.pages.dev' }, localStorage: makeStore(local), sessionStorage: makeStore(session) };
+  const requests = [];
+  globalThis.fetch = async (url, options) => { requests.push({ url, options }); return new Response(JSON.stringify({ status: 'ok', entries: [] }), { status: 200, headers: { 'content-type': 'application/json', 'x-jpti-runtime': 'cloudflare-edge' } }); };
   try {
-    assert.equal(setApiToken('secret-token'), '');
-    assert.equal(getApiToken(), '');
+    assert.equal(setApiToken('secret-token'), 'secret-token');
+    assert.equal(getApiToken(), 'secret-token');
+    assert.equal(local.has('jpti.apiToken'), false);
     await apiFetch('/api/health');
-    assert.equal(captured.options.headers.get('x-jpti-api-token'), null);
-    assert.equal(captured.url, 'https://jpti.pages.dev/api/health');
+    assert.equal(requests[0].options.headers.get('x-jpti-api-token'), null);
+    await apiFetch('/api/journal/entries');
+    assert.equal(requests[1].options.headers.get('x-jpti-api-token'), 'secret-token');
+    assert.equal(requests[1].url, 'https://jpti.pages.dev/api/journal/entries');
     assert.equal(getApiSource().mode, 'cloudflare-edge');
   } finally { globalThis.window = previousWindow; globalThis.fetch = previousFetch; }
 });

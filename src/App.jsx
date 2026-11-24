@@ -3,6 +3,8 @@ const ExchangeConnectivity = lazy(() => import('./ExchangeConnectivity.jsx'));
 import Dashboard from './Dashboard.jsx';
 import TerminalDashboard from './TerminalDashboard.jsx';
 const FinancialIntelligence = lazy(() => import('./FinancialIntelligence.jsx'));
+const ReflectiveJournal = lazy(() => import('./ReflectiveJournal.jsx'));
+const PairScanner = lazy(() => import('./PairScanner.jsx'));
 const UniversalEngine = lazy(() => import('./UniversalEngine.jsx'));
 const ConnectionSettings = lazy(() => import('./ConnectionSettings.jsx'));
 const InstitutionalTerminal = lazy(() => import('./InstitutionalTerminal.jsx'));
@@ -19,7 +21,7 @@ const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
-  Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart,
+  Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
   ChevronRight, CircleHelp, Command, Cpu, Database, Gauge, Globe2, TrendingUp,
   LayoutDashboard, Menu, Network, Newspaper, Radio, RefreshCw, Search,
   Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Wallet, X, Zap, Download, PackageCheck, ExternalLink
@@ -60,9 +62,11 @@ const navigation = [
   { label: 'AI Intelligence', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Institutional Market Intelligence', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Market Scanner', icon: Search, group: 'INTELLIGENCE' },
+  { label: 'SOPH Pair Scanner', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Financial & On-chain', icon: Blocks, group: 'INTELLIGENCE' },
   { label: 'News & Events', icon: Newspaper, group: 'INTELLIGENCE' },
   { label: 'Portfolio & Ledger', icon: Wallet, group: 'OPERATIONS' },
+  { label: 'Reflective Trade Journal', icon: BookOpen, group: 'OPERATIONS' },
   { label: 'Risk Management', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Portfolio Allocation', icon: Gauge, group: 'OPERATIONS' },
   { label: 'Portfolio Stress', icon: Gauge, group: 'OPERATIONS' },
@@ -510,6 +514,8 @@ function App() {
     if (page === 'Downloads & Updates') return <DownloadsWorkspace/>;
     if (page === 'Calendar & Sessions') return <CalendarSessions symbol={symbol} onSymbolChange={setSymbol}/>;
     if (page === 'Connection Settings') return <ConnectionSettings/>;
+    if (page === 'Reflective Trade Journal') return <ReflectiveJournal/>;
+    if (page === 'SOPH Pair Scanner') return <PairScanner/>;
     if (page === 'Institutional Terminal') return <InstitutionalTerminal currentSymbol={symbol} onSymbolChange={setSymbol} onNavigate={activeNav}/>;
     if (page === 'Institutional Governance') return <InstitutionalGovernance/>;
     if (page === 'Futures Intelligence') return <FuturesIntelligence/>;
