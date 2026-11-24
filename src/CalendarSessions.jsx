@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, Clock3, RefreshCw, Globe2, BarChart3, Radio } from 'lucide-react';
 import { apiFetch, getApiSource } from './lib/api.js';
 import { analyzeSessionCandles, formatDuration, getSessionSnapshot, TRADING_SESSIONS } from './session-intelligence.js';
+import SessionLiquidityIntelligence from './SessionLiquidityIntelligence.jsx';
 
 const TIMEFRAMES = ['5m', '15m', '30m', '1h', '4h', '1d'];
 const EXCHANGES = ['binance', 'bitget', 'bybit', 'okx'];
@@ -105,6 +106,7 @@ export default function CalendarSessions({ symbol: initialSymbol = 'BTC/USDT', o
 
     <div className="session-section-heading"><div><span className="eyebrow">LIVE SESSION MONITOR</span><h3>Global trading hours</h3></div><span className="session-updated"><i/> CLOCK LIVE · REFRESH 1S</span></div>
     <div className="session-card-grid">{snapshot.sessions.map(session => <SessionCard key={session.id} session={session} stats={analytics} history={analytics}/>)}</div>
+    <SessionLiquidityIntelligence exchange={exchange} symbol={symbol} marketType={marketType} timeframe={timeframe} candles={candles}/>
 
     <section className="glass-panel session-market-panel">
       <div className="panel-title"><div><span className="eyebrow">EXCHANGE CANDLE ANALYTICS</span><h3>Session range & performance lab</h3></div><span className="live-tag">{candles.length} CANDLES LOADED</span></div>
