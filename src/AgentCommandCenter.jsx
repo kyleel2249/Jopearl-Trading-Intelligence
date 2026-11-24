@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import { Activity, BrainCircuit, ShieldCheck, RefreshCw, AlertTriangle, CheckCircle2, MessageSquareWarning } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
+import './AgentCommandCenter.css';
 
 const initial = { symbol:'BTC/USDT', momentumPct:'1.8', timeframeAlignment:'0.8', relativeVolume:'1.6',
   depthImbalance:'0.35', fundingRate:'0.0001', openInterestChangePct:'4', volatilityPct:'2.5',
@@ -15,6 +16,8 @@ export default function AgentCommandCenter() {
   const [history,setHistory] = useState([]);
   const [busy,setBusy] = useState(false);
   const [error,setError] = useState('');
+  const [feedback,setFeedback] = useState('win');
+  const [feedbackMessage,setFeedbackMessage] = useState('');
   const update = (key,value) => setForm(old => ({...old,[key]:value}));
   const run = useCallback(async event => {
     event?.preventDefault(); setBusy(true); setError('');
@@ -29,6 +32,11 @@ export default function AgentCommandCenter() {
     } catch(cause){setError(cause.message||'Could not run agent fleet.');}
     finally{setBusy(false);}
   },[form]);
+  const saveFeedback = useCallback(async()=>{
+    if(!result?.id)return; setFeedbackMessage('');
+    try{const response=await apiFetch('/api/agents/feedback',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({evaluationId:result.id,outcome:feedback})});const payload=await response.json();if(!response.ok)throw new Error(payload.error||'Feedback failed');setFeedbackMessage('Outcome saved to observational trading memory.');}
+    catch(cause){setFeedbackMessage(cause.message||'Feedback could not be saved.');}
+  },[result,feedback]);
   const loadHistory = useCallback(async()=>{
     try{const response=await apiFetch('/api/agents/history?limit=12',{cache:'no-store'});const payload=await response.json();if(response.ok)setHistory(payload.evaluations||[]);}
     catch{}
@@ -51,6 +59,7 @@ export default function AgentCommandCenter() {
       <h4>Agent findings</h4><div className="scanner-table"><div><span>AGENT</span><span>STATUS / SCORE</span><span>CONFIDENCE</span></div>{result.agents.map(agent=><div key={agent.id}><b>{agentNames[agent.id]||agent.id}</b><span>{agent.status.replaceAll('_',' ')}{agent.score==null?'':' · '+agent.score.toFixed(2)}</span><strong>{(agent.confidence*100).toFixed(0)}%</strong></div>)}</div>
       <h4>Agent debate</h4><p className="subtle-note">{result.debate.thesis}</p><p className="subtle-note">{result.debate.challenge}</p>
       {result.agents.filter(a=>a.status!=='evaluated').map(a=><p className="subtle-note" key={a.id}>{agentNames[a.id]}: missing {a.missingEvidence.join(', ')}</p>)}
+      <div className="agent-feedback"><label>Record eventual outcome <select value={feedback} onChange={e=>setFeedback(e.target.value)}><option value="win">Win</option><option value="loss">Loss</option><option value="breakeven">Breakeven</option><option value="invalidated">Invalidated</option><option value="not_taken">Not taken</option></select></label><button className="small-refresh" type="button" onClick={saveFeedback}>Save outcome</button>{feedbackMessage&&<small>{feedbackMessage}</small>}</div>
       <small className="subtle-note">Evaluation {result.id} · {new Date(result.generatedAt).toLocaleString()} · {result.persisted?'Saved to JPTI memory':'Not persisted'}</small>
     </div>}
     <div className="section-heading"><div><h4>Recent agent evaluations</h4><p className="subtle-note">Append-only research history.</p></div><button className="small-refresh" type="button" onClick={loadHistory}>Refresh history</button></div>
