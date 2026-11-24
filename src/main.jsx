@@ -1,6 +1,7 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.jsx';
+import JPTISplash from './JPTISplash.jsx';
 import './styles.css';
 import { trackAppOpen } from './lib/cloudflare-analytics.js';
 import { JPTI_CONFIG, getConfigDiagnostics } from './lib/config.js';
@@ -61,7 +62,7 @@ void trackAppOpen();
 createRoot(rootElement).render(
   <React.StrictMode>
     <StartupErrorBoundary>
-      <App />
+      <><App /><JPTISplash /></>
     </StartupErrorBoundary>
   </React.StrictMode>
 );
