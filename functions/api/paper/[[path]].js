@@ -74,6 +74,15 @@ export async function runCycle(db,symbol){
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
   const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
+  const outOfSampleCount=current.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
+  const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSampleCount);
+  const tierRow=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
+  if(kpi.eligibleForPromotion&&tierRow?.tier==='RESEARCH'){
+   const promotedAt=iso(),promotion={tier:'PRO',promotedAt,reason:'All promotion gates passed on persisted paper-trade outcomes.',resources:['Expanded strategy sandbox','Adaptive virtual capital allocation','Advanced market replay and parameter research','Additional walk-forward evaluation budget']};
+   await db.prepare("UPDATE jpti_paper_agents SET tier='PRO',promoted_at=?,updated_at=?,payload=json_set(payload,'$.promotion',json(?),'$.resources',json(?)) WHERE agent_id=?")
+    .bind(promotedAt,promotedAt,JSON.stringify(promotion),JSON.stringify([...agent.resources,...promotion.resources]),agent.id).run();
+   report.agents.push({agentId:agent.id,promotion:'PRO',promotedAt});
+  }
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closed_at||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.net_pnl_usd)),0);
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
@@ -113,9 +122,10 @@ export async function dailyReview(db){
  const summary={date,mode:'PAPER_ONLY',agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
   if(agent.kpi.eligibleForPromotion&&agent.tier==='RESEARCH'){
-   const promoted={tier:'PRO',promotedAt:iso(),promotionReason:'All independently measured KPI gates passed.'};
+   const promotedAt=iso(),promoted={tier:'PRO',promotedAt,reason:'All independently measured KPI gates passed.'};
    await db.prepare("UPDATE jpti_paper_agents SET tier='PRO',promoted_at=?,updated_at=?,payload=json_set(payload,'$.promotion',json(?)) WHERE agent_id=?")
-    .bind(promoted.promotedAt,iso(),JSON.stringify(promoted),agent.id).run();
+    .bind(promotedAt,promotedAt,JSON.stringify(promoted),agent.id).run();
+   const item=summary.agents.find(a=>a.agentId===agent.id);if(item)item.tier='PRO';
   }
  }
  const id='paper-review:'+date;
