@@ -11,6 +11,7 @@ import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.
 import ChartIntelligenceOverlays from './chart-intelligence/ChartIntelligenceOverlays.jsx';
 import ChartIntelligenceLegend from './chart-intelligence/ChartIntelligenceLegend.jsx';
 import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
+import { resolvePrecision, roundToTick, formatInstrumentPrice } from './chart-intelligence/precision.js';
 
 const TIMEFRAMES = [
   ['1m', '1m'], ['3m', '3m'], ['5m', '5m'], ['15m', '15m'], ['30m', '30m'],
@@ -84,13 +85,14 @@ function pipIncrementFor(symbol, price) {
   if (price >= 0.01) return 0.00001;
   return 0.000001;
 }
-function calibratedPriceTicks(min, max, symbol) {
+function calibratedPriceTicks(min, max, symbol, meta = {}) {
   const range = max - min, center = (min + max) / 2;
-  let step = pipIncrementFor(symbol, center);
+  const precision = resolvePrecision(meta);
+  let step = precision.tickSize || pipIncrementFor(symbol, center);
   if (!Number.isFinite(step) || step <= 0) step = range / 20;
   while (range / step > 40) step *= 10;
-  const first = Math.ceil(min / step) * step, ticks = [];
-  for (let value = first; value <= max + step * 0.000001 && ticks.length < 45; value += step) ticks.push(Number(value.toPrecision(12)));
+  const first = Math.ceil((min - step * 1e-10) / step) * step, ticks = [];
+  for (let value = first; value <= max + step * 1e-8 && ticks.length < 45; value += step) ticks.push(precision.tickSize ? roundToTick(value, precision) : Number(value.toPrecision(12)));
   return ticks;
 }
 const timeLabel = (stamp, timeframe) => {
@@ -105,6 +107,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
   const [marketInstrumentIds, setMarketInstrumentIds] = useState({});
+  const [marketPrecisionMetadata, setMarketPrecisionMetadata] = useState({});
   const [supportedTimeframes, setSupportedTimeframes] = useState(null);
   const [marketType, setMarketType] = useState(initialMarketType || 'futures');
   const [marketSide, setMarketSide] = useState('buy');
@@ -202,6 +205,13 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         setCatalogError('');
         const symbols = markets.map((market) => market.symbol);
         setMarketInstrumentIds(Object.fromEntries(markets.filter((market) => market.symbol && market.id).map((market) => [market.symbol, market.id])));
+        setMarketPrecisionMetadata(Object.fromEntries(markets.filter((market) => market.symbol).map((market) => {
+          const info = market.info || {};
+          const tickSize = market.tickSize ?? market.priceIncrement ?? market.minPriceIncrement ?? info.tickSize ?? info.priceIncrement ?? info.minPriceIncrement;
+          const priceDecimals = market.priceDecimals ?? (Number.isInteger(market.precision?.price) ? market.precision.price : undefined) ?? info.pricePrecision ?? info.pricePlace;
+          const pipSize = market.pipSize ?? market.pip ?? info.pipSize ?? info.pointSize;
+          return [market.symbol, { symbol: market.symbol, marketType, tickSize, priceDecimals, pipSize, quote: market.quote, type: market.type }];
+        })));
         setMarketSymbols(symbols);
         setMarketCounts(data.counts || null);
         if (symbols.length && !symbols.includes(symbol)) {
@@ -474,9 +484,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           const index = Math.max(0, Math.min(geometry.count - 1, Math.floor(((relative * 1000) - geometry.left) / (geometry.right - geometry.left) * geometry.count)));
           setCrosshair(index);
         }}>
-          {calibratedPriceTicks(geometry.min, geometry.max, symbol).map((value) => {
+          {calibratedPriceTicks(geometry.min, geometry.max, symbol, marketPrecisionMetadata[symbol] || { symbol, marketType }).map((value) => {
             const y = geometry.y(value);
-            return <g key={'pip-'+value}><line x1={geometry.left} y1={y} x2="925" y2={y} stroke="#263247" strokeDasharray="3 4"/><text x="935" y={y + 3.5} fill="#8392a8" fontSize="9.5">{fmt(value)}</text></g>;
+            return <g key={'pip-'+value}><line x1={geometry.left} y1={y} x2="925" y2={y} stroke="#263247" strokeDasharray="3 4"/><text x="935" y={y + 3.5} fill="#8392a8" fontSize="9.5">{formatInstrumentPrice(value, marketPrecisionMetadata[symbol] || { symbol, marketType }, { maximumFractionDigits: 12 })}</text></g>;
           })}
           {geometry.rows.map((c, i) => {
             const up = c[4] >= c[1], color = up ? '#20c997' : '#f07883';
