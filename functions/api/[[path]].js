@@ -6,6 +6,7 @@
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
+import { runAgentFleet } from '../../src/agent-fleet-engine.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -229,6 +230,58 @@ async function handleJournalRoute(request, env, url) {
     }
   }
   return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
+}
+
+
+async function handleAgentFleetRoute(request, env, url) {
+  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
+  const path = url.pathname.replace(/\/+$/, '');
+  if (path === '/api/agents/catalog' && request.method === 'GET') {
+    return json(200, { version:'1.0.0', mode:'research-and-paper-review', agents:[
+      ['trend','Trend & multi-timeframe analyst'],['participation','Volume participation analyst'],['microstructure','Order-book pressure analyst'],
+      ['derivatives','Funding & open-interest analyst'],['macro','Macro regime analyst'],['risk','Liquidity & volatility risk analyst'],
+      ['liquidity','Liquidity conditions analyst'],['momentum','Momentum & reversal analyst'],['correlation','Cross-asset context analyst'],
+      ['event','Event risk analyst']
+    ].map(([id,name])=>({id,name,executionPermission:'none'})),
+    capabilities:['specialist-voting','dissent-detection','explainable-rationales','freshness-gates','risk-veto','append-only-memory','outcome-feedback','strategy-review-gates'] }, request);
+  }
+  const auth = await verifyJournalToken(request, env);
+  if (!auth.ok) return json(auth.status, { error:auth.error }, request);
+  try {
+    if (path === '/api/agents/evaluate' && request.method === 'POST') {
+      if (Number(request.headers.get('content-length') || 0) > 128000) return json(413,{error:'Agent evidence payload is too large.'},request);
+      const body = await request.json();
+      const result = runAgentFleet(body || {});
+      await env.JPTI_DB.prepare("INSERT INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?, 'agent-fleet-evaluation','jpti-agent-fleet',?,?,?,?)")
+        .bind(result.id,result.id,result.symbol,result.generatedAt,JSON.stringify(result)).run();
+      return json(200,{...result,persisted:true,storage:'cloudflare-d1'},request);
+    }
+    if (path === '/api/agents/history' && request.method === 'GET') {
+      const requested = Number(url.searchParams.get('limit') || 25);
+      const limit = Number.isFinite(requested) ? Math.min(100,Math.max(1,Math.floor(requested))) : 25;
+      const rows = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='agent-fleet-evaluation' ORDER BY occurred_at DESC,created_at DESC LIMIT ?").bind(limit).all();
+      const evaluations = (rows.results || []).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);
+      return json(200,{count:evaluations.length,evaluations},request);
+    }
+    if (path === '/api/agents/feedback' && request.method === 'POST') {
+      const body = await request.json();
+      const evaluationId = String(body?.evaluationId || '').trim();
+      const outcome = String(body?.outcome || '').trim().toLowerCase();
+      if (!evaluationId || !['win','loss','breakeven','invalidated','not_taken'].includes(outcome))
+        return json(400,{error:'Provide an evaluationId and a supported outcome.'},request);
+      const found = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='agent-fleet-evaluation' AND external_id=? ORDER BY occurred_at DESC LIMIT 1").bind(evaluationId).first();
+      if (!found?.payload) return json(404,{error:'Evaluation not found.'},request);
+      const evaluation = typeof found.payload==='string'?JSON.parse(found.payload):found.payload;
+      const feedback = {id:crypto.randomUUID(),evaluationId,symbol:evaluation.symbol||null,outcome,
+        realizedR:body?.realizedR==null?null:Number.isFinite(Number(body.realizedR))?Number(body.realizedR):null,
+        notes:String(body?.notes||'').slice(0,1000),recordedAt:new Date().toISOString(),learningMode:'observational_only',
+        permission:'Feedback informs reporting; it does not mutate strategies or authorize execution.'};
+      await env.JPTI_DB.prepare("INSERT INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?, 'agent-fleet-feedback','jpti-agent-fleet',?,?,?,?)")
+        .bind(feedback.id,feedback.id,feedback.symbol,feedback.recordedAt,JSON.stringify(feedback)).run();
+      return json(201,{...feedback,persisted:true,storage:'cloudflare-d1'},request);
+    }
+    return json(405,{error:'Unsupported agent-fleet method or route.'},request,{allow:'GET, POST, OPTIONS'});
+  } catch(error) { return json(400,{error:error.message||'Agent fleet operation failed.'},request); }
 }
 
 const MAX_SESSION_OUTCOMES=20000,MAX_GAINZ_OUTCOMES=5000,MAX_GAINZ_BATCH=500;
@@ -469,6 +522,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         headers.vary = 'Origin';
       }
       return new Response(null, { status: 204, headers });
+    }
+    const agentPath = url.pathname.replace(/\/+$/, '');
+    if (agentPath.startsWith('/api/agents/')) {
+      if (!['GET','POST'].includes(request.method)) return json(405,{error:'Agent routes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+      return handleAgentFleetRoute(request,env,url);
     }
     if (url.pathname.replace(/\/+$/, '') === '/api/journal/entries') {
       if (!['GET', 'HEAD', 'POST'].includes(request.method)) return json(405, { error: 'Journal route supports GET and POST only.' }, request, { allow: 'GET, HEAD, POST, OPTIONS' });
