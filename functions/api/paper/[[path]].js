@@ -1,4 +1,4 @@
-import { PAPER_AGENTS, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
+import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -116,7 +116,7 @@ export async function runCycle(db,symbol){
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSampleCount);
   const lifecycle=await promoteOrRetire(db,agent,metrics,kpi);
   if(lifecycle)report.agents.push({agentId:agent.id,lifecycle});
-  await saveAgent(db,agent.id,metrics,kpi,agent.tier||'RESEARCH');
+  const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();\n  await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
@@ -143,7 +143,7 @@ async function dashboard(db){
  await ensureAgents(db);
  const agents=[];
  for(const agent of await loadAgents(db)){
-  const rows=await allTrades(db,agent.id),trades=rows.map(toTrade),metrics=calculatePaperMetrics(trades,agent.virtualEquityUsd||PAPER_POLICY.initialEquityUsd);
+  const rows=await allTrades(db,agent.id),trades=rows.map(toTrade),metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);
   const outOfSample=trades.filter(t=>t.status==='closed'&&t.outOfSample===true).length;
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSample);
   const row=await db.prepare('SELECT tier,status,promoted_at,virtual_equity_usd,payload FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
@@ -155,7 +155,7 @@ async function dashboard(db){
 }
 export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
- const summary={date,mode:'PAPER_ONLY',agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
+ const summary={date,mode:'PAPER_ONLY',fleet:{total:dash.agents.length,research:dash.agents.filter(a=>a.tier==='RESEARCH').length,liveReady:dash.agents.filter(a=>a.tier==='LIVE_READY').length,suspended:dash.agents.filter(a=>a.status==='suspended').length,retired:dash.agents.filter(a=>a.status==='retired').length,capitalPerNewAgentUsd:PAPER_POLICY.initialEquityUsd},agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
   const lifecycle=await promoteOrRetire(db,agent,agent.metrics,agent.kpi);
   if(lifecycle){const item=summary.agents.find(a=>a.agentId===agent.id);if(item){item.tier=lifecycle.status;item.lifecycle=lifecycle;}}
