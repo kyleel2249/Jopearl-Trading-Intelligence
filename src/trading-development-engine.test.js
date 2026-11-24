@@ -45,3 +45,11 @@ test('development assessment refuses to claim a complete setup with missing evid
   assert.equal(result.decision.status, 'caution');
   assert.ok(result.process.missing.length >= 3);
 });
+
+test('reflective report preserves the opening statement and labels evidence limits', async () => {
+  const { buildReflectiveReport } = await import('./trading-development-engine.js');
+  const report = buildReflectiveReport({ symbol: 'SOPH/USDT', openingNarrative: 'Today I have decided to start anew in my trading journey.', entryPrice: 0.000815, quantity: 689973, researchSnapshot: { projectFundamentals: { finding: 'Chain transition announced.' }, projectSource: { source: 'Official', url: 'https://sophon.com' } } }, null);
+  assert.match(report, /Today I have decided to start anew/);
+  assert.match(report, /SOPH\/USDT/);
+  assert.match(report, /not a calibrated probability/);
+});
