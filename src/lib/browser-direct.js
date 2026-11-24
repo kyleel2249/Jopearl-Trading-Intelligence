@@ -263,7 +263,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       case 'health':
         return { status: 200, body: { status: 'degraded', service: 'JPTI Browser Direct', directMode: true, source: DIRECT_SOURCE, mode: 'direct', liveTradingEnabled: false, localPrivateAccess: false, desktopInstanceId: null, note: 'The JPTI API is unreachable. Showing public exchange market data directly. Trading, ledger and analytics need the API.', timestamp: new Date(now()).toISOString() } };
       case 'catalog':
-        return { status: 200, body: { adapter: 'browser-direct', source: DIRECT_SOURCE, count: DIRECT_EXCHANGES.length, exchanges: DIRECT_EXCHANGES.map((id) => ({ id, name: NAMES[id], configured: false, capabilities: { ticker: true, orderBook: false, ohlcv: true, balance: false, createOrder: false, fetchMarkets: true, fetchFundingRate: false, fetchPositions: false, fetchLeverage: false, fetchMarginMode: false }, productTypes: id === 'bitget' ? ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures'] : ['spot'], unsupportedProductTypes: id === 'bitget' ? ['cfd', 'options'] : ['futures', 'margin', 'cfd', 'options'] })) } };
+        return { status: 200, body: { adapter: 'browser-direct', source: DIRECT_SOURCE, count: DIRECT_EXCHANGES.length, exchanges: DIRECT_EXCHANGES.map((id) => ({ id, name: NAMES[id], configured: false, capabilities: { ticker: true, orderBook: false, ohlcv: true, balance: false, createOrder: false, fetchMarkets: true, fetchFundingRate: false, fetchPositions: false, fetchLeverage: false, fetchMarginMode: false }, productTypes: id === 'bitget' ? ['spot', 'margin', 'futures', 'coin-futures', 'usdc-futures', 'cfd'] : ['spot'], unsupportedProductTypes: id === 'bitget' ? ['cfd', 'options'] : ['futures', 'margin', 'cfd', 'options'] })) } };
       case 'compare': {
         const sym = parseSymbol(route.query.symbol || 'BTC/USDT');
         const requested = String(route.query.exchanges || DIRECT_EXCHANGES.join(',')).split(',').map((id) => id.trim().toLowerCase()).filter(Boolean);
@@ -311,10 +311,11 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const marketType = normalizeBitgetMarketType(route.query.type || 'spot');
         const sym = parseSymbol(route.symbol);
         const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
+        if (route.exchange === 'bitget' && marketType === 'cfd') throw new DirectError('Bitget CFD data must be requested through the authenticated Cloudflare Pages Function. Configure the Bitget read-only UTA secrets in Cloudflare.', 503);
         if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
         if (route.exchange === 'bitget' && instrumentId) sym.instrumentId = instrumentId;
         sym.marketType = marketType;
-        const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol, CACHE_TTL.ticker, async () => {
+        const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || ''), CACHE_TTL.ticker, async () => {
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
@@ -324,6 +325,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
       }
       case 'ohlcv': {
         const marketType = String(route.query.type || 'spot').toLowerCase();
+        if (route.exchange === 'bitget' && marketType === 'cfd') throw new DirectError('Bitget CFD data must be requested through the authenticated Cloudflare Pages Function. Configure the Bitget read-only UTA secrets in Cloudflare.', 503);
         const sym = parseSymbol(route.symbol);
         const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
         if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
@@ -331,7 +333,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         sym.marketType = marketType;
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
-        const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + timeframe + limit, CACHE_TTL.ohlcv, async () => {
+        const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || '') + ':' + timeframe + ':' + limit, CACHE_TTL.ohlcv, async () => {
           if (venue !== 'bitget') {
             const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
             return rows.slice(-limit);
@@ -358,6 +360,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         const id = route.exchange;
         if (!DIRECT_EXCHANGES.includes(id)) throw new DirectError('Direct mode does not support ' + id + '.', 404);
         const type = normalizeBitgetMarketType(route.query.type || 'all');
+        if (id === 'bitget' && type === 'cfd') throw new DirectError('Bitget CFD instruments require the authenticated Cloudflare Pages Function. Configure the Bitget read-only UTA secrets in Cloudflare.', 503);
         const search = String(route.query.search || '').trim().toLowerCase().slice(0, 60);
         const all = await cached('m:' + id, CACHE_TTL.markets, async () => {
           if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
