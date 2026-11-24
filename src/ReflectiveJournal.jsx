@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, ClipboardList, Download, FileText, Lightbulb, MessageSquareText, Plus, RefreshCw, ShieldAlert, Target, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
 import { apiFetch, setApiToken } from './lib/api.js';
-import { analyzeTimeframe, buildTradingDevelopmentAssessment } from './trading-development-engine.js';
+import { analyzeTimeframe, buildTradingDevelopmentAssessment, buildReflectiveReport } from './trading-development-engine.js';
 import './ReflectiveJournal.css';
 
 const STORAGE_KEY = 'jpti.reflective-journal.v1';
@@ -201,6 +201,16 @@ export default function ReflectiveJournal() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a'); a.href = url; a.download = 'jpti-reflective-trading-journal.json'; a.click(); URL.revokeObjectURL(url);
   };
+  const exportReport = () => {
+    const report = buildReflectiveReport(active, assessment || active.technicalAssessment || null);
+    const blob = new Blob([report], { type: 'text/markdown;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = 'jpti-' + String(active.symbol || 'trade').replace(/[^a-z0-9]+/gi, '-').toLowerCase() + '-reflective-report.md'; a.click(); URL.revokeObjectURL(url);
+  };
+  const copyReport = async () => {
+    try { await navigator.clipboard.writeText(buildReflectiveReport(active, assessment || active.technicalAssessment || null)); setToast('Reflective report copied'); }
+    catch { setToast('Clipboard unavailable — export the Markdown report instead'); }
+  };
   const markStatus = (status) => updateActive({ orderStatus: status });
   const accountEstimate = active.margin && active.allocationPercent ? Number(active.margin) / (Number(active.allocationPercent) / 100) : null;
   const entryNotional = Number(active.notional || active.entryPrice * active.quantity);
@@ -214,7 +224,7 @@ export default function ReflectiveJournal() {
         <span className="rj-eyebrow"><BookOpen size={14}/> PERSONAL TRADING DEVELOPMENT RECORD</span>
         <h1>Reflective Trade Journal</h1>
         <p>A private record of your decisions, evidence, execution, risk, behaviour and lessons. The journal values decision quality over whether a trade happens to win.</p>
-        <div className="rj-hero-actions"><button onClick={exportJournal}><Download size={15}/> Export journal</button><span className="rj-save-state">{toast || 'Local journal'}</span></div>
+        <div className="rj-hero-actions"><button onClick={exportJournal}><Download size={15}/> Export JSON</button><button onClick={exportReport}><FileText size={15}/> Export report</button><button onClick={copyReport}><ClipboardList size={15}/> Copy report</button><span className="rj-save-state">{toast || 'Local journal'}</span></div>
       </div>
       <div className="rj-hero-mark"><Brain size={42}/><b>THINK<br/>REVIEW<br/>IMPROVE</b></div>
     </header>
