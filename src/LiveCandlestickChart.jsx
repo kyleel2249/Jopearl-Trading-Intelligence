@@ -389,7 +389,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const geometry = useMemo(() => {
     if (!liveCandles.length) return null;
     // Start with a readable 120-candle window; zooming out reveals progressively older history.
-    const baseCount = Math.max(25, Math.min(liveCandles.length, 120));
+    const baseCount = Math.max(25, Math.min(liveCandles.length, Math.floor(120 / candleSpacing)));
     const count = Math.max(25, Math.min(liveCandles.length, Math.floor(baseCount / zoom)));
     const rows = liveCandles.slice(-count);
     const canvasWidth = getExpandedCanvasWidth(plotSize.w, count, baseCount);
