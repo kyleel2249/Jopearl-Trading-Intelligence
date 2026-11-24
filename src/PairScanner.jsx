@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, AlertTriangle, ArrowDownUp, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
 import './PairScanner.css';
+import { apiFetch } from './lib/api.js';
 
 const money = value => Number.isFinite(Number(value)) ? '$' + Number(value).toLocaleString(undefined,{maximumFractionDigits:0}) : '—';
 const px = value => Number.isFinite(Number(value)) ? '$' + Number(value).toLocaleString(undefined,{maximumFractionDigits:10}) : '—';
@@ -14,7 +15,7 @@ export default function PairScanner(){
  const load=useCallback(async()=>{
   setLoading(true);setError('');
   try{
-   const response=await fetch('/api/market/pair-scanner?rangePct='+encodeURIComponent(range)+'&minTurnover='+encodeURIComponent(minimum)+'&timeframe='+encodeURIComponent(timeframe),{cache:'no-store'});
+   const response=await apiFetch('/api/market/pair-scanner?rangePct='+encodeURIComponent(range)+'&minTurnover='+encodeURIComponent(minimum)+'&timeframe='+encodeURIComponent(timeframe),{cache:'no-store'});
    const payload=await response.json();
    if(!response.ok)throw new Error(payload.error||'Bitget pair scan failed');
    setData(payload);
