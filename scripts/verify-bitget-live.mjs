@@ -1,7 +1,7 @@
 // Live Bitget + Cloudflare Pages regression verification.
 // Usage: JPTI_PAGES_URL=https://<your-pages-domain> node scripts/verify-bitget-live.mjs
 // Read-only: verifies public market data only. Bitget may return HTTP 403 to a
-// particular Cloudflare/GitHub egress region; that condition is reported as a
+// Cloudflare Pages Worker egress path; that condition is reported as a
 // regional warning, not misreported as an application or credential failure.
 const base = String(process.env.JPTI_PAGES_URL || 'https://jpti.pages.dev').replace(/\/+$/, '');
 const bitget = 'https://api.bitget.com';
@@ -39,7 +39,7 @@ function validateCandles(candles, label) {
     assert(Number(candle[2]) >= Number(candle[3]), label + ': candle high is below low.');
   }
 }
-function isKnownRegional403(error) {
+function isEdgeUpstream403(error) {
   const text = String(error?.message || '');
   return error?.status === 502 && /HTTP 403/.test(text);
 }
@@ -87,16 +87,16 @@ for (const category of categories) {
     try {
       marketBody = await getJson(marketUrl);
     } catch (edgeError) {
-      if (!isKnownRegional403(edgeError)) throw edgeError;
+      if (!isEdgeUpstream403(edgeError)) throw edgeError;
       row.edgeStatus = 'upstream-403';
       try {
         await verifyDirectCategory(category, row);
-        row.status = 'passed-with-edge-region-warning';
-        row.warning = 'The Pages Worker received HTTP 403 from Bitget in this runner region; direct Bitget public endpoints passed.';
+        row.status = 'passed-with-edge-warning';
+        row.warning = 'The Pages Worker egress received HTTP 403 from Bitget; direct Bitget public endpoints passed from the GitHub runner.';
       } catch (directError) {
         if (directError?.status === 403) {
-          row.status = 'region-blocked';
-          row.warning = 'Both the Pages Worker and this GitHub runner received HTTP 403 from Bitget. This region cannot validate live Bitget data; the browser-direct fallback is covered by automated tests.';
+          row.status = 'runner-region-blocked';
+          row.warning = 'Both the Pages Worker and the GitHub runner received HTTP 403 from Bitget. Direct live verification is blocked from these request paths; the browser-direct fallback is covered by automated tests.';
           results.push(row);
           console.warn('WARN ' + category.label + ': ' + row.warning);
           continue;
@@ -140,10 +140,10 @@ for (const category of categories) {
   if (row.status === 'passed') console.log('PASS ' + category.label + ': ' + row.checks.join(', '));
 }
 const failures = results.filter((row) => row.status === 'failed');
-const regional = results.filter((row) => row.status === 'region-blocked' || row.status === 'passed-with-edge-region-warning');
+const regional = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
 console.log(JSON.stringify({
   target: base,
-  status: failures.length ? 'failed' : regional.length ? 'passed-with-regional-warnings' : 'passed',
+  status: failures.length ? 'failed' : regional.length ? 'passed-with-edge-warnings' : 'passed',
   results
 }, null, 2));
 if (failures.length) process.exitCode = 1;
