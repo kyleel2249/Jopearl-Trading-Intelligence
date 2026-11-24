@@ -31,8 +31,8 @@ test('timeframe analysis refuses insufficient or malformed data', () => {
 
 test('risk analysis flags leverage, absent stop and anomalous liquidation distance', () => {
   const result = analyzeTradeRisk({ entryPrice: .000815, quantity: 689973, margin: 28.7, leverage: 20, liquidationPrice: .000226, direction: 'long', marketBias: 'bearish' });
-  assert.ok(Math.abs(result.notional - 562.328995) < 1e-8);
-  assert.ok(Math.abs(result.impliedMargin - 28.11644975) < 1e-8);
+  assert.ok(Math.abs(result.notional - 562.327995) < 1e-8);
+  assert.ok(Math.abs(result.impliedMargin - 28.11639975) < 1e-8);
   assert.ok(Math.abs(result.liquidationDistancePct - 72.26993865) < .01);
   assert.equal(result.classification, 'high');
   assert.equal(result.warnings.length, 4);
