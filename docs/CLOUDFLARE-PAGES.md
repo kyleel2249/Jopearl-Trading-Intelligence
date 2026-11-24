@@ -19,8 +19,10 @@ The root `wrangler.toml` contains the Pages output directory and Workers compati
 
 Configure these repository secrets:
 
-- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with Pages edit/deploy permissions for the account.
+- `CLOUDFLARE_API_TOKEN` — Cloudflare API token with **Cloudflare Pages: Edit** and **D1: Edit** permissions for the target account. The workflow validates that the secret is present, applies pending D1 migrations, then deploys Pages.
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
+
+Add these under the repository's **Settings → Secrets and variables → Actions → Repository secrets**. The workflow currently reads repository-level secrets; secrets stored only in a GitHub Environment are not visible unless that environment is explicitly attached to the job.
 
 Optional repository variable for native Android builds:
 
@@ -32,7 +34,7 @@ Optional repository variable for native Android builds:
 - `.dev.vars` — local Cloudflare Pages Functions runtime variables. Copy `.dev.vars.example` to `.dev.vars` when needed.
 - Cloudflare dashboard Variables and Secrets — server-side values only. Never put private exchange credentials, signing secrets, or tokens in `VITE_*` variables.
 
-The current Cloudflare edge API provides public spot exchange catalog, ticker, OHLCV candlesticks, cross-venue ticker comparison and a limited single-timeframe OHLCV context score for Binance, Bybit, OKX and Bitget. It requires no exchange API keys and no remote gateway.
+The current Cloudflare edge API provides public spot market catalogs, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget additionally exposes public Margin, USDT-M, Coin-M and USDC-M instrument catalogs, tickers and candles. Cross-venue ticker comparison and a limited single-timeframe OHLCV context score are also available. These public feeds require no exchange API keys and no separate API gateway. The live post-deploy workflow checks the five Bitget categories against the deployed Pages origin.
 
 ## Runtime capability boundary
 
