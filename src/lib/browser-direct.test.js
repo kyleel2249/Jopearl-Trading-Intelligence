@@ -237,6 +237,14 @@ test('Bitget loads all five public instrument categories and filters contract ty
   assert.equal(futures.body.count, 3);
 });
 
+test('Bitget market catalogue failures preserve upstream diagnostics', async () => {
+  const provider = createDirectProvider({ fetchImpl: async () => json({ code: '40001', msg: 'upstream access denied' }, 403) });
+  const result = await provider.request('/api/exchanges/bitget/markets?type=all');
+  assert.equal(result.status, 502);
+  assert.match(result.body.error, /SPOT: Exchange answered HTTP 403: upstream access denied/);
+  assert.match(result.body.error, /USDT-FUTURES: Exchange answered HTTP 403: upstream access denied/);
+});
+
 test('Bitget derivative candles use their product category and preserve settlement symbol', async () => {
   let requestedUrl = '';
   const provider = createDirectProvider({ fetchImpl: async (url) => {
