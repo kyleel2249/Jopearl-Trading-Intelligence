@@ -42,6 +42,18 @@ const request = (method, body, token = 'test-private-token') => new Request('htt
   body: body ? JSON.stringify(body) : undefined
 });
 
+test('Cloudflare health reports private service readiness without exposing secrets', async () => {
+  const db = fakeDb();
+  const response = await handler(db)({ request: new Request('https://jpti.example/api/health'), env: { JPTI_DB: db, JPTI_JOURNAL_TOKEN: 'do-not-return-this', AI: {} } });
+  const data = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(data.capabilities.journalAuthConfigured, true);
+  assert.equal(data.capabilities.reflectiveJournal, true);
+  assert.equal(data.capabilities.sessionOutcomeMemory, true);
+  assert.equal(data.capabilities.gainzAlphaOutcomePersistence, true);
+  assert.equal(data.capabilities.workersAiMentor, true);
+  assert.equal(JSON.stringify(data).includes('do-not-return-this'), false);
+});
 test('Cloudflare journal API denies unauthenticated reads', async () => {
   const db = fakeDb();
   const response = await handler(db)({ request: request('GET', null, ''), env: { JPTI_DB: db, JPTI_JOURNAL_TOKEN: 'test-private-token' } });

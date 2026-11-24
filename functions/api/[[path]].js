@@ -517,14 +517,15 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const snapshotIndex = await env.JPTI_DB.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
         ).bind('jpti_events_market_snapshot_lookup').first();
-        const missingIndexes = snapshotIndex ? [] : ['jpti_events_market_snapshot_lookup'];
+        const outcomeIndex = await env.JPTI_DB.prepare(\"SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?\").bind('jpti_events_kind_time').first();
+        const missingIndexes = [...(!snapshotIndex ? ['jpti_events_market_snapshot_lookup'] : []), ...(!outcomeIndex ? ['jpti_events_kind_time'] : [])];
         // A read-only KV lookup exercises the binding without creating a public write surface.
         await env.JPTI_KV.get('jpti:system:health');
         const healthy = missingTables.length === 0 && missingIndexes.length === 0;
         return json(healthy ? 200 : 503, {
           status: healthy ? 'ok' : 'migration-required',
           service: 'JPTI Cloudflare storage',
-          d1: { connected: true, tables, missingTables, indexes: snapshotIndex ? [snapshotIndex.name] : [], missingIndexes },
+          d1: { connected: true, tables, missingTables, indexes: [snapshotIndex?.name, outcomeIndex?.name].filter(Boolean), missingIndexes },
           kv: { connected: true, operation: 'read' },
           timestamp: now().toISOString()
         }, request);
@@ -555,11 +556,21 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           bitgetCfd: true,
           bitgetCfdConfigured: Boolean(env.JPTI_BITGET_API_KEY && env.JPTI_BITGET_API_SECRET && (env.JPTI_BITGET_API_PASSPHRASE || env.JPTI_BITGET_PASSWORD)),
           bitgetCfdRequiresCloudflareSecrets: true,
+          journalAuthConfigured: Boolean(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN),
+          reflectiveJournal: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          sessionOutcomeMemory: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          workersAiMentor: Boolean(env.AI && env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
           serverBackedAdvancedAnalytics: false
         },
+        warnings: [
+          ...(!env.JPTI_DB ? ['JPTI_DB is not bound; private journal and learning history are unavailable.'] : []),
+          ...(!(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
+          ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : [])
+        ],
         exchanges: DIRECT_EXCHANGES,
         timestamp: now().toISOString()
       }, request);
