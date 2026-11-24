@@ -2,7 +2,22 @@ const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-cont
 const MAX_BODY = 24 * 1024;
 const localWindows = new Map();
 
-function respond(status, body) { return new Response(JSON.stringify(body), { status, headers }); }
+function respond(request, status, body) {
+  const responseHeaders = new Headers(headers);
+  const origin = request.headers.get('Origin');
+  const nativeOrigins = new Set(['capacitor://localhost', 'https://localhost', 'http://localhost']);
+  let allowed = false;
+  if (origin) {
+    try { allowed = new URL(origin).origin === new URL(request.url).origin || nativeOrigins.has(origin); } catch { allowed = false; }
+  }
+  if (allowed) {
+    responseHeaders.set('access-control-allow-origin', origin);
+    responseHeaders.set('access-control-allow-methods', 'GET, POST, OPTIONS');
+    responseHeaders.set('access-control-allow-headers', 'content-type, authorization, x-jpti-api-token');
+    responseHeaders.append('vary', 'Origin');
+  }
+  return new Response(status === 204 ? null : JSON.stringify(body), { status, headers: responseHeaders });
+}
 async function digest(value) {
   const bytes = new TextEncoder().encode(String(value));
   const hash = await crypto.subtle.digest('SHA-256', bytes);
@@ -32,7 +47,8 @@ function validSignal(signal) {
 }
 
 export async function onRequest({ request, env = {} }) {
-  if (!env.JPTI_DB) return respond(503, { error: 'Signal history storage is not configured: JPTI_DB binding is missing.' });
+  if (request.method === 'OPTIONS') return respond(request, 204, {});
+  if (!env.JPTI_DB) return respond(request, 503, { error: 'Signal history storage is not configured: JPTI_DB binding is missing.' });
   const url = new URL(request.url);
   if (request.method === 'GET' && url.pathname.endsWith('/history')) {
     try {
@@ -41,21 +57,21 @@ export async function onRequest({ request, env = {} }) {
       const records = (result.results || []).map((row) => {
         try { return { ...JSON.parse(row.payload), observedAt: row.occurred_at }; } catch { return null; }
       }).filter(Boolean);
-      return respond(200, { records, count: records.length, source: 'cloudflare-d1' });
-    } catch { return respond(503, { error: 'Could not read durable signal history.' }); }
+      return respond(request, 200, { records, count: records.length, source: 'cloudflare-d1' });
+    } catch { return respond(request, 503, { error: 'Could not read durable signal history.' }); }
   }
   if (request.method === 'POST' && url.pathname.endsWith('/observations')) {
     const length = Number(request.headers.get('content-length') || 0);
-    if (length > MAX_BODY) return respond(413, { error: 'Signal observation payload is too large.' });
-    if (!await rateLimit(request, env)) return respond(429, { error: 'Signal history write limit reached. Retry shortly.' });
+    if (length > MAX_BODY) return respond(request, 413, { error: 'Signal observation payload is too large.' });
+    if (!await rateLimit(request, env)) return respond(request, 429, { error: 'Signal history write limit reached. Retry shortly.' });
     let body;
     try {
       const raw = await request.text();
       if (new TextEncoder().encode(raw).byteLength > MAX_BODY) return respond(413, { error: 'Signal observation payload is too large.' });
       body = JSON.parse(raw);
-    } catch { return respond(400, { error: 'A valid JSON signal observation payload is required.' }); }
+    } catch { return respond(request, 400, { error: 'A valid JSON signal observation payload is required.' }); }
     const signals = Array.isArray(body?.signals) ? body.signals : [];
-    if (!signals.length || signals.length > 12 || !signals.every(validSignal)) return respond(400, { error: 'Provide 1–12 valid signal observations.' });
+    if (!signals.length || signals.length > 12 || !signals.every(validSignal)) return respond(request, 400, { error: 'Provide 1–12 valid signal observations.' });
     try {
       const now = new Date().toISOString();
       const statements = await Promise.all(signals.map(async (signal) => {
@@ -65,8 +81,8 @@ export async function onRequest({ request, env = {} }) {
           .bind(id, signal.signalId, signal.symbol, now, payload);
       }));
       await env.JPTI_DB.batch(statements);
-      return respond(200, { status: 'saved', saved: statements.length, source: 'cloudflare-d1', occurredAt: now });
-    } catch { return respond(503, { error: 'Signal observations could not be saved to D1.' }); }
+      return respond(request, 200, { status: 'saved', saved: statements.length, source: 'cloudflare-d1', occurredAt: now });
+    } catch { return respond(request, 503, { error: 'Signal observations could not be saved to D1.' }); }
   }
-  return respond(404, { error: 'Signal Intelligence endpoint not found.' });
+  return respond(request, 404, { error: 'Signal Intelligence endpoint not found.' });
 }
