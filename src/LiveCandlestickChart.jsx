@@ -104,6 +104,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [timeframe, setTimeframe] = useState(initialTimeframe || '1h');
   const [candles, setCandles] = useState([]);
   const [marketSymbols, setMarketSymbols] = useState(SYMBOLS);
+  const [marketInstrumentIds, setMarketInstrumentIds] = useState({});
   const [supportedTimeframes, setSupportedTimeframes] = useState(null);
   const [marketType, setMarketType] = useState(initialMarketType || 'futures');
   const [directMode, setDirectMode] = useState(() => getApiSource().mode === 'direct');
@@ -172,6 +173,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   useEffect(() => { let active=true; const legacy=readSessionMemory(); apiFetch('/api/session/memory').then(response=>response.ok?response.json():null).then(async data=>{if(!active||!Array.isArray(data?.records))return; if(legacy.length){const migrated=await apiFetch('/api/session/memory/batch',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({records:legacy})});if(!migrated.ok)throw new Error('legacy session memory migration failed');if(typeof localStorage!=='undefined')localStorage.removeItem('jpti.session-memory.v1');const refreshed=await apiFetch('/api/session/memory');const result=await refreshed.json();if(active&&Array.isArray(result.records)){setSessionMemory(result.records);setSessionMemoryStatus('legacy memory migrated');}return;} setSessionMemory(data.records);setSessionMemoryStatus('backend synced');}).catch(()=>{if(active)setSessionMemoryStatus('backend unavailable · local memory retained');}); return ()=>{active=false;}; }, []);
   useEffect(() => { if (initialTimeframe && initialTimeframe !== timeframe) setTimeframe(initialTimeframe); }, [initialTimeframe]);
   useEffect(() => { if (onTimeframeChange) onTimeframeChange(timeframe); }, [timeframe, onTimeframeChange]);
+  const marketInstrumentId = exchange === 'bitget' ? String(marketInstrumentIds[symbol] || '') : '';
+  const marketInstrumentQuery = marketInstrumentId ? '&instrumentId=' + encodeURIComponent(marketInstrumentId) : '';
+
   useEffect(() => { if (initialMarketType && initialMarketType !== marketType) setMarketType(initialMarketType); }, [initialMarketType, marketType]);
   useEffect(() => { if (onMarketTypeChange) onMarketTypeChange(marketType); }, [marketType, onMarketTypeChange]);
 
@@ -183,7 +187,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         const response = await apiFetch('/api/exchanges/' + exchange + '/markets?type=' + marketType + '&search=' + encodeURIComponent(marketSearch));
         const data = await response.json();
         if (!active || !response.ok) return;
-        const symbols = (data.markets || []).map((market) => market.symbol);
+        const markets = Array.isArray(data.markets) ? data.markets : [];
+        const symbols = markets.map((market) => market.symbol);
+        setMarketInstrumentIds(Object.fromEntries(markets.filter((market) => market.symbol && market.id).map((market) => [market.symbol, market.id])));
         setMarketSymbols(symbols);
         setMarketCounts(data.counts || null);
         if (symbols.length && !symbols.includes(symbol)) {
@@ -209,9 +215,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         return { ok: response.ok, data: await response.json() };
       } catch (error) { return { ok: false, error }; }
     };
-    const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType));
-    const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType));
-    const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType));
+    const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+    const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+    const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
     try {
       const candleResult = await candlePromise;
       if (!candleResult.ok) throw new Error(candleResult.data?.error || candleResult.error?.message || 'Candlestick data unavailable for this market and timeframe.');
@@ -249,9 +255,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       };
       try {
         // Start all requests together, but let the chart depend only on OHLCV.
-        const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType));
-        const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType));
-        const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType));
+        const candlePromise = request('/api/exchanges/' + exchange + '/ohlcv/' + encodedSymbol + '?timeframe=' + timeframe + '&limit=200&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+        const tickerPromise = request('/api/exchanges/' + exchange + '/ticker/' + encodedSymbol + '?type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
+        const contextPromise = request('/api/intelligence/market/' + exchange + '/' + encodedSymbol + '/context?timeframe=' + timeframe + '&type=' + encodeURIComponent(marketType) + marketInstrumentQuery);
 
         const candleResult = await candlePromise;
         if (!active || signal.aborted) return;
@@ -284,7 +290,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       clearInterval(timer);
       controller?.abort();
     };
-  }, [exchange, symbol, timeframe, marketType]);
+  }, [exchange, symbol, timeframe, marketType, marketInstrumentId]);
 
   const metrics = useMemo(() => {
     const closes = candles.map((c) => c[4]);
