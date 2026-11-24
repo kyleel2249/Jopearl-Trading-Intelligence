@@ -7,11 +7,11 @@ export const MAX_BATCH = 500;
 const OUTCOMES = ['win', 'loss', 'timeout'];
 const DIRECTIONS = ['bullish', 'bearish'];
 const str = (v, n, fallback = 'unknown') => { const s = String(v ?? '').trim().slice(0, n); return s || fallback; };
-const num = (v, lo, hi) => { const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null; };
+const num = (v, lo, hi) => { if (v === null || v === undefined || v === '') return null; const n = Number(v); return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : null; };
 const fail = (m) => Object.assign(new Error(m), { status: 400 });
 
 export function cleanGainzOutcome(input) {
-  if (!input || typeof input !== 'object') throw fail('Outcome record must be an object.');
+  if (!input || typeof input !== 'object' || Array.isArray(input)) throw fail('Outcome record must be an object.');
   const outcome = String(input.outcome || '').toLowerCase(), direction = String(input.direction || '').toLowerCase();
   if (!OUTCOMES.includes(outcome)) throw fail('Outcome must be win, loss or timeout.');
   if (!DIRECTIONS.includes(direction)) throw fail('Direction must be bullish or bearish.');
@@ -21,7 +21,7 @@ export function cleanGainzOutcome(input) {
   const symbol = str(input.symbol, 32).toUpperCase(), timeframe = str(input.timeframe, 8);
   if (symbol === 'UNKNOWN' || timeframe === 'unknown') throw fail('symbol and timeframe are required.');
   const factors = {};
-  if (input.factors && typeof input.factors === 'object') for (const [k, v] of Object.entries(input.factors).slice(0, 16)) { const n = num(v, -2, 2); if (n !== null) factors[str(k, 24)] = n; }
+  if (input.factors && typeof input.factors === 'object' && !Array.isArray(input.factors)) for (const [k, v] of Object.entries(input.factors).slice(0, 16)) { const n = num(v, -2, 2); if (n !== null) factors[str(k, 24)] = n; }
   const id = str(input.id, 200, [symbol, timeframe, input.preset, candleTs, input.setupId].join('|'));
   return {
     id, setupId: str(input.setupId, 200, id), symbol, exchange: str(input.exchange, 30), timeframe, preset: str(input.preset, 20, 'balanced').toLowerCase(),
