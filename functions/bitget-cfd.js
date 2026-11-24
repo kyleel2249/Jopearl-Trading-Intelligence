@@ -1,8 +1,8 @@
 const BASE = 'https://api.bitget.com';
 const CFD_TIMEFRAMES = Object.freeze({ '1m': '1m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d' });
 
-const jsonError = (message, status = 502, code = 'BITGET_CFD_UPSTREAM_ERROR') =>
-  Object.assign(new Error(message), { status, code });
+const jsonError = (message, status = 502, code = 'BITGET_CFD_UPSTREAM_ERROR', details = {}) =>
+  Object.assign(new Error(message), { status, code, ...details });
 
 function credentials(env = {}) {
   const key = env.JPTI_BITGET_API_KEY || env.BITGET_API_KEY;
@@ -51,13 +51,26 @@ async function signedGet(env, path, params, { fetchImpl = fetch, now = () => Dat
       locale: 'en-US'
     }
   });
-  const payload = await response.json().catch(() => null);
+  const responseText = await response.text().catch(() => '');
+  let payload = null;
+  try { payload = responseText ? JSON.parse(responseText) : null; } catch { /* retain a short non-JSON diagnostic below */ }
+  const contentType = response.headers?.get?.('content-type') || 'unknown';
   if (!response.ok) {
     const status = response.status === 401 || response.status === 403 ? 403 : response.status === 429 ? 429 : 502;
-    throw jsonError(payload?.msg || payload?.message || 'Bitget CFD request returned HTTP ' + response.status + '.', status, 'BITGET_CFD_UPSTREAM_ERROR');
+    throw jsonError(payload?.msg || payload?.message || 'Bitget CFD request returned HTTP ' + response.status + '.', status, 'BITGET_CFD_UPSTREAM_ERROR', {
+      upstreamStatus: response.status,
+      upstreamCode: payload?.code == null ? null : String(payload.code),
+      upstreamMessage: payload?.msg || payload?.message || null,
+      upstreamContentType: contentType,
+      upstreamPreview: payload ? null : responseText.slice(0, 180)
+    });
   }
   if (!payload || String(payload.code) !== '00000') {
-    throw jsonError(payload?.msg || 'Bitget CFD returned an unsuccessful response.', 502, 'BITGET_CFD_UPSTREAM_ERROR');
+    throw jsonError(payload?.msg || 'Bitget CFD returned an unsuccessful response.', 502, 'BITGET_CFD_UPSTREAM_ERROR', {
+      upstreamCode: payload?.code == null ? null : String(payload.code),
+      upstreamMessage: payload?.msg || null,
+      upstreamContentType: contentType
+    });
   }
   return payload;
 }

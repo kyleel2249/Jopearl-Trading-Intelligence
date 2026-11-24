@@ -167,18 +167,32 @@ if (!platformHealth.capabilities?.bitgetCfdConfigured) {
     cfd.status = 'passed';
     console.log('PASS CFD: ' + cfd.checks.join(', '));
   } catch (error) {
-    cfd.status = 'failed';
-    cfd.error = String(error?.message || error);
-    console.error('FAIL CFD: ' + cfd.error);
+    if (error?.status === 403 || error?.body?.upstreamStatus === 403 || error?.body?.code === 'BITGET_CFD_UPSTREAM_ERROR' && /HTTP 403/.test(String(error.message || ''))) {
+      cfd.status = 'blocked-403';
+      cfd.error = String(error?.message || error);
+      cfd.warning = 'Bitget returned HTTP 403 to the signed Cloudflare CFD request. Verify that the API key has UTA read-only access, the account has CFD access, and the key is not restricted to an IP address unavailable to Cloudflare Pages.';
+      cfd.upstream = error?.body ? {
+        status: error.body.upstreamStatus || error.status || null,
+        code: error.body.upstreamCode || null,
+        message: error.body.upstreamMessage || null,
+        contentType: error.body.upstreamContentType || null
+      } : null;
+      console.warn('WARN CFD: ' + cfd.warning);
+    } else {
+      cfd.status = 'failed';
+      cfd.error = String(error?.message || error);
+      console.error('FAIL CFD: ' + cfd.error);
+    }
   }
 }
 results.push(cfd);
 
 const failures = results.filter((row) => row.status === 'failed');
 const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
+const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'not-configured');
 console.log(JSON.stringify({
   target: base,
-  status: failures.length ? 'failed' : results.some((row) => row.status === 'not-configured') ? 'passed-with-configuration-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
+  status: failures.length ? 'failed' : accessWarnings.length ? 'passed-with-access-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
   results
 }, null, 2));
 if (failures.length) process.exitCode = 1;

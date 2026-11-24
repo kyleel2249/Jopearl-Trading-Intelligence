@@ -65,3 +65,20 @@ test('Bitget CFD timeframe and side validation rejects unsupported chart request
   await assert.rejects(() => provider.request(env, { kind: 'ohlcv', symbol: 'XAUUSD', timeframe: '5m' }), (error) => error.status === 400 && error.code === 'BITGET_CFD_TIMEFRAME_UNSUPPORTED');
   await assert.rejects(() => provider.request(env, { kind: 'ohlcv', symbol: 'XAUUSD', timeframe: '1h', side: 'mid' }), (error) => error.status === 400 && error.code === 'BITGET_CFD_SIDE_INVALID');
 });
+
+test('Bitget CFD provider preserves safe upstream HTTP diagnostics without exposing request credentials', async () => {
+  const provider = createBitgetCfdProvider({
+    fetchImpl: async () => ({
+      ok: false, status: 403,
+      headers: { get: (name) => name.toLowerCase() === 'content-type' ? 'application/json' : null },
+      text: async () => JSON.stringify({ code: '40012', msg: 'API permission denied' })
+    })
+  });
+  await assert.rejects(() => provider.request(env, { kind: 'markets' }), (error) =>
+    error.status === 403 &&
+    error.upstreamStatus === 403 &&
+    error.upstreamCode === '40012' &&
+    error.upstreamMessage === 'API permission denied' &&
+    !String(error.message).includes('test-secret')
+  );
+});

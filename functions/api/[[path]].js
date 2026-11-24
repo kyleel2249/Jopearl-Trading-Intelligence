@@ -305,6 +305,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         return json(error.status || 502, {
           error: error.message || 'Bitget CFD market data is unavailable.',
           code: error.code || 'BITGET_CFD_UPSTREAM_ERROR',
+          upstreamStatus: error.upstreamStatus || null,
+          upstreamCode: error.upstreamCode || null,
+          upstreamMessage: error.upstreamMessage || null,
+          upstreamContentType: error.upstreamContentType || null,
+          upstreamPreview: error.upstreamPreview || null,
           exchange: 'bitget', productType: 'cfd'
         }, request);
       }
