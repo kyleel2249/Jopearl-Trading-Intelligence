@@ -383,13 +383,13 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       if (request.method === 'HEAD') return json(200, { status: 'available' }, request);
       return handleJournalRoute(request, env, url);
     }
-    if (!['GET', 'HEAD'].includes(request.method)) {
-      return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
-    }
-
     if (url.pathname === '/api/mentor/analyze') {
       if (request.method !== 'POST') return json(405, { error: 'Mentor analysis supports POST only.' }, request, { allow: 'POST, OPTIONS' });
       return handleMentorRoute(request, env, fetchImpl);
+    }
+
+    if (!['GET', 'HEAD'].includes(request.method)) {
+      return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
     }
 
     const isMarketDataRoute =
