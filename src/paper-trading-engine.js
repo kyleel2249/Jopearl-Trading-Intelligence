@@ -103,5 +103,5 @@ export function simulatePaperFill({direction,price,quantity,feeRate=PAPER_POLICY
 export function settlePaperTrade(trade,exitPrice,feeRate=PAPER_POLICY.feeRate,slippageBps=PAPER_POLICY.slippageBps){
  const adverse=slippageBps/10000,exit=exitPrice*(trade.direction==='LONG'?1-adverse:1+adverse),gross=(exit-trade.entryPrice)*trade.quantity*(trade.direction==='LONG'?1:-1);
  const exitFee=exit*trade.quantity*feeRate,net=gross-n(exitFee)-n(trade.entryFeeUsd),risk=Math.max(.00000001,n(trade.riskUsd));
- return{exitPrice:exit,exitFeeUsd:exitFee,grossPnlUsd:gross,netPnlUsd:net,rMultiple:net/risk};
+ return{exitPrice:exit,exitFeeUsd:exitFee,grossPnlUsd:gross,netPnlUsd:net,rMultiple:net/risk,exitSlippageBps:slippageBps,exitSpreadBps:spreadBps};
 }
