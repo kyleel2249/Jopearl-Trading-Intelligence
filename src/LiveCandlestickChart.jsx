@@ -148,7 +148,9 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       const direct = ['direct', 'cloudflare-edge'].includes(mode);
       setDirectMode(direct);
       setCloudflareMode(mode === 'cloudflare-edge');
-      if (mode === 'direct') setMarketType('spot');
+      // Browser-direct mode still supports Bitget public Spot, Margin and derivatives.
+      // Only force Spot when the selected venue cannot serve the active product.
+      if (mode === 'direct' && exchange !== 'bitget') setMarketType('spot');
     };
     syncSource();
     return subscribeApiSource(syncSource);
