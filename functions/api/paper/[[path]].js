@@ -51,7 +51,7 @@ async function loadAgents(db){
 }
 async function spawnSuccessor(db,agent){
  const generation=num(agent.generation||1)+1,id=agent.id+'-g'+generation+'-'+Date.now().toString(36);
- const successor={...agent,id,name:agent.name+' '+generation,role:agent.role+' · Candidate '+generation,generation,tier:'RESEARCH',status:'active',promotedAt:null,resources:[...AGENT_RESOURCES],permissions:{paper:true,live:false},parentAgentId:agent.id,createdAt:iso(),lifecycleNote:'Automatic successor; starts with $1 virtual capital.'};
+ const successor={id,name:agent.name+' '+generation,role:agent.role+' · Candidate '+generation,responsibility:agent.responsibility,edge:agent.edge,strategyId:agent.strategyId,generation,tier:'RESEARCH',status:'active',promotedAt:null,resources:[...AGENT_RESOURCES],permissions:{paper:true,live:false},parentAgentId:agent.id,createdAt:iso(),lifecycleNote:'Automatic successor; starts with $1 virtual capital.'};
  await db.prepare("INSERT OR IGNORE INTO jpti_paper_agents(agent_id,tier,virtual_equity_usd,status,payload) VALUES (?,'RESEARCH',?,'active',?)").bind(id,PAPER_POLICY.initialEquityUsd,JSON.stringify(successor)).run();
  return successor;
 }
