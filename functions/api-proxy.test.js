@@ -40,6 +40,19 @@ test('Pages API forwards exact Bitget instrument IDs into intelligence-context c
 });
 
 
+
+test('Pages API exposes sanitized Bitget CFD account diagnostics', async () => {
+  const handler = createPagesApiHandler({ bitgetCfdProvider: { request: async (_env, args) => {
+    assert.equal(args.kind, 'diagnostics');
+    return { status: 200, body: { exchange: 'bitget', productType: 'cfd', authenticated: true, permissionType: 'read-only', permissions: ['uta_trade'], utaTradeReadOnly: true, ipWhitelistConfigured: false, ipWhitelistCount: 0 } };
+  } } });
+  const response = await handler({ request: new Request('https://jpti.pages.dev/api/exchanges/bitget/cfd/diagnostics') });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.utaTradeReadOnly, true);
+  assert.equal('userId' in body, false);
+});
+
 test('Pages API routes Bitget CFD instrument catalog through the signed edge provider', async () => {
   let requestArgs;
   const handler = createPagesApiHandler({ bitgetCfdProvider: { request: async (env, args) => {

@@ -42,6 +42,7 @@ test('Cloudflare Pages has a dedicated signed Bitget CFD market route', () => {
   const provider = read('../functions/bitget-cfd.js');
   assert.match(pages, /createBitgetCfdProvider/);
   assert.match(pages, /requestedType === 'cfd'/);
+  assert.match(pages, /cfd\/diagnostics/);
   assert.match(provider, /ACCESS-SIGN/);
   assert.match(provider, /history-candlestick/);
   assert.match(provider, /volumeAvailable: false/);

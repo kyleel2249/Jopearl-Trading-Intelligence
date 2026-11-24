@@ -82,3 +82,16 @@ test('Bitget CFD provider preserves safe upstream HTTP diagnostics without expos
     !String(error.message).includes('test-secret')
   );
 });
+
+test('Bitget CFD account diagnostics reveal read-only UTA permissions without account identifiers', async () => {
+  const provider = createBitgetCfdProvider({ fetchImpl: async (url) => {
+    assert.match(String(url), /\/api\/v3\/account\/info$/);
+    return ok({ userId: 'must-not-leak', permType: 'read-only', permissions: ['uta_trade'], ips: '192.0.2.1;192.0.2.2' });
+  } });
+  const result = await provider.request(env, { kind: 'diagnostics' });
+  assert.equal(result.body.utaTradeReadOnly, true);
+  assert.equal(result.body.ipWhitelistConfigured, true);
+  assert.equal(result.body.ipWhitelistCount, 2);
+  assert.equal(JSON.stringify(result.body).includes('must-not-leak'), false);
+  assert.equal(JSON.stringify(result.body).includes('192.0.2.1'), false);
+});

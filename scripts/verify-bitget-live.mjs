@@ -147,25 +147,38 @@ if (!platformHealth.capabilities?.bitgetCfdConfigured) {
   console.warn('WARN CFD: ' + cfd.warning);
 } else {
   try {
-    const catalog = await getJson(base + '/api/exchanges/bitget/markets?type=cfd');
-    assert(Array.isArray(catalog.markets) && catalog.markets.length > 0, 'CFD: no tradable instruments returned.');
-    cfd.checks.push('authenticated instrument catalogue');
-    const market = catalog.markets[0];
-    assert(market.symbol && market.id, 'CFD: instrument is missing its symbol or ID.');
-    const ticker = await getJson(base + '/api/exchanges/bitget/ticker/' + encodeSymbol(market.symbol) + '?type=cfd');
-    assert(Number.isFinite(Number(ticker.bid)) && Number.isFinite(Number(ticker.ask)) && Number(ticker.bid) > 0 && Number(ticker.ask) > 0,
-      'CFD ' + market.symbol + ': invalid bid/ask quote.');
-    assert(ticker.priceType === 'bid-ask-midpoint', 'CFD ticker does not identify its midpoint price type.');
-    cfd.checks.push('bid/ask midpoint ticker ' + market.symbol);
-    for (const side of ['buy', 'sell']) {
-      const candles = await getJson(base + '/api/exchanges/bitget/ohlcv/' + encodeSymbol(market.symbol) + '?type=cfd&timeframe=1h&limit=40&side=' + side);
-      validateCandles(candles.candles, 'CFD ' + market.symbol + ' ' + side);
-      assert(candles.volumeAvailable === false && candles.candles.every((row) => Number(row[5]) === 0),
-        'CFD candle volume must remain explicitly unavailable, not fabricated.');
-      cfd.checks.push(side + '-side candles');
+    const diagnostics = await getJson(base + '/api/exchanges/bitget/cfd/diagnostics');
+    cfd.checks.push('signed API account diagnostics');
+    cfd.permissions = diagnostics.permissions || [];
+    cfd.ipWhitelistConfigured = Boolean(diagnostics.ipWhitelistConfigured);
+    if (!diagnostics.utaTradeReadOnly) {
+      cfd.status = 'blocked-permissions';
+      cfd.warning = 'Bitget API key must report read-only permissionType and include uta_trade in its permissions list. No trade/write permission is required.';
+      console.warn('WARN CFD: ' + cfd.warning);
+    } else {
+      if (diagnostics.ipWhitelistConfigured) {
+        cfd.ipWarning = 'The API key has an IP whitelist. Confirm that the Cloudflare Pages Worker egress path is allowlisted; use a dedicated Cloudflare egress IP if your plan supports it.';
+      }
+      const catalog = await getJson(base + '/api/exchanges/bitget/markets?type=cfd');
+      assert(Array.isArray(catalog.markets) && catalog.markets.length > 0, 'CFD: no tradable instruments returned.');
+      cfd.checks.push('authenticated instrument catalogue');
+      const market = catalog.markets[0];
+      assert(market.symbol && market.id, 'CFD: instrument is missing its symbol or ID.');
+      const ticker = await getJson(base + '/api/exchanges/bitget/ticker/' + encodeSymbol(market.symbol) + '?type=cfd');
+      assert(Number.isFinite(Number(ticker.bid)) && Number.isFinite(Number(ticker.ask)) && Number(ticker.bid) > 0 && Number(ticker.ask) > 0,
+        'CFD ' + market.symbol + ': invalid bid/ask quote.');
+      assert(ticker.priceType === 'bid-ask-midpoint', 'CFD ticker does not identify its midpoint price type.');
+      cfd.checks.push('bid/ask midpoint ticker ' + market.symbol);
+      for (const side of ['buy', 'sell']) {
+        const candles = await getJson(base + '/api/exchanges/bitget/ohlcv/' + encodeSymbol(market.symbol) + '?type=cfd&timeframe=1h&limit=40&side=' + side);
+        validateCandles(candles.candles, 'CFD ' + market.symbol + ' ' + side);
+        assert(candles.volumeAvailable === false && candles.candles.every((row) => Number(row[5]) === 0),
+          'CFD candle volume must remain explicitly unavailable, not fabricated.');
+        cfd.checks.push(side + '-side candles');
+      }
+      cfd.status = 'passed';
+      console.log('PASS CFD: ' + cfd.checks.join(', '));
     }
-    cfd.status = 'passed';
-    console.log('PASS CFD: ' + cfd.checks.join(', '));
   } catch (error) {
     if (error?.status === 403 || error?.body?.upstreamStatus === 403 || error?.body?.code === 'BITGET_CFD_UPSTREAM_ERROR' && /HTTP 403/.test(String(error.message || ''))) {
       cfd.status = 'blocked-403';
@@ -189,7 +202,7 @@ results.push(cfd);
 
 const failures = results.filter((row) => row.status === 'failed');
 const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
-const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'not-configured');
+const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'blocked-permissions' || row.status === 'not-configured');
 console.log(JSON.stringify({
   target: base,
   status: failures.length ? 'failed' : accessWarnings.length ? 'passed-with-access-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',

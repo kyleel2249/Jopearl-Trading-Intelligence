@@ -283,6 +283,24 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       return json(400, { error: 'Unsupported Bitget market category.', code: 'BITGET_CATEGORY_UNSUPPORTED', requestedType, supportedTypes: supportedBitgetTypes }, request);
     }
 
+    if (url.pathname === '/api/exchanges/bitget/cfd/diagnostics') {
+      try {
+        const result = await bitgetCfdProvider.request(env, { kind: 'diagnostics' });
+        return json(result.status, result.body, request);
+      } catch (error) {
+        return json(error.status || 502, {
+          error: error.message || 'Bitget CFD API diagnostics are unavailable.',
+          code: error.code || 'BITGET_CFD_UPSTREAM_ERROR',
+          upstreamStatus: error.upstreamStatus || null,
+          upstreamCode: error.upstreamCode || null,
+          upstreamMessage: error.upstreamMessage || null,
+          upstreamContentType: error.upstreamContentType || null,
+          upstreamPreview: error.upstreamPreview || null,
+          exchange: 'bitget', productType: 'cfd'
+        }, request);
+      }
+    }
+
     // CFD is a separate Bitget product line with its own signed UTA read-only API.
     // Never route CFD symbols through the crypto CCXT/browser-direct adapter.
     const cfdRoute = url.pathname.match(/^\/api\/exchanges\/bitget\/(markets|ticker\/([^/]+)|ohlcv\/([^/]+))$/i);

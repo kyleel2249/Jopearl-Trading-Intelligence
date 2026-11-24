@@ -126,6 +126,21 @@ function normalizeCandles(payload, symbol, timeframe, side) {
 export function createBitgetCfdProvider({ fetchImpl = fetch, now = () => Date.now() } = {}) {
   return {
     async request(env, { kind, symbol, timeframe = '1h', side = 'buy', search = '', limit = 100 } = {}) {
+      if (kind === 'diagnostics') {
+        const payload = await signedGet(env, '/api/v3/account/info', {}, { fetchImpl, now });
+        const account = payload.data || {};
+        const permissionType = String(account.permType || '').toLowerCase();
+        const permissions = Array.isArray(account.permissions) ? account.permissions.map((value) => String(value).toLowerCase()) : [];
+        const readOnly = permissionType === 'read-only' || permissionType === 'read_only' || permissionType === 'readonly';
+        const ipEntries = String(account.ips || '').split(/[;,\\s]+/).filter(Boolean);
+        return { status: 200, body: {
+          exchange: 'bitget', productType: 'cfd', authenticated: true,
+          permissionType: account.permType || null, permissions,
+          utaTradeReadOnly: readOnly && permissions.includes('uta_trade'),
+          ipWhitelistConfigured: ipEntries.length > 0, ipWhitelistCount: ipEntries.length,
+          source: 'cloudflare-edge'
+        } };
+      }
       if (kind === 'markets') {
         const payload = await signedGet(env, '/api/v3/cfd/account/instruments', {}, { fetchImpl, now });
         const all = normalizeInstruments(payload);
