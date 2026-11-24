@@ -116,7 +116,8 @@ export async function runCycle(db,symbol){
   const kpi=assessAgentKpis(metrics,PAPER_POLICY,outOfSampleCount);
   const lifecycle=await promoteOrRetire(db,agent,metrics,kpi);
   if(lifecycle)report.agents.push({agentId:agent.id,lifecycle});
-  const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();\n  await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
+  const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
+  await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
   if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&openNow<PAPER_POLICY.maxOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
