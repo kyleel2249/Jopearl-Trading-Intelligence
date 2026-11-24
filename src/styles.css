@@ -279,3 +279,7 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 .jpti-workstation-foot{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;padding:2px 3px;color:#7189a6;font-size:7px}
 @media(max-width:900px){.jpti-chart-tile-head{align-items:flex-start;flex-direction:column}.jpti-chart-tile-controls{width:100%;flex-wrap:wrap}.jpti-chart-tile-controls select{flex:1;max-width:none}.jpti-chart-grid.layout-4{grid-template-columns:minmax(0,1fr)}.jpti-chart-grid.layout-4 .jpti-chart-tile{height:430px}}
 @media(max-width:600px){.jpti-multi-workstation{padding:5px}.jpti-workstation-toolbar{align-items:flex-start;flex-direction:column}.jpti-workstation-actions{width:100%;justify-content:space-between}.jpti-workstation-controls{gap:9px}.jpti-chart-grid{grid-template-columns:minmax(0,1fr)!important}.jpti-chart-tile{height:460px!important}.jpti-chart-tile-controls select{font-size:7px;padding:6px 3px}.jpti-chart-height{width:100%}.jpti-saved-label{margin-left:0}}
+
+/* The workstation is a direct workspace child in the full-screen shell. */
+.jpti-market-fullscreen .page-content>.jpti-multi-workstation{flex:1;min-height:0}
+.jpti-chart-grid.layout-4 .jpti-chart-tile{height:clamp(300px,calc((100dvh - 205px)/2),560px)}
