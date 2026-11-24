@@ -7,10 +7,10 @@ export const PAPER_POLICY=Object.freeze({
  maximumConsecutiveLosses:5,maximumRiskBreaches:0,minimumNetProfitUsd:0.01
 });
 export const AGENT_RESOURCES=Object.freeze([
- 'Bitget public spot and USDT-perpetual market feeds','Closed-candle history and multi-timeframe replay',
- 'Fee, spread, slippage and latency simulator','Pattern and strategy research library',
+ 'Bitget public spot and USDT-perpetual market feeds','Closed-candle history and 1m/5m/15m/1h signal context',
+ 'Fee, spread, slippage and latency simulator','Ten strategy archetypes with independent performance ledgers',
  'Market regime, volatility and session classifiers','Risk, correlation and capital-survival monitor',
- 'Trade attribution, counterfactual analysis and daily review','Walk-forward and untouched forward-validation window'
+ 'Trade attribution, fee/slippage analysis and daily review','Walk-forward and untouched forward-validation window'
 ]);
 const definitions=[
  ['atlas-trend','Atlas','Trend Structure Analyst','Finds multi-timeframe directional alignment; owns trend continuation and invalidation rules.','trend'],
