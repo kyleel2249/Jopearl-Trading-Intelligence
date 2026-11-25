@@ -161,7 +161,7 @@ export default function AutonomousDepartments() {
         </section>
         <section className="glass-panel org-panel">
           <div className="org-panel-head"><div><span className="eyebrow">SPECIALIST WORKFORCE</span><h4>Agent roster</h4></div><Users size={17}/></div>
-          <div className="org-agent-list">{team.map(agent => <div key={agent.id}><span><b>{agent.name}</b><small>{agent.role}</small></span><i>{agent.status}</i></div>)}</div>
+          <div className="org-agent-list">{team.map(agent => <div key={agent.id}><span><b>{agent.name}</b><small>{agent.role}</small><small>{agent.goal}</small><small>KPI today: {agent.todayMetrics?.completedMissions || 0}/{agent.kpis?.dailyMissionTarget || 1} missions · {agent.todayMetrics?.evidenceLinked || 0}/{agent.kpis?.evidenceLinkedTarget || 1} evidence-linked</small></span><i>{agent.status}</i></div>)}</div>
         </section>
         <section className="glass-panel org-panel">
           <div className="org-panel-head"><div><span className="eyebrow">INTERDEPARTMENTAL EXCHANGE</span><h4>Messages & handoffs</h4></div><MessageSquare size={17}/></div>

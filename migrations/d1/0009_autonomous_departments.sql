@@ -13,9 +13,21 @@ CREATE TABLE IF NOT EXISTS jpti_org_agents (
   name TEXT NOT NULL,
   role TEXT NOT NULL,
   status TEXT NOT NULL DEFAULT 'ready',
+  goal TEXT NOT NULL DEFAULT '',
+  kpi_json TEXT NOT NULL DEFAULT '{}' CHECK (json_valid(kpi_json)),
   updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ','now'))
 );
 CREATE INDEX IF NOT EXISTS jpti_org_agents_department ON jpti_org_agents(department_id, status);
+CREATE TABLE IF NOT EXISTS jpti_org_agent_metrics (
+  agent_id TEXT NOT NULL REFERENCES jpti_org_agents(agent_id),
+  metric_date TEXT NOT NULL,
+  completed_missions INTEGER NOT NULL DEFAULT 0,
+  contributions INTEGER NOT NULL DEFAULT 0,
+  evidence_linked INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (agent_id, metric_date)
+);
+CREATE INDEX IF NOT EXISTS jpti_org_agent_metrics_date ON jpti_org_agent_metrics(metric_date, completed_missions DESC);
 CREATE TABLE IF NOT EXISTS jpti_org_missions (
   mission_id TEXT PRIMARY KEY,
   department_id TEXT NOT NULL REFERENCES jpti_org_departments(department_id),
