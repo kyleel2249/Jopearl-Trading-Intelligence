@@ -22,7 +22,7 @@ function clusterLiquidity(pools, price, atr, toleranceAtr=.18){
   }
   return out.map((g,i)=>{
     const nearestDistanceAtr=atr>0?Math.abs(g.price-price)/atr:null;
-    const external=g.members.some(x=>x.kind==="EXTERNAL");
+    const external=g.members.some(x=>x.kind==="EXTERNAL"||x.role==="external");
     const equal=g.members.some(x=>x.kind==="EQH"||x.kind==="EQL");
     const strength=clamp(.25+Math.min(g.members.length,4)*.09+(external?.2:0)+(equal?.12:0));
     return {id:"liq-cluster-"+i,side:g.side,price:round(g.price),members:g.members.length,
