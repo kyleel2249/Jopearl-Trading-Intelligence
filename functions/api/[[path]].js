@@ -975,7 +975,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           fvgLiquidityIntelligence: true,
           crossExchangeFlowAggregation: true,
           bisInternationalBanking: Boolean(env.BIS_LBS_DATA_URL),
-          verifiedWalletAttribution: Boolean(env.JPTI_VERIFIED_WALLET_REGISTRY),
+          verifiedWalletAttribution: (() => { try { const list = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); return Array.isArray(list) && list.length > 0; } catch { return false; } })(),
           eventImpactPrediction: true,
           privateAccounts: false,
           orderExecution: false,
