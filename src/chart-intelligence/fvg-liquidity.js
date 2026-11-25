@@ -81,8 +81,15 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
     const freshness=lifecycle==="fresh"?1:lifecycle==="partially-mitigated"?.65:lifecycle==="fully-mitigated"?.25:0;
     const structureQuality=structure?(structure.kind==="MSS"?1:structure.kind==="CHoCH"?.8:.65):0;
     const ageQuality=clamp(1-fvgAgeBars/Math.max(1,maxSweepAgeBars));
-    const score=Math.round(100*(.22*sweepQuality+.20*impulseQuality+.18*sizeQuality+.18*freshness+.14*structureQuality+.08*ageQuality));
     const mid=(fvg.top+fvg.bottom)/2;
+    const ote=items.find(x=>x.direction===direction&&((direction==="bullish"&&x.kind==="OTE_BULLISH")||(direction==="bearish"&&x.kind==="OTE_BEARISH"))&&finite(x.top)&&finite(x.bottom))||null;
+    const orderBlock=items.filter(x=>x.layer==="orderBlocks"&&x.direction===direction&&x.top!=null&&x.bottom!=null&&!["breaker","invalidated"].includes(x.status)).sort((a,b)=>Math.abs((a.top+a.bottom)/2-mid)-Math.abs((b.top+b.bottom)/2-mid))[0]||null;
+    const oteOverlap=!!(ote&&Math.max(fvg.bottom,ote.bottom)<=Math.min(fvg.top,ote.top));
+    const orderBlockOverlap=!!(orderBlock&&Math.max(fvg.bottom,orderBlock.bottom)<=Math.min(fvg.top,orderBlock.top));
+    const dealing=smc?.dealingRange||null;
+    const premiumDiscount=dealing?direction==="bullish"?(mid<=dealing.equilibrium?"discount":"premium"):(mid>=dealing.equilibrium?"premium":"discount"):"unavailable";
+    const locationQuality=premiumDiscount==="discount"&&direction==="bullish"||premiumDiscount==="premium"&&direction==="bearish"?1:premiumDiscount==="unavailable"?.5:0;
+    const score=Math.round(100*(.18*sweepQuality+.16*impulseQuality+.12*sizeQuality+.15*freshness+.12*structureQuality+.05*ageQuality+.08*(oteOverlap?1:0)+.08*(orderBlockOverlap?1:0)+.06*locationQuality));
     const targets=liquidityTargets(clusters,direction,mid,atr);
     const riskSide=direction==="bullish"?"low":"high";
     const opposing=clusters.filter(c=>c.side===riskSide).sort((a,b)=>Math.abs(a.price-mid)-Math.abs(b.price-mid))[0]||null;
@@ -100,7 +107,7 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
       fvg:{ts:fvg.ts,top:round(fvg.top),bottom:round(fvg.bottom),mid:round(mid),sizeAtr:round(fvgSizeAtr,3),fillPct:fvg.fillPct??null,lifecycle},
       entryZone:{low:round(fvg.bottom),high:round(fvg.top),mid:round(mid),basis:"FVG retracement; wait for closed-candle confirmation"},
       invalidationReference:opposing?{price:opposing.price,source:"nearest opposing-side liquidity"}:null,
-      targets,metrics:{sweepQuality:round(sweepQuality,3),impulseQuality:round(impulseQuality,3),sizeQuality:round(sizeQuality,3),freshness:round(freshness,3),structureQuality:round(structureQuality,3),ageBars:fvgAgeBars},
+      targets,confluenceZones:{ote:ote?{top:ote.top,bottom:ote.bottom,overlap:oteOverlap}:null,orderBlock:orderBlock?{top:orderBlock.top,bottom:orderBlock.bottom,overlap:orderBlockOverlap,status:orderBlock.status}:null,premiumDiscount},metrics:{sweepQuality:round(sweepQuality,3),impulseQuality:round(impulseQuality,3),sizeQuality:round(sizeQuality,3),freshness:round(freshness,3),structureQuality:round(structureQuality,3),oteOverlap,orderBlockOverlap,premiumDiscount,ageBars:fvgAgeBars},
       confirmations:{sweep:true,displacement:!!impulse,structure:!!structure,freshFvg:lifecycle==="fresh",priceInsideFvg:inZone},
       reasons,source:"closed-candle-smc-correlation"
     });
