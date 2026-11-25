@@ -74,7 +74,7 @@ export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, i
   comp.session = sessionContext && sessionContext.status === 'ready' && Number.isFinite(sessionContext.directionalBias) ? clamp(sessionContext.directionalBias, -1, 1) : 0;
   comp.fvgLiquidity = fvgLiquidityScore?.available ? clamp(fvgLiquidityScore.value, -1, 1) : 0;
   comp.crossExchange = crossExchangeFlows?.status === 'ready' ? clamp(crossExchangeFlows.score, -1, 1) : 0;
-  comp.walletFlow = walletAttributionContext?.flows?.status === 'ready' ? clamp(walletAttributionContext.flows.score, -1, 1) : 0;
+  comp.walletFlow = walletAttributionContext?.flows?.status === 'ready' ? clamp(walletAttributionContext.flows.score, -1, 1) * clamp(walletAttributionContext.flows.confidence ?? 1, 0, 1) : 0;
   comp.smt = smtDivergence?.status === 'ready' && smtDivergence.direction !== 'neutral' ? clamp(smtDivergence.bias, -1, 1) : 0;
   const w = regimeCfg.weights;
   const base = { structure: 0.11856, location: 0.05928, levels: 0.08892, flow: 0.071136, liquidity: 0.08892, blocks: 0.05928, mtf: 0.082992, liquidation: 0.023712, institutional: 0.0936, chainDex: 0.0624, session: 0.0312, fvgLiquidity: 0.08, crossExchange: 0.05, walletFlow: 0.05, smt: 0.04 };
