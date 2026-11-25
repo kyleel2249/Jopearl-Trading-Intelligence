@@ -16,7 +16,7 @@ function sdmxJsonRows(payload){
   const rows=[];
   for(const [seriesKey,series] of Object.entries(ds.series)){
     const seriesValues=dimensionValues(seriesDims,seriesKey),meta={};
-    seriesDims.forEach((d,i)=>{const id=String(d.id||d.name||"").toUpperCase();if(/REF_AREA|REPORTER/.test(id))meta.reporter=seriesValues[i];if(/COUNTERPART_AREA|COUNTERPARTY/.test(id))meta.counterparty=seriesValues[i];if(/MEASURE|INDICATOR/.test(id))meta.measure=seriesValues[i];if(/UNIT/.test(id))meta.unit=seriesValues[i];});
+    seriesDims.forEach((d,i)=>{const id=String(d.id||d.name||"").toUpperCase();if(/REF_AREA|REPORTER|L_REP_CTY/.test(id))meta.reporter=seriesValues[i];if(/COUNTERPART_AREA|COUNTERPARTY|L_CP_COUNTRY/.test(id))meta.counterparty=seriesValues[i];if(/MEASURE|INDICATOR|L_MEASURE/.test(id))meta.measure=seriesValues[i];if(/UNIT|L_DENOM/.test(id))meta.unit=seriesValues[i];});
     for(const [obsKey,value] of Object.entries(series.observations||{})){
       const indices=String(obsKey).split(":").map(Number),periodIndex=periodDim>=0?indices[periodDim]:indices[0],period=obsDims[periodDim>=0?periodDim:0]?.values?.[periodIndex]?.id||obsDims[periodDim>=0?periodDim:0]?.values?.[periodIndex]?.name||String(periodIndex);
       const numeric=Number(Array.isArray(value)?value[0]:value);
