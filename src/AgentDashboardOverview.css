@@ -1,0 +1,33 @@
+.agent-overview-panel{display:grid;gap:14px;margin:0 0 16px;padding:16px;border:1px solid #2b4058;background:linear-gradient(145deg,rgba(18,35,55,.96),rgba(12,24,39,.96));}
+.agent-overview-head{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap}
+.agent-overview-head h3{margin:5px 0;font-size:18px;color:#edf5ff}
+.agent-overview-head p{margin:0;color:#91a7bf;font-size:11px;line-height:1.55}
+.agent-overview-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.agent-overview-actions button,.agent-overview-notice button,.agent-overview-links button{display:inline-flex;align-items:center;gap:6px;border:1px solid #36516d;border-radius:7px;background:#172c43;color:#d7e8fa;padding:8px 10px;font-size:10px;cursor:pointer}
+.agent-overview-actions button:disabled{opacity:.55;cursor:wait}
+.agent-overview-status{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;background:#263447;color:#c3d2e2;font-size:9px;font-weight:800;letter-spacing:.05em}
+.agent-overview-status i{width:6px;height:6px;border-radius:50%;background:#8da1b7}
+.agent-overview-status.ready i{background:#55d6a1}.agent-overview-status.locked i{background:#f0bd67}.agent-overview-status.waiting i{background:#8294aa}
+.agent-overview-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.agent-overview-kpis article{display:grid;gap:5px;min-width:0;padding:12px;border:1px solid #293e55;border-radius:9px;background:#101f30}
+.agent-overview-kpis svg{width:16px;height:16px;color:#75bdf4}
+.agent-overview-kpis span{font-size:9px;color:#8ea4bd;letter-spacing:.06em}
+.agent-overview-kpis b{font-size:23px;color:#f1f6fc}
+.agent-overview-kpis small{font-size:9px;color:#8398af;line-height:1.4}
+.agent-overview-notice{display:flex;align-items:center;gap:9px;flex-wrap:wrap;padding:10px;border:1px solid #6b5635;border-radius:8px;background:#2b251b;color:#e6c88f;font-size:10px;line-height:1.5}
+.agent-overview-notice span{flex:1;min-width:180px}
+.agent-overview-departments{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:9px}
+.agent-overview-departments article{display:grid;gap:7px;padding:12px;border:1px solid #2b4058;border-radius:9px;background:#122235;min-width:0}
+.agent-overview-departments article>div,.agent-overview-departments footer{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.agent-overview-departments article>div span{font-size:9px;letter-spacing:.06em;color:#82b8e7}
+.agent-overview-departments article>div b,.agent-overview-departments footer{font-size:9px;color:#a7b8cb}
+.agent-overview-departments h4{margin:0;color:#e6eff9;font-size:12px}
+.agent-overview-departments p{margin:0;color:#92a6bc;font-size:10px;line-height:1.5}
+.agent-overview-departments footer{padding-top:7px;border-top:1px solid #2a3b50}
+.agent-overview-departments footer strong{color:#8ed9ba}
+.agent-overview-empty{color:#a4b7cc;font-size:11px}
+.agent-overview-bottom{display:flex;gap:12px;flex-wrap:wrap;color:#8fa5bd;font-size:9px}
+.agent-overview-bottom span{display:inline-flex;align-items:center;gap:5px}
+.agent-overview-links{display:flex;gap:7px;flex-wrap:wrap;padding-top:2px;border-top:1px solid #293c52}
+.agent-overview-links button{font-size:9px}
+@media(max-width:760px){.agent-overview-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.agent-overview-departments{grid-template-columns:1fr}.agent-overview-head h3{font-size:16px}}
