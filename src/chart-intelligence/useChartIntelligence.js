@@ -31,7 +31,7 @@ async function loadHtf(exchange, symbol, timeframe, marketType, signal) {
 }
 
 /** One hook per chart. Charts on the same exchange/symbol/timeframe share one computed result object. */
-export function useChartIntelligence({ exchange, symbol, timeframe, marketType = 'spot', candles, ga, externalLevels, institutionalContext = null, clock }) {
+export function useChartIntelligence({ exchange, symbol, timeframe, marketType = 'spot', candles, ga, externalLevels, institutionalContext = null, chainDexContext = null, sessionContext = null, clock }) {
   const st = getStore();
   const [settings, setSettings] = useState(() => st.get());
   const [htf, setHtf] = useState({ key: '', data: [] });
@@ -54,22 +54,24 @@ export function useChartIntelligence({ exchange, symbol, timeframe, marketType =
 
   const extHash = useMemo(() => JSON.stringify((externalLevels || []).map((l) => [l.label, Number(l.price)])), [externalLevels]);
   const institutionalHash = useMemo(() => JSON.stringify(institutionalContext ? [institutionalContext.generatedAt, institutionalContext.score?.score, institutionalContext.market?.priceChangePct, institutionalContext.market?.orderBookImbalancePct, institutionalContext.market?.fundingRate, institutionalContext.broadContext?.globalMarketCapChange24hPct, institutionalContext.sources?.map((s) => [s.name, s.status])] : null), [institutionalContext]);
+  const chainDexHash = useMemo(() => JSON.stringify(chainDexContext ? [chainDexContext.generatedAt, chainDexContext.status, chainDexContext.flow, chainDexContext.pools?.map(p=>[p.chainId,p.pairAddress,p.liquidityUsd,p.volume24hUsd]), chainDexContext.trades?.length, chainDexContext.sources?.map(x=>[x.name,x.status])] : null), [chainDexContext]);
+  const sessionHash = useMemo(() => JSON.stringify(sessionContext ? [sessionContext.generatedAt, sessionContext.status, sessionContext.directionalBias, sessionContext.sessions?.map(x=>[x.id,x.forecast?.high,x.forecast?.low,x.confidence])] : null), [sessionContext]);
   const gaAsOf = ga && ga.result && ga.result.confirmed ? ga.result.confirmed.asOf : null;
   const gaSignal = ga && ga.result && ga.result.confirmed ? ga.result.confirmed.signal : null;
   const result = useMemo(() => {
     if (!settings.enabled || !candles || !candles.length || !lastClosed) return null;
     const htfOk = htf.key === [exchange, symbol, timeframe, marketType].join('|') ? htf.data : [];
-    const key = [exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htfOk.length, extHash, institutionalHash, ga && ga.settings ? JSON.stringify([ga.settings.preset, ga.settings.overrides]) : '', settings.historyBars].join('|');
+    const key = [exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htfOk.length, extHash, institutionalHash, chainDexHash, sessionHash, ga && ga.settings ? JSON.stringify([ga.settings.preset, ga.settings.overrides]) : '', settings.historyBars].join('|');
     const hit = shared.get(key); if (hit) return hit;
     let out;
     try {
       const gs = ga && ga.hub ? ga.hub.getState() : null;
-      out = analyzeChartIntelligence(candles, { exchange, symbol, timeframe, now: clock || Date.now(), gainz: ga && ga.result && !ga.result.error ? ga.result : null, higherTimeframes: htfOk, outcomes: gs ? gs.outcomes : [], externalLevels: externalLevels || [], institutionalContext, ledger: getLedger(), historyBars: settings.historyBars, preset: ga && ga.settings ? ga.settings.preset : undefined, overrides: ga && ga.settings ? ga.settings.overrides : undefined });
+      out = analyzeChartIntelligence(candles, { exchange, symbol, timeframe, now: clock || Date.now(), gainz: ga && ga.result && !ga.result.error ? ga.result : null, higherTimeframes: htfOk, outcomes: gs ? gs.outcomes : [], externalLevels: externalLevels || [], institutionalContext, chainDexContext, sessionContext, ledger: getLedger(), historyBars: settings.historyBars, preset: ga && ga.settings ? ga.settings.preset : undefined, overrides: ga && ga.settings ? ga.settings.overrides : undefined });
     } catch (error) { out = { status: 'error', reason: error.message, layers: {}, alerts: [], provenance: [] }; }
     shared.set(key, out); if (shared.size > 48) shared.delete(shared.keys().next().value);
     return out;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings.enabled, settings.historyBars, exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htf, extHash, institutionalHash]);
+  }, [settings.enabled, settings.historyBars, exchange, symbol, timeframe, marketType, lastClosed, gaAsOf, gaSignal, htf, extHash, institutionalHash, chainDexHash, sessionHash]);
 
   useEffect(() => {
     if (!result || result.status !== 'ready' || !result.alerts.length) return;
