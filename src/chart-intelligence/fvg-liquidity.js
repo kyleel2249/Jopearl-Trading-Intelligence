@@ -3,7 +3,6 @@
 const clamp=(v,a=0,b=1)=>Math.max(a,Math.min(b,v));
 const finite=v=>Number.isFinite(Number(v));
 const round=(v,n=6)=>finite(v)?Number(Number(v).toFixed(n)):null;
-const dirSign=d=>d==="bullish"?1:d==="bearish"?-1:0;
 const candleTs=c=>Number(c?.[0]);
 const candleHigh=c=>Number(c?.[2]);
 const candleLow=c=>Number(c?.[3]);
@@ -88,7 +87,7 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
     const orderBlockOverlap=!!(orderBlock&&Math.max(fvg.bottom,orderBlock.bottom)<=Math.min(fvg.top,orderBlock.top));
     const dealing=smc?.dealingRange||null;
     const premiumDiscount=dealing?direction==="bullish"?(mid<=dealing.equilibrium?"discount":"premium"):(mid>=dealing.equilibrium?"premium":"discount"):"unavailable";
-    const locationQuality=premiumDiscount==="discount"&&direction==="bullish"||premiumDiscount==="premium"&&direction==="bearish"?1:premiumDiscount==="unavailable"?.5:0;
+    const locationQuality=(premiumDiscount==="discount"&&direction==="bullish")||(premiumDiscount==="premium"&&direction==="bearish") ? 1 : premiumDiscount==="unavailable" ? 0.5 : 0;
     const score=Math.round(100*(.18*sweepQuality+.16*impulseQuality+.12*sizeQuality+.15*freshness+.12*structureQuality+.05*ageQuality+.08*(oteOverlap?1:0)+.08*(orderBlockOverlap?1:0)+.06*locationQuality));
     const targets=liquidityTargets(clusters,direction,mid,atr);
     const riskSide=direction==="bullish"?"low":"high";
