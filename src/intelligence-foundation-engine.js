@@ -62,3 +62,25 @@ export function evaluateStrategyLifecycle(metrics={},policy={}){
  if(trades>=30&&expectancy>0&&profitFactor>1.1&&drawdown<=(Number(policy.maxDrawdownPct)||8))return{status:'champion-candidate',reason:'Out-of-sample sample, expectancy, profit factor and drawdown meet promotion gates.'};
  return{status:'challenger',reason:'Insufficient or inconclusive out-of-sample evidence; continue controlled testing.'};
 }
+
+export function estimateLiquidationClusters(input={}){
+ const price=Number(input.markPrice),oi=Number(input.openInterest),ratio=Number(input.longShortRatio)||1,mm=clamp(input.maintenanceMarginRate??.005,0,.05);
+ if(!(price>0&&oi>0))return{status:'insufficient-data',clusters:[],confidence:'none',limitations:['Mark price and open interest are required.']};
+ const buckets=Array.isArray(input.leverageBuckets)&&input.leverageBuckets.length?input.leverageBuckets:[{leverage:5,share:.1},{leverage:10,share:.2},{leverage:20,share:.3},{leverage:50,share:.25},{leverage:100,share:.15}],longShare=ratio/(1+ratio),shortShare=1/(1+ratio),clusters=[];
+ for(const b of buckets){const leverage=Number(b.leverage),share=Number(b.share);if(!(leverage>=2&&share>0))continue;const longPrice=price*(1-1/leverage+mm),shortPrice=price*(1+1/leverage-mm);clusters.push({side:'long-liquidations',leverage,estimatedPrice:Number(longPrice.toFixed(8)),estimatedNotional:oi*longShare*share,distancePct:(price-longPrice)/price*100},{side:'short-liquidations',leverage,estimatedPrice:Number(shortPrice.toFixed(8)),estimatedNotional:oi*shortShare*share,distancePct:(shortPrice-price)/price*100});}
+ return{status:'inferred-estimate',markPrice:price,openInterest:oi,longShortRatio:ratio,fundingRate:Number(input.fundingRate)||0,clusters:clusters.sort((a,b)=>a.estimatedPrice-b.estimatedPrice),confidence:'low',limitations:['This is a leverage-distribution estimate, not an exchange liquidation feed.','Leverage bucket shares are assumptions unless supplied from verified venue data.','Maintenance margin, cross-margin collateral and position-level liquidation prices vary by venue.','Do not treat estimated clusters as confirmed stop or liquidation orders.']};
+}
+export function detectMarketAnomalies(input){
+ const rows=candlesOf(input);if(rows.length<30)return{status:'insufficient-data',anomalies:[],observations:rows.length};
+ const recent=rows.slice(-31,-1),volumes=recent.map(x=>x[5]),ranges=recent.map(x=>x[2]-x[3]),avgV=mean(volumes),sdV=Math.sqrt(mean(volumes.map(x=>(x-avgV)**2))||0),avgR=mean(ranges),sdR=Math.sqrt(mean(ranges.map(x=>(x-avgR)**2))||0),last=rows.at(-1),volumeZ=sdV?(last[5]-avgV)/sdV:0,rangeZ=sdR?(last[2]-last[3]-avgR)/sdR:0,anomalies=[];
+ if(volumeZ>=3)anomalies.push({type:'volume-spike',zScore:Number(volumeZ.toFixed(2)),severity:volumeZ>=5?'high':'medium'});
+ if(rangeZ>=3)anomalies.push({type:'range-expansion',zScore:Number(rangeZ.toFixed(2)),severity:rangeZ>=5?'high':'medium'});
+ const prev=rows.at(-2),gap=Math.abs(last[1]-prev[4])/prev[4]*100;if(gap>.5)anomalies.push({type:'opening-gap',gapPct:Number(gap.toFixed(3)),severity:gap>1.5?'high':'medium'});
+ return{status:'available',observations:rows.length,volumeZScore:Number(volumeZ.toFixed(3)),rangeZScore:Number(rangeZ.toFixed(3)),anomalies,method:'Rolling 30-candle z-scores and open-to-previous-close gap; anomaly flags are statistical alerts, not causal explanations.'};
+}
+export function scoreAgentDisagreement(assessments=[]){
+ const valid=(assessments||[]).filter(x=>['LONG','SHORT','NEUTRAL'].includes(String(x.direction||x.verdict||'').toUpperCase())).map(x=>String(x.direction||x.verdict).toUpperCase());
+ if(!valid.length)return{status:'insufficient-assessments',count:0,consensus:null,agreementPct:null,disagreement:'unknown'};
+ const counts=valid.reduce((a,x)=>(a[x]=(a[x]||0)+1,a),{}),rank=Object.entries(counts).sort((a,b)=>b[1]-a[1]),agreement=rank[0][1]/valid.length;
+ return{status:'available',count:valid.length,counts,consensus:rank[0][0],agreementPct:agreement*100,disagreement:agreement>=.8?'low':agreement>=.6?'moderate':'high',note:'Consensus measures directional agreement only; it is not evidence of accuracy or calibrated probability.'};
+}
