@@ -22,6 +22,7 @@ const SignalIntelligenceDashboard = lazy(() => import('../dashboard/app/Dashboar
 const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
 const AgentCommandCenter = lazy(() => import('./AgentCommandCenter.jsx'));
+const AutonomousDepartments = lazy(() => import('./AutonomousDepartments.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
@@ -86,6 +87,7 @@ const navigation = [
   { label: 'Institutional Governance', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
   { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
+  { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Universal Engine', icon: Network, group: 'RESEARCH' },
   { label: 'Backtesting Lab', icon: BarChart3, group: 'RESEARCH' },
   { label: 'Forecast & Strategy', icon: Gauge, group: 'RESEARCH' },
@@ -445,6 +447,7 @@ function App() {
     'Asset Intelligence': 'Normalized spot, perpetual, dated-futures, options and margin instrument discovery across supported venues.',
     'AI Intelligence': 'Signal evidence, market context and explainable analysis.',
     'AI Agent Command Center': 'Ten explainable specialist agents, multi-agent debate, risk vetoes and persistent research memory.',
+    'Autonomous Departments': 'Research, trading social and general marketing workforces with shared memory, autonomous missions, interdepartmental exchange and daily KPI reviews.',
     'Institutional Market Intelligence': 'Shared chart-linked market evidence, regime, structure, liquidity, flow and scenarios.',
     'Opportunity Radar': 'Rank a liquid multi-asset watchlist using explainable evidence and synchronized cross-market return correlations.',
     'Market Scanner': 'Configure market watchlists for scheduled live ticker monitoring.',
@@ -538,6 +541,7 @@ function App() {
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
+    if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
     if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
     if (page === 'Universal Engine') return <UniversalEngine localPrivateAccess={health?.localPrivateAccess === true}/>;
