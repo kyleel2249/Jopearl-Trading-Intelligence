@@ -6,7 +6,6 @@ import {buildOpportunityRadar}from'./opportunity-radar-engine.js';
 import './OpportunityRadar.css';
 
 const UNIVERSE=['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','BNB/USDT','DOGE/USDT','LINK/USDT','SUI/USDT'];
-const number=v=>Number.isFinite(Number(v))?Number(v):null;
 const fmt=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:4});
 const biasIcon=d=>d==='LONG'?<ArrowUpRight size={14}/>:d==='SHORT'?<ArrowDownRight size={14}/>:<Minus size={14}/>;
 
