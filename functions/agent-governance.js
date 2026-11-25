@@ -49,6 +49,22 @@ export async function handleAgentGovernanceApi({request,env,db,path}){
    const record=await audit(db,{actorId:result.reviewer,decisionType:'approval-review',targetType:row.target_type,targetId:row.target_id,decision:result.status,rationale:result.note||row.reason,evidence:[row.request_id]});
    return reply(200,{requestId:row.request_id,status:result.status,reviewedAt,audit:record,effects:{liveExecutionAuthorized:false}});
   }
+  if(path==='/api/intelligence-foundation/governance/sources'&&request.method==='GET'){
+   const r=await db.prepare('SELECT * FROM jpti_intelligence_sources ORDER BY retrieved_at DESC LIMIT 200').all();
+   return reply(200,{sources:(r.results||[]).map(x=>({...x,metadata:parse(x.metadata_json)}))});
+  }
+  if(path==='/api/intelligence-foundation/governance/sources'&&request.method==='POST'){
+   const x=await request.json(),memoryId=clean(x.memoryId,80)||null,sourceType=clean(x.sourceType,60),sourceRef=clean(x.sourceRef,1200)||null,checksum=clean(x.checksum,160)||null;
+   const verificationStatus=['verified','partially-verified','unverified','disputed','inferred'].includes(x.verificationStatus)?x.verificationStatus:'unverified';
+   if(!sourceType||(!sourceRef&&!checksum))return reply(400,{error:'Source type and a source reference or checksum are required.'});
+   if(verificationStatus==='verified'&&(!sourceRef||clean(x.verificationEvidence,2000).length<20))return reply(400,{error:'Verified provenance requires a source reference and substantive verification evidence.'});
+   if(memoryId&&!await db.prepare('SELECT memory_id FROM jpti_intelligence_memory WHERE memory_id=?').bind(memoryId).first())return reply(404,{error:'Linked intelligence memory record does not exist.'});
+   const id=crypto.randomUUID(),retrievedAt=new Date().toISOString(),observedAt=clean(x.observedAt,50)||null;
+   await db.prepare('INSERT INTO jpti_intelligence_sources(source_id,memory_id,source_type,source_ref,checksum,verification_status,observed_at,retrieved_at,metadata_json) VALUES(?,?,?,?,?,?,?,?,?)').bind(id,memoryId,sourceType,sourceRef,checksum,verificationStatus,observedAt,retrievedAt,JSON.stringify({...((x.metadata&&typeof x.metadata==='object')?x.metadata:{}),verificationEvidence:clean(x.verificationEvidence,2000)||null})).run();
+   if(memoryId)await db.prepare('UPDATE jpti_intelligence_memory SET evidence_status=?,source=COALESCE(?,source),source_url=COALESCE(?,source_url),updated_at=? WHERE memory_id=?').bind(verificationStatus,sourceType,sourceRef,retrievedAt,memoryId).run();
+   await audit(db,{actorId:clean(x.recordedBy||'operator',120),decisionType:'source-provenance-recorded',targetType:'intelligence-memory',targetId:memoryId||id,decision:verificationStatus,rationale:'Source provenance attached to intelligence memory.',evidence:[sourceRef||checksum]});
+   return reply(201,{source:{id,memoryId,sourceType,sourceRef,checksum,verificationStatus,observedAt,retrievedAt},persisted:true});
+  }
   if(path==='/api/intelligence-foundation/governance/decisions'&&request.method==='GET'){
    const r=await db.prepare('SELECT * FROM jpti_decision_ledger ORDER BY created_at DESC LIMIT 250').all();return reply(200,{decisions:(r.results||[]).map(x=>({...x,evidence:parse(x.evidence_json,[])}))});
   }

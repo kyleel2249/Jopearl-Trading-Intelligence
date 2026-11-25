@@ -47,7 +47,7 @@ export function evaluateGovernanceReview(request,review={}) {
   return{valid:true,status:decision,reviewer,note:String(review.note||'').trim().slice(0,2000)};
 }
 export function scoreAgentHeartbeat(heartbeat,now=Date.now()) {
-  const seen=Date.parse(heartbeat?.lastSeen||'');
+  const seen=Date.parse(heartbeat?.lastSeen||heartbeat?.last_seen||'');
   if(!Number.isFinite(seen))return{health:'unknown',ageMs:null,stale:true};
   const ageMs=Math.max(0,now-seen),status=String(heartbeat.status||'unknown');
   const health=ageMs>15*60e3||status==='offline'?'offline':ageMs>5*60e3||status==='degraded'||status==='blocked'?'degraded':status==='busy'?'busy':'healthy';
