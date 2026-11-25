@@ -13,6 +13,7 @@ import { analyzeLiquidation } from './liquidation.js';
 import { detectRegime, adaptiveConfig, mtfBias, scoreComponents, detectConflicts, gradeSetup } from './confluence.js';
 import { scoreInstitutionalContext } from './institutional.js';
 import { scoreChainDexContext } from './chain-dex.js';
+import { analyzeFvgLiquidity, scoreFvgLiquidityForConfluence } from './fvg-liquidity.js';
 
 export const MODULE_VERSION = 'chart-intelligence-1.1.0';
 export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
@@ -144,12 +145,14 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const regime = detectRegime(work, atrS), rcfg = adaptiveConfig(regime), mtf = mtfBias(higherTimeframes, now);
   const institutional = scoreInstitutionalContext(institutionalContext, { now });
   const chainDex = scoreChainDexContext(chainDexContext, { now });
+  const fvgLiquidity = analyzeFvgLiquidity(smc, work, { atr, timeframeMs: tf || 60_000, now });
+  const fvgLiquidityScore = scoreFvgLiquidityForConfluence(fvgLiquidity, null);
 
   // Predictive level strength: shrink an a-priori strength toward the measured reaction rate of that very level.
   const K = 4, strengthen = (it) => { if (it.top != null || !Number.isFinite(it.price)) return it; const idx = Math.max(0, work.findIndex((c) => c[0] >= it.ts)); const rs = reactionStats(work, it.price, atr, { fromIndex: idx }); const prior = it.strength ?? 0.5; const s = ((rs.reactions) + K * prior) / (rs.touches + K); return { ...it, strength: r8(s), reaction: { touches: rs.touches, reactions: rs.reactions, rate: r8(rs.rate) }, source: { ...it.source, inputs: { ...it.source.inputs, touches: rs.touches, reactions: rs.reactions } } }; };
   const profileS = profile.map(strengthen);
 
-  const conf = scoreComponents({ price, atr, smc, levels: profileS, sr, flow: of, liq, mtf, institutional, chainDex, sessionContext, regimeCfg: rcfg });
+  const conf = scoreComponents({ price, atr, smc, levels: profileS, sr, flow: of, liq, mtf, institutional, chainDex, sessionContext, fvgLiquidityScore, regimeCfg: rcfg });
   const scoreDir = Math.abs(conf.score) >= rcfg.minScore ? Math.sign(conf.score) : 0;
 
   // Signals: ledger (frozen) + walk-forward for bars not yet recorded. The live bar uses the hub's confirmed result.
@@ -177,7 +180,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   // Conflicts + grade use the latest active signal's direction (or the confluence direction when there is no signal).
   const sigDir = active ? (active.signal === 'BUY' ? 1 : -1) : 0;
   const ext = (() => { const e = externalLevels.find((l) => /entry/i.test(l.label)), s = externalLevels.find((l) => /stop/i.test(l.label)); return e && s && Number.isFinite(+e.price) && Number.isFinite(+s.price) ? { direction: +e.price > +s.price ? 1 : -1 } : null; })();
-  const cf = detectConflicts({ signalDir: sigDir, score: conf.score, minScore: rcfg.minScore, mtf, flow: of, dealing: smc.dealingRange, external: ext, institutional, chainDex, eventRisk: institutional?.eventRisk });
+  const cf = detectConflicts({ signalDir: sigDir, score: conf.score, minScore: rcfg.minScore, mtf, flow: of, dealing: smc.dealingRange, external: ext, institutional, chainDex, fvgLiquidity, eventRisk: institutional?.eventRisk });
   const agreeing = conf.components.filter((c) => c.available && c.value * (sigDir || scoreDir || 1) >= 0.25).length, total = conf.components.filter((c) => c.available).length;
   const gz = gainz && gainz.confirmed && gainz.confirmed.status === 'ready' ? gainz.confirmed : null;
   const expectancy = summarize(outcomes, { symbol, timeframe, preset: cfg.id });
@@ -187,7 +190,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
 
   const trail = active && !severe ? trailingStop(work, active, { atr }) : null;
   const plan = active && !severe ? buildPlan(active, active.trade, work, atr, [...profileS, ...sr, ...smc.items.filter((i) => i.layer === 'liquidity')], cfg, trail) : null;
-  const entryAssessment = buildEntryAssessment({ active, plan, smc, work, atr, confluence: conf, conflictSeverity: cf.severity, chainDex, institutional, sessionContext });
+  const entryAssessment = buildEntryAssessment({ active, plan, smc, work, atr, confluence: conf, conflictSeverity: cf.severity, chainDex, institutional, sessionContext, fvgLiquidity });
 
   // Layer assembly with caps, merging and stable ids.
   const cap = (arr, n) => arr.slice(-n);
@@ -237,7 +240,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   return {
     status: 'ready', module: MODULE_VERSION, symbol, timeframe, exchange, asOf: lastTs, forming: forming ? forming[0] : null, atr: r8(atr), price,
     layers: L, volumeProfile: volume ? { poc: r8(volume.poc), vah: r8(volume.vah), val: r8(volume.val), totalVolume: r8(volume.totalVolume), low: r8(volume.low), high: r8(volume.high), bins: volume.bins.map((b) => ({ price: r8(b.price), volume: r8(b.volume) })) } : null, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
-    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, chainDex, sessionForecast: sessionContext, entryAssessment, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
+    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, chainDex, fvgLiquidity, sessionForecast: sessionContext, entryAssessment, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
     liquidation: { basis: liq.basis, cascade: liq.cascade, heatmap: liq.heatmap }, expectancy, gainzStatus: gz ? { signal: gz.signal, confidence: gz.confidence, stage: gz.stage } : null, alerts, provenance, bases,
     method: 'Closed-candle analysis; signals frozen in a ledger so history never repaints. Estimated layers are labelled in provenance.'
   };
@@ -265,5 +268,5 @@ export function analyzeAt(candles, index, opts = {}) {
 export function toChartEvidence(r) {
   if (!r || r.status !== 'ready') return { source: 'chart-intelligence', available: false, reason: r?.reason || 'unavailable' };
   const a = r.active, dir = a && r.display.state === a.signal ? (a.signal === 'BUY' ? 1 : -1) : 0;
-  return { source: 'chart-intelligence', available: true, version: r.module, direction: dir, state: r.display.state, grade: r.grade ? r.grade.grade : null, gradePoints: r.grade ? r.grade.points : null, confluenceScore: r.confluence.score, institutional: r.institutional ? { status: r.institutional.status, score: r.institutional.score, confidence: r.institutional.confidence, sourceCoverage: r.institutional.sourceCoverage, eventRisk: r.institutional.eventRisk, evidence: r.institutional.evidence, sources: (r.institutional.sources || []).map(x => ({ name: x.name, status: x.status })) } : null, chainDex: r.chainDex ? { status: r.chainDex.status, score: r.chainDex.score, confidence: r.chainDex.confidence, flow: r.chainDex.flow, evidence: r.chainDex.evidence, sources: (r.chainDex.sources || []).map(x => ({ name: x.name, status: x.status })), pools: r.chainDex.pools, recentTransactions: (r.chainDex.trades || []).slice(0, 20), poolCount: r.chainDex.poolCount, tradeCount: r.chainDex.tradeCount } : null, entryAssessment: r.entryAssessment || null, sessionForecast: r.sessionForecast ? { status: r.sessionForecast.status, directionalBias: r.sessionForecast.directionalBias, sessions: (r.sessionForecast.sessions || []).map(x => ({ id: x.id, forecast: x.forecast, confidence: x.confidence })) } : null, regime: r.regime.state, conflicts: r.conflicts.map((c) => c.id), conflictSeverity: r.conflictSeverity, cascadeRisk: r.liquidation.cascade ? r.liquidation.cascade.level : null, plan: r.plan ? { entry: r.plan.entry, stopLoss: r.plan.stopLoss, targets: r.plan.targets.map((t) => ({ price: t.price, rr: t.rr })) } : null, bases: r.bases };
+  return { source: 'chart-intelligence', available: true, version: r.module, direction: dir, state: r.display.state, grade: r.grade ? r.grade.grade : null, gradePoints: r.grade ? r.grade.points : null, confluenceScore: r.confluence.score, fvgLiquidity: r.fvgLiquidity ? { status: r.fvgLiquidity.status, summary: r.fvgLiquidity.summary, setups: (r.fvgLiquidity.setups || []).slice(0, 10) } : null, institutional: r.institutional ? { status: r.institutional.status, score: r.institutional.score, confidence: r.institutional.confidence, sourceCoverage: r.institutional.sourceCoverage, eventRisk: r.institutional.eventRisk, evidence: r.institutional.evidence, sources: (r.institutional.sources || []).map(x => ({ name: x.name, status: x.status })) } : null, chainDex: r.chainDex ? { status: r.chainDex.status, score: r.chainDex.score, confidence: r.chainDex.confidence, flow: r.chainDex.flow, evidence: r.chainDex.evidence, sources: (r.chainDex.sources || []).map(x => ({ name: x.name, status: x.status })), pools: r.chainDex.pools, recentTransactions: (r.chainDex.trades || []).slice(0, 20), poolCount: r.chainDex.poolCount, tradeCount: r.chainDex.tradeCount } : null, entryAssessment: r.entryAssessment || null, sessionForecast: r.sessionForecast ? { status: r.sessionForecast.status, directionalBias: r.sessionForecast.directionalBias, sessions: (r.sessionForecast.sessions || []).map(x => ({ id: x.id, forecast: x.forecast, confidence: x.confidence })) } : null, regime: r.regime.state, conflicts: r.conflicts.map((c) => c.id), conflictSeverity: r.conflictSeverity, cascadeRisk: r.liquidation.cascade ? r.liquidation.cascade.level : null, plan: r.plan ? { entry: r.plan.entry, stopLoss: r.plan.stopLoss, targets: r.plan.targets.map((t) => ({ price: t.price, rr: t.rr })) } : null, bases: r.bases };
 }
