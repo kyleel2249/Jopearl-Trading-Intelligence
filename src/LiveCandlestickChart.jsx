@@ -712,6 +712,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <div className="chain-dex-transactions"><b>Recent confirmed swaps / persisted history ({chainDexTrades.length})</b>
           {chainDexTrades.slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · USD {Number(trade.amountUsd || 0).toLocaleString()}</span><span>{trade.trader ? trade.trader.slice(0, 6) + '…' + trade.trader.slice(-4) : 'Wallet unavailable'}</span><time>{new Date(trade.timestamp).toLocaleTimeString()}</time>{transactionUrl(trade) && <a href={transactionUrl(trade)} target="_blank" rel="noreferrer">Tx</a>}</div>)}
         </div>
+        {ci.result?.conflicts?.some(x => x.id === 'chain-dex-flow-opposes') && <p className="quote-error">Confirmed DEX swap flow opposes the active chart direction. Confluence and entry quality have been reduced.</p>}
         {(marketContext.chainDex.limitations || []).map((note,i)=><p key={i}>{note}</p>)}
       </> : <p>{contextError || 'Searching supported DEX pools and confirmed on-chain swaps…'}</p>}
     </div>
