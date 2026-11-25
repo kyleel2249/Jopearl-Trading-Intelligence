@@ -700,6 +700,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       </div>
       <div className="market-context-evidence">{(marketContext?.institutionalSources?.news || []).slice(0,4).map((item,i)=><a key={i} href={item.url} target="_blank" rel="noreferrer">{item.title}</a>)}</div>
       {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced.</p>}
+      {marketContext?.institutionalSources?.eventRisk?.active && <p className="quote-error">High-impact geopolitical or financial event risk is active ({marketContext.institutionalSources.eventRisk.count} recent headlines). Entry quality is reduced; wait for post-event confirmation.</p>}
     </div>
     <div className="market-context-panel chain-dex-panel">
       <div className="market-context-heading"><b>BLOCKCHAIN & DEX TRANSACTION INTELLIGENCE</b><span>{marketContext?.chainDex?.status === 'ready' ? 'LIVE MULTI-CHAIN EVIDENCE' : 'AWAITING DEX DATA'}</span></div>
