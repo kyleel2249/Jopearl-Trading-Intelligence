@@ -31,6 +31,10 @@ const namedMtf = scoreInstitutionalContext({ ...fresh, multiTimeframe: [{ timefr
 assert.ok(namedMtf.evidence.some((x) => x.factor === 'institutional-context-mtf' && x.value > 0), 'named timeframe directions must be converted into numeric evidence');
 const eventConflict = detectConflicts({ signalDir: 1, score: 0.5, minScore: 0.3, mtf: [], flow: null, dealing: null, institutional: null, eventRisk: { active: true, severity: 2 } });
 assert.ok(eventConflict.conflicts.some((x) => x.id === 'macro-event-risk' && x.severity === 2), 'high-impact event risk must enter chart conflict assessment');
+const energy = scoreInstitutionalContext({ ...fresh, symbol: 'WTIUSD', institutionalSources: { macro: { status: 'partial', commodityRiskBias: 0.8 } } }, { now });
+assert.ok(energy.evidence.some((x) => x.factor === 'government-and-central-bank-macro-risk' && x.value > 0), 'EIA inventory bias must only be used on energy symbols');
+const cryptoInventory = scoreInstitutionalContext({ ...fresh, symbol: 'BTC/USDT', institutionalSources: { macro: { status: 'partial', commodityRiskBias: 0.8 } } }, { now });
+assert.ok(!cryptoInventory.evidence.some((x) => x.factor === 'government-and-central-bank-macro-risk'), 'energy inventory must not distort crypto chart decisions');
 assert.ok(!sparse.evidence.some((x) => x.factor === 'order-book-pressure'), 'missing order-book data must not be treated as neutral evidence');
 const base = { price: 100, atr: 2, smc: { items: [], trend: 0, dealingRange: null }, levels: [], sr: [], flow: { status: 'unavailable', items: [] }, liq: { status: 'unavailable', clusters: [] }, mtf: [], regimeCfg: { weights: {} } };
 const withInstitutional = scoreComponents({ ...base, institutional: result });
