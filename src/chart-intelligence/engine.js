@@ -209,7 +209,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
     profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), volumeNodes: [], vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
     sr: sr, liquidation: liq.items || [], orderflow: cap(of.items || [], 24),
     structure: cap(smc.items.filter((i) => i.layer === 'structure'), 14), orderBlocks: cap(smc.items.filter((i) => i.layer === 'orderBlocks' && i.status !== 'breaker-old'), 8),
-    fvg: cap(smc.items.filter((i) => i.layer === 'fvg'), 10), liquidity: [...smc.items.filter((i) => i.layer === 'liquidity'), ...observedLiquidityLevels, ...observedSessionLevels, ...forecastLiquidityLevels], sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
+    fvg: cap(smc.items.filter((i) => i.layer === 'fvg').map(i => { const linked = (fvgLiquidity.setups || []).find(s => s.fvg.ts === i.ts && s.direction === i.direction); return linked ? { ...i, liquiditySetupId: linked.id, liquiditySetupScore: linked.score, liquiditySetupState: linked.state, linkedSweepTs: linked.sweep.ts } : i; }), 10), liquidity: [...smc.items.filter((i) => i.layer === 'liquidity'), ...observedLiquidityLevels, ...observedSessionLevels, ...forecastLiquidityLevels], sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
   };
   if (volume && volume.bins.length) {
     const vols = volume.bins.map((b) => b.volume).filter((v) => v > 0).sort((a, b) => a - b);
