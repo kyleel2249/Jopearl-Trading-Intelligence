@@ -36,9 +36,11 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
   const external = context.institutionalSources || {};
   const cftc = external.cftc || {};
   if (cftc.status === 'live') {
-    if (cftc.dealer && finite(cftc.dealer.bias)) add('cftc-bank-and-dealer-positioning', signed(cftc.dealer.bias, 1), 0.02, 'CFTC TFF dealer/intermediary net futures positions / open interest');
-    if (cftc.assetManager && finite(cftc.assetManager.bias)) add('cftc-asset-manager-positioning', signed(cftc.assetManager.bias, 1), 0.02, 'CFTC TFF asset-manager net futures positions / open interest');
-    if (cftc.leveragedMoney && finite(cftc.leveragedMoney.bias)) add('cftc-leveraged-fund-positioning', signed(cftc.leveragedMoney.bias, 1), 0.02, 'CFTC TFF leveraged-fund net futures positions / open interest');
+    if (cftc.dealer && finite(cftc.dealer.bias)) add('cftc-bank-and-dealer-positioning', signed(cftc.dealer.bias, 1), 0.012, 'CFTC TFF dealer/intermediary net futures positions / open interest');
+    if (cftc.assetManager && finite(cftc.assetManager.bias)) add('cftc-asset-manager-positioning', signed(cftc.assetManager.bias, 1), 0.012, 'CFTC TFF asset-manager net futures positions / open interest');
+    if (cftc.leveragedMoney && finite(cftc.leveragedMoney.bias)) add('cftc-leveraged-fund-positioning', signed(cftc.leveragedMoney.bias, 1), 0.012, 'CFTC TFF leveraged-fund net futures positions / open interest');
+    if (cftc.otherReportables && finite(cftc.otherReportables.bias)) add('cftc-other-reportable-positioning', signed(cftc.otherReportables.bias, 1), 0.012, 'CFTC TFF other reportable net futures positions / open interest');
+    if (cftc.nonReportables && finite(cftc.nonReportables.bias)) add('cftc-nonreportable-positioning', signed(cftc.nonReportables.bias, 1), 0.012, 'CFTC TFF non-reportable positions as a smaller-trader proxy, not a pure retail cohort');
   }
   const macro = external.macro || {};
   if (macro.status === 'live') add('government-and-central-bank-macro-risk', signed(macro.riskBias, 1), 0.04, 'FRED, Treasury Fiscal Data and ECB observations; low-frequency macro context');
