@@ -78,3 +78,39 @@ npm run dev:pages
 For legacy Node API development only, use `npm run dev:api` or `npm run dev:all`. This local API is not the Cloudflare production runtime. Keep paper mode enabled; do not add secrets to Vite variables.
 
 See [Cloudflare Pages deployment](docs/CLOUDFLARE-PAGES.md) for production configuration.
+
+
+## Unified Institutional, Blockchain, DEX and Chart Intelligence
+
+The chart's canonical closed-candle engine now consumes independently sourced institutional, retail, exchange, on-chain and session evidence. These sources affect confluence, conflict detection, setup quality and chart liquidity overlays. GainzAlpha remains the sole BUY/SELL signal authority.
+
+### Connected sources
+
+- **Exchange and derivatives:** the existing exchange OHLCV, ticker, order-book depth, funding and multi-timeframe context.
+- **Retail sentiment:** Alternative.me Crypto Fear & Greed index.
+- **CFTC positioning:** Traders in Financial Futures, Futures Only dataset for Bitcoin/Ether leveraged-money positioning. This is a weekly report with a publication lag, not live dealer flow.
+- **Federal Reserve:** optional FRED series for 10-year Treasury yields, broad trade-weighted dollar, effective fed funds rate, Federal Reserve assets, commercial-bank deposits, commercial and industrial loans, and total commercial-bank assets. Configure the server-side `FRED_API_KEY` Cloudflare Pages secret; the browser never receives the key.
+- **U.S. Treasury:** public Fiscal Data average-interest-rate observations.
+- **European Central Bank:** daily EUR/USD reference exchange-rate observations through the ECB SDMX API.
+- **Federal Reserve releases:** official press-release RSS headlines are surfaced as event context only; headline text is not automatically assigned a bullish/bearish score.
+- **DEX / on-chain swaps:** DexScreener multi-chain pool discovery and 24-hour liquidity/volume/transaction aggregates, with GeckoTerminal confirmed pool-swap samples where the chain is supported.
+
+### Chart integration and controls
+
+- Institutional evidence reserves 12% of canonical confluence; chain/DEX evidence reserves 8%; session directional context reserves 4%. Technical evidence occupies the remaining 76%. Missing or stale inputs are excluded and the available weights are renormalised.
+- High-confidence opposing institutional or DEX evidence creates an explicit chart conflict. Severe institutional conflict withholds the proposed plan.
+- SMC liquidity sweeps are quality-scored from pool hierarchy, wick penetration, reclaim distance and relative volume. Order blocks are quality-scored from displacement-body strength, relative volume and subsequent mitigation depth/touches.
+- Mitigated FVGs remain represented in chart history rather than disappearing when later candles fill them.
+- Rolling 24-hour observed highs/lows and four session forecast high/low bands are plotted in the chart liquidity layer. Session forecasts use historical session ranges, volatility scaling, directional skew and a visible sample-confidence grade.
+- Entry assessment requires a confirmed GainzAlpha signal plus a nearby directional zone, liquidity sweep, structure break, displacement and retest. The status is a checklist, not a probability or an order. Existing open trades are labelled for position management instead of fresh entry.
+- Confirmed DEX swaps are persisted idempotently in the existing `jpti_events` D1 table. Chart context includes recent swap samples and durable per-symbol history; `GET /api/chain-dex/transactions/:symbol` exposes the stored records.
+
+### Data coverage and limitations
+
+DEX discovery is symbol-based and ranks returned pools by liquidity. It is not a guarantee that every contract with the same ticker is the intended asset. Review the chain, token contract, pool and liquidity before relying on a pool. The current feed samples the highest-liquidity supported pool for confirmed swaps and aggregates the top discovered pools; it does **not** claim to capture every swap on every chain or every historical transaction. The D1 history contains only swaps observed by this JPTI feed after it is deployed.
+
+CFTC positioning is weekly and delayed. Treasury, ECB and FRED series follow their own release calendars. These feeds provide context, not tick-level bank order flow. Private bank/prime-broker client flows, proprietary dealer inventory, paid institutional datasets, wallet watchlists and provider-authenticated full-chain transfer streams still require licensed access, provider credentials and/or explicitly configured wallet addresses. Missing feeds are marked unavailable and are not fabricated.
+
+### FRED secret configuration
+
+For local Pages development, copy `.dev.vars.example` to `.dev.vars` and set `FRED_API_KEY`. For production, add a Cloudflare Pages secret named `FRED_API_KEY` (or use `npx wrangler pages secret put FRED_API_KEY` from the project root). Do not place the key in client-side code or commit it.
