@@ -26,7 +26,7 @@ export function analyzeSmtDivergence(primaryInput,correlatedInput,{primarySymbol
  if(pHH!==cHH){direction="bearish";kind="high-divergence";strength=.45+clamp(Math.abs((ph[1].price/ph[0].price-1)-(ch[1].price/ch[0].price-1))/.02)*.45;}
  else if(pLL!==cLL){direction="bullish";kind="low-divergence";strength=.45+clamp(Math.abs((pl[1].price/pl[0].price-1)-(cl[1].price/cl[0].price-1))/.02)*.45;}
  const bias=direction==="bullish"?strength:direction==="bearish"?-strength:0;
- return{status:"ready",primarySymbol,correlatedSymbol,bias:Number(bias.toFixed(3)),direction,kind,confidence:direction==="neutral"?.2:Number((Math.min(.85,strength)*Math.max(.35,1-age/maxAgeMs)).toFixed(3)),
+ return{status:"ready",primarySymbol,correlatedSymbol,bias:Number(bias.toFixed(3)),direction,kind,confidence:direction==="neutral" ? 0.2 : Number((Math.min(.85,strength)*Math.max(.35,1-age/maxAgeMs)).toFixed(3)),
   timestamp:new Date(Math.min(pLast,cLast)).toISOString(),timestampSkewMs:age,
   evidence:{primary:{higherHigh:pHH,lowerLow:pLL,lastHigh:ph[1],previousHigh:ph[0],lastLow:pl[1],previousLow:pl[0]},correlated:{higherHigh:cHH,lowerLow:cLL,lastHigh:ch[1],previousHigh:ch[0],lastLow:cl[1],previousLow:cl[0]}},
   methodology:"SMT is a relative confirmed-swing divergence proxy between two correlated instruments. It is not proof of manipulation or an independent BUY/SELL signal."};
