@@ -691,6 +691,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>10Y Treasury: <b>{marketContext?.institutionalSources?.macro?.fred?.DGS10?.latest?.value ?? '—'}%</b></span>
         <span>Fed funds: <b>{marketContext?.institutionalSources?.macro?.fred?.DFF?.latest?.value ?? '—'}%</b></span>
         <span>Commercial-bank deposits: <b>{marketContext?.institutionalSources?.macro?.fred?.DPSACBW027SBOG?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.DPSACBW027SBOG.latest.value).toLocaleString()}</b></span>
+        <span>Fed assets (WALCL): <b>{marketContext?.institutionalSources?.macro?.fred?.WALCL?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.WALCL.latest.value).toLocaleString()}</b></span>
+        <span>Commercial-bank loans: <b>{marketContext?.institutionalSources?.macro?.fred?.BUSLOANS?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.BUSLOANS.latest.value).toLocaleString()}</b></span>
         <span>Retail Fear & Greed: <b>{marketContext?.institutionalSources?.retailSentiment?.value ?? '—'} {marketContext?.institutionalSources?.retailSentiment?.classification || ''}</b></span>
         <span>ECB USD per EUR: <b>{marketContext?.institutionalSources?.ecb?.latest?.value ?? '—'}</b></span>
       </div>
