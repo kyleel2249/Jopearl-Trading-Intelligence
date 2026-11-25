@@ -33,6 +33,10 @@ FINNHUB_API_KEY=
 # Example shape: [{"chain":"ethereum","address":"0x...","claims":[{"type":"official-entity-registry","verified":true,"registryRecordId":"record-id","entityName":"Entity","entityType":"exchange","source":"Official registry","sourceUrl":"https://..."}]}]
 JPTI_VERIFIED_WALLET_REGISTRY=[]
 
+# Optional Trading Economics global macro calendar and Finnhub earnings/IPO calendar.
+TRADING_ECONOMICS_API_KEY=
+FINNHUB_API_KEY=
+
 # Additional verified event calendar JSON. Official FOMC, ECB, BoE, BoJ, EIA and Treasury calendars are fetched automatically.
 # Entries are direction-neutral unless an actual/forecast mapping is explicitly provided.
 JPTI_EVENT_CALENDAR_JSON=[]
