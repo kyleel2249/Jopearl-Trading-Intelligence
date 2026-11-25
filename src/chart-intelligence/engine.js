@@ -12,8 +12,9 @@ import { analyzeSmc } from './smc.js';
 import { analyzeLiquidation } from './liquidation.js';
 import { detectRegime, adaptiveConfig, mtfBias, scoreComponents, detectConflicts, gradeSetup } from './confluence.js';
 import { scoreInstitutionalContext } from './institutional.js';
+import { scoreChainDexContext } from './chain-dex.js';
 
-export const MODULE_VERSION = 'chart-intelligence-1.0.0';
+export const MODULE_VERSION = 'chart-intelligence-1.1.0';
 export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
 export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, volumeNodes: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: true, vwap: true };
 const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
@@ -105,8 +106,26 @@ function buildPlan(sig, state, work, atr, levelPool, cfg, trail) {
   };
 }
 
+function buildEntryAssessment({active,plan,smc,work,atr,confluence,conflictSeverity,chainDex,institutional,sessionContext}){
+ const direction=active?.signal==='BUY'?'bullish':active?.signal==='SELL'?'bearish':null,dir=direction==='bullish'?1:direction==='bearish'?-1:0;
+ if(!active)return{status:'no-confirmed-signal',direction:null,qualityScore:0,entryZone:null,trigger:'Wait for the GainzAlpha engine to confirm a closed-candle signal.',reasons:['No confirmed BUY/SELL signal exists.'],invalidation:null};
+ const last=work.at(-1),price=last?.[4],items=smc.items||[];
+ const zones=items.filter(i=>i.top!=null&&i.bottom!=null&&i.top>i.bottom&&i.direction===direction&&['orderBlocks','fvg','smc'].includes(i.layer)&&['ORDER_BLOCK','MITIGATION_BLOCK','FVG','IFVG','OTE_BULLISH','OTE_BEARISH'].includes(i.kind)&&!['breaker','filled','invalidated'].includes(i.status));
+ const zone=[...zones].sort((a,b)=>Math.abs((a.top+a.bottom)/2-price)-Math.abs((b.top+b.bottom)/2-price))[0]||null;
+ const inZone=!!zone&&price<=zone.top+atr*.2&&price>=zone.bottom-atr*.2;
+ const recent=(layer,kind)=>items.filter(i=>(!layer||i.layer===layer)&&(!kind||i.kind===kind)&&i.direction===direction&&last[0]-i.ts<=12*(work.length>1?Math.max(1,work.at(-1)[0]-work.at(-2)[0]):3600000));
+ const sweep=recent('sweeps','LIQUIDITY_SWEEP').at(-1)||null;
+ const structure=items.filter(i=>i.layer==='structure'&&i.direction===direction&&last[0]-i.ts<=12*(work.at(-1)[0]-work.at(-2)[0])).at(-1)||null;
+ const displacement=recent('smc','DISPLACEMENT').at(-1)||null;
+ const mtf=confluence.components.find(x=>x.key==='mtf'),dex=chainDex?.status==='ready'&&chainDex.confidence>=.45&&chainDex.score*dir>=.15,inst=institutional?.status==='ready'&&institutional.confidence>=.45&&institutional.score*dir>=.15;
+ const reasons=[];if(!zone)reasons.push('No nearby active directional order block, FVG or OTE zone.');if(!sweep)reasons.push('No recent same-direction liquidity sweep.');if(!structure)reasons.push('No recent same-direction BOS, CHoCH or MSS confirmation.');if(!displacement)reasons.push('No recent same-direction displacement candle.');if(!inZone)reasons.push('Price has not returned to the selected entry zone.');if(conflictSeverity>=3)reasons.push('Severe independent-evidence conflict blocks the setup.');
+ let quality=0;quality+=Math.max(0,Math.min(25,Math.abs(confluence.score*dir)*25));quality+=zone?15:0;quality+=sweep?15:0;quality+=structure?15:0;quality+=displacement?10:0;quality+=inZone?10:0;quality+=dex?5:0;quality+=inst?5:0;quality-=Math.min(30,conflictSeverity*10);quality=Math.max(0,Math.min(100,Math.round(quality)));
+ const status=conflictSeverity>=3?'blocked-conflict':!zone?'wait-for-location':!sweep?'wait-for-liquidity-sweep':!structure?'wait-for-structure':!displacement?'wait-for-displacement':!inZone?'wait-for-retest':quality>=70?'ready-for-review':'wait-for-confluence';
+ return{status,direction,qualityScore:quality,entryZone:zone?{low:zone.bottom,high:zone.top,mid:Number(((zone.bottom+zone.top)/2).toFixed(8)),kind:zone.kind,source:zone.source?.method||zone.layer}:null,currentPrice:price,inZone,confirmations:{liquiditySweep:!!sweep,structureBreak:!!structure,displacement:!!displacement,dexFlow:dex,institutional:inst,mtf:!!(mtf?.available&&mtf.value*dir>.15)},trigger:'Require a closed-candle rejection or displacement from the selected zone, then re-check the risk plan.',invalidation:active.riskPlan?.stopLoss??null,reasons,gradeNote:'Quality score is a rule-based checklist score, not a win probability. A ready-for-review state is not an order.'};
+}
+
 export function analyzeChartIntelligence(candles, opts = {}) {
-  const { exchange = 'unknown', symbol = 'unknown', timeframe = 'unknown', now = Date.now(), gainz = null, higherTimeframes = [], outcomes = [], flow = null, liquidationFeed = null, externalLevels = [], institutionalContext = null, settings = {}, ledger = null, historyBars = 60, preset, overrides } = opts;
+  const { exchange = 'unknown', symbol = 'unknown', timeframe = 'unknown', now = Date.now(), gainz = null, higherTimeframes = [], outcomes = [], flow = null, liquidationFeed = null, externalLevels = [], institutionalContext = null, chainDexContext = null, sessionContext = null, settings = {}, ledger = null, historyBars = 60, preset, overrides } = opts;
   const rows = normalizeCandles(candles), { closed, forming } = splitClosed(rows, timeframe, now), work = closed.slice(-1000);
   const base = { status: 'insufficient', module: MODULE_VERSION, symbol, timeframe, exchange, layers: {}, signals: [], plan: null, conflicts: [], alerts: [], provenance: [] };
   if (work.length < 60) return { ...base, reason: 'Need 60 closed candles, have ' + work.length };
@@ -123,12 +142,13 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const smc = analyzeSmc(work), of = analyzeOrderFlow(work, { flow }), liq = analyzeLiquidation(work, { feed: liquidationFeed });
   const regime = detectRegime(work, atrS), rcfg = adaptiveConfig(regime), mtf = mtfBias(higherTimeframes, now);
   const institutional = scoreInstitutionalContext(institutionalContext, { now });
+  const chainDex = scoreChainDexContext(chainDexContext, { now });
 
   // Predictive level strength: shrink an a-priori strength toward the measured reaction rate of that very level.
   const K = 4, strengthen = (it) => { if (it.top != null || !Number.isFinite(it.price)) return it; const idx = Math.max(0, work.findIndex((c) => c[0] >= it.ts)); const rs = reactionStats(work, it.price, atr, { fromIndex: idx }); const prior = it.strength ?? 0.5; const s = ((rs.reactions) + K * prior) / (rs.touches + K); return { ...it, strength: r8(s), reaction: { touches: rs.touches, reactions: rs.reactions, rate: r8(rs.rate) }, source: { ...it.source, inputs: { ...it.source.inputs, touches: rs.touches, reactions: rs.reactions } } }; };
   const profileS = profile.map(strengthen);
 
-  const conf = scoreComponents({ price, atr, smc, levels: profileS, sr, flow: of, liq, mtf, institutional, regimeCfg: rcfg });
+  const conf = scoreComponents({ price, atr, smc, levels: profileS, sr, flow: of, liq, mtf, institutional, chainDex, sessionContext, regimeCfg: rcfg });
   const scoreDir = Math.abs(conf.score) >= rcfg.minScore ? Math.sign(conf.score) : 0;
 
   // Signals: ledger (frozen) + walk-forward for bars not yet recorded. The live bar uses the hub's confirmed result.
@@ -156,7 +176,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   // Conflicts + grade use the latest active signal's direction (or the confluence direction when there is no signal).
   const sigDir = active ? (active.signal === 'BUY' ? 1 : -1) : 0;
   const ext = (() => { const e = externalLevels.find((l) => /entry/i.test(l.label)), s = externalLevels.find((l) => /stop/i.test(l.label)); return e && s && Number.isFinite(+e.price) && Number.isFinite(+s.price) ? { direction: +e.price > +s.price ? 1 : -1 } : null; })();
-  const cf = detectConflicts({ signalDir: sigDir, score: conf.score, minScore: rcfg.minScore, mtf, flow: of, dealing: smc.dealingRange, external: ext, institutional });
+  const cf = detectConflicts({ signalDir: sigDir, score: conf.score, minScore: rcfg.minScore, mtf, flow: of, dealing: smc.dealingRange, external: ext, institutional, chainDex });
   const agreeing = conf.components.filter((c) => c.available && c.value * (sigDir || scoreDir || 1) >= 0.25).length, total = conf.components.filter((c) => c.available).length;
   const gz = gainz && gainz.confirmed && gainz.confirmed.status === 'ready' ? gainz.confirmed : null;
   const expectancy = summarize(outcomes, { symbol, timeframe, preset: cfg.id });
@@ -166,6 +186,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
 
   const trail = active && !severe ? trailingStop(work, active, { atr }) : null;
   const plan = active && !severe ? buildPlan(active, active.trade, work, atr, [...profileS, ...sr, ...smc.items.filter((i) => i.layer === 'liquidity')], cfg, trail) : null;
+  const entryAssessment = buildEntryAssessment({ active, plan, smc, work, atr, confluence: conf, conflictSeverity: cf.severity, chainDex, institutional, sessionContext });
 
   // Layer assembly with caps, merging and stable ids.
   const cap = (arr, n) => arr.slice(-n);
@@ -174,7 +195,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
     profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), volumeNodes: [], vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
     sr: sr, liquidation: liq.items || [], orderflow: cap(of.items || [], 24),
     structure: cap(smc.items.filter((i) => i.layer === 'structure'), 14), orderBlocks: cap(smc.items.filter((i) => i.layer === 'orderBlocks' && i.status !== 'breaker-old'), 8),
-    fvg: cap(smc.items.filter((i) => i.layer === 'fvg'), 10), liquidity: smc.items.filter((i) => i.layer === 'liquidity'), sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
+    fvg: cap(smc.items.filter((i) => i.layer === 'fvg'), 10), liquidity: [...smc.items.filter((i) => i.layer === 'liquidity'), ...(sessionContext?.sessions||[]).flatMap(x=>[{id:'SESSION|'+x.id+'|HIGH',layer:'liquidity',kind:'SESSION_FORECAST_HIGH',direction:'buy-side',ts:lastTs,price:x.forecast?.high,label:x.name+' forecast high',strength:.35,source:{module:'session-liquidity-engine',method:'historical-session-range-forecast',basis:'estimated-model',inputs:{confidence:x.confidence,samples:x.historySamples}}},{id:'SESSION|'+x.id+'|LOW',layer:'liquidity',kind:'SESSION_FORECAST_LOW',direction:'sell-side',ts:lastTs,price:x.forecast?.low,label:x.name+' forecast low',strength:.35,source:{module:'session-liquidity-engine',method:'historical-session-range-forecast',basis:'estimated-model',inputs:{confidence:x.confidence,samples:x.historySamples}}}].filter(z=>Number.isFinite(z.price)))], sweeps: cap(smc.items.filter((i) => i.layer === 'sweeps'), 8), smc: smc.items.filter((i) => i.layer === 'smc')
   };
   if (volume && volume.bins.length) {
     const vols = volume.bins.map((b) => b.volume).filter((v) => v > 0).sort((a, b) => a - b);
@@ -206,7 +227,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   return {
     status: 'ready', module: MODULE_VERSION, symbol, timeframe, exchange, asOf: lastTs, forming: forming ? forming[0] : null, atr: r8(atr), price,
     layers: L, volumeProfile: volume ? { poc: r8(volume.poc), vah: r8(volume.vah), val: r8(volume.val), totalVolume: r8(volume.totalVolume), low: r8(volume.low), high: r8(volume.high), bins: volume.bins.map((b) => ({ price: r8(b.price), volume: r8(b.volume) })) } : null, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
-    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
+    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, chainDex, sessionForecast: sessionContext, entryAssessment, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
     liquidation: { basis: liq.basis, cascade: liq.cascade, heatmap: liq.heatmap }, expectancy, gainzStatus: gz ? { signal: gz.signal, confidence: gz.confidence, stage: gz.stage } : null, alerts, provenance, bases,
     method: 'Closed-candle analysis; signals frozen in a ledger so history never repaints. Estimated layers are labelled in provenance.'
   };
@@ -234,5 +255,5 @@ export function analyzeAt(candles, index, opts = {}) {
 export function toChartEvidence(r) {
   if (!r || r.status !== 'ready') return { source: 'chart-intelligence', available: false, reason: r?.reason || 'unavailable' };
   const a = r.active, dir = a && r.display.state === a.signal ? (a.signal === 'BUY' ? 1 : -1) : 0;
-  return { source: 'chart-intelligence', available: true, version: r.module, direction: dir, state: r.display.state, grade: r.grade ? r.grade.grade : null, gradePoints: r.grade ? r.grade.points : null, confluenceScore: r.confluence.score, institutional: r.institutional ? { status: r.institutional.status, score: r.institutional.score, confidence: r.institutional.confidence, sourceCoverage: r.institutional.sourceCoverage } : null, regime: r.regime.state, conflicts: r.conflicts.map((c) => c.id), conflictSeverity: r.conflictSeverity, cascadeRisk: r.liquidation.cascade ? r.liquidation.cascade.level : null, plan: r.plan ? { entry: r.plan.entry, stopLoss: r.plan.stopLoss, targets: r.plan.targets.map((t) => ({ price: t.price, rr: t.rr })) } : null, bases: r.bases };
+  return { source: 'chart-intelligence', available: true, version: r.module, direction: dir, state: r.display.state, grade: r.grade ? r.grade.grade : null, gradePoints: r.grade ? r.grade.points : null, confluenceScore: r.confluence.score, institutional: r.institutional ? { status: r.institutional.status, score: r.institutional.score, confidence: r.institutional.confidence, sourceCoverage: r.institutional.sourceCoverage } : null, chainDex: r.chainDex ? { status: r.chainDex.status, score: r.chainDex.score, confidence: r.chainDex.confidence, flow: r.chainDex.flow, poolCount: r.chainDex.poolCount, tradeCount: r.chainDex.tradeCount } : null, entryAssessment: r.entryAssessment || null, regime: r.regime.state, conflicts: r.conflicts.map((c) => c.id), conflictSeverity: r.conflictSeverity, cascadeRisk: r.liquidation.cascade ? r.liquidation.cascade.level : null, plan: r.plan ? { entry: r.plan.entry, stopLoss: r.plan.stopLoss, targets: r.plan.targets.map((t) => ({ price: t.price, rr: t.rr })) } : null, bases: r.bases };
 }
