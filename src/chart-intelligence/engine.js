@@ -110,6 +110,7 @@ function buildEntryAssessment({active,plan,smc,work,atr,confluence,conflictSever
  const direction=active?.signal==='BUY'?'bullish':active?.signal==='SELL'?'bearish':null,dir=direction==='bullish'?1:direction==='bearish'?-1:0;
  if(!active)return{status:'no-confirmed-signal',direction:null,qualityScore:0,entryZone:null,trigger:'Wait for the GainzAlpha engine to confirm a closed-candle signal.',reasons:['No confirmed BUY/SELL signal exists.'],invalidation:null};
  const last=work.at(-1),price=last?.[4],items=smc.items||[];
+ if(Number(active.trade?.bars||0)>0)return{status:'manage-existing-position',direction,qualityScore:0,entryZone:null,currentPrice:price,trigger:'The signal has already progressed beyond its entry candle. Manage the existing position using its stop, targets and trailing-stop rules; do not treat this as a fresh entry.',reasons:['An active trade is already in progress.'],invalidation:active.riskPlan?.stopLoss??null};
  const zones=items.filter(i=>i.top!=null&&i.bottom!=null&&i.top>i.bottom&&i.direction===direction&&['orderBlocks','fvg','smc'].includes(i.layer)&&['ORDER_BLOCK','MITIGATION_BLOCK','FVG','IFVG','OTE_BULLISH','OTE_BEARISH'].includes(i.kind)&&!['breaker','filled','invalidated'].includes(i.status));
  const zone=[...zones].sort((a,b)=>Math.abs((a.top+a.bottom)/2-price)-Math.abs((b.top+b.bottom)/2-price))[0]||null;
  const inZone=!!zone&&price<=zone.top+atr*.2&&price>=zone.bottom-atr*.2;
