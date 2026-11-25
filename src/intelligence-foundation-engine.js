@@ -41,7 +41,7 @@ export function updateDynamicStop(input={}){
 export function buildPartialExitPlan(input={}){
  const entry=Number(input.entryPrice),stop=Number(input.stopPrice),direction=String(input.direction||'LONG').toUpperCase(),risk=Math.abs(entry-stop);
  if(!(entry>0&&stop>0&&risk>0))return{valid:false,exits:[]};
- const levels=Array.isArray(input.levels)?input.levels:[{r:1,portion:.25},{r:1.5,portion:.25},{r:2,portion:.25},{r:3,portion:.25}],exits=levels.slice(0,8).map(x=>({r:Number(x.r),portion:clamp(x.portion,0,1),price:entry+(direction==='LONG'?1:-1)*risk*Number(x.r)})).filter(x=>x.r>0&&x.portion>0).sort((a,b)=>a.r-b.r);
+ const levels=Array.isArray(input.levels)?input.levels:[{r:1,portion:.2},{r:1.5,portion:.2},{r:2,portion:.2},{r:3,portion:.2}],exits=levels.slice(0,8).map(x=>({r:Number(x.r),portion:clamp(x.portion,0,1),price:entry+(direction==='LONG'?1:-1)*risk*Number(x.r)})).filter(x=>x.r>0&&x.portion>0).sort((a,b)=>a.r-b.r);
  const total=exits.reduce((s,x)=>s+x.portion,0);return{valid:total<=1.000001,exits,remainingPortion:Math.max(0,1-total),note:'Partial exit targets are a plan; actual fills and fees must be recorded separately.'};
 }
 export function calculateReturnCorrelations(series={},threshold=.7){
