@@ -144,7 +144,7 @@ async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date(
 }
 async function readDexTransactions(env,symbol,limit=60){
  if(!env.JPTI_DB)return{transactions:[],storage:'unavailable',reason:'JPTI_DB binding unavailable'};
- try{const rows=await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='dex-swap' AND symbol=? ORDER BY occurred_at DESC LIMIT ?").bind(String(symbol||'').slice(0,40),Math.min(100,Math.max(1,Number(limit)||60))).all();const transactions=(rows.results||[]).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);return{transactions,storage:'cloudflare-d1',count:transactions.length};}
+ try{const rows=await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='dex-swap' AND symbol=? ORDER BY occurred_at DESC LIMIT ?").bind(String(symbol||'').slice(0,40),Math.floor(Math.min(100,Math.max(1,Number(limit)||60)))).all();const transactions=(rows.results||[]).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);return{transactions,storage:'cloudflare-d1',count:transactions.length};}
  catch(error){return{transactions:[],storage:'degraded',reason:String(error?.message||error).slice(0,160)};}
 }
 async function persistDexTransactions(env,symbol,trades){
@@ -193,7 +193,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
  try{
   const u='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=5';
   const p=await safeJson(u),rows=Array.isArray(p.data)?p.data:[];
-  out.treasury={status:rows.length?'live':'empty',records:rows.slice(0,5).map(x=>({recordDate:x.record_date,securityDescription:x.security_desc||x.security_type_desc||null,averageInterestRate:Number(x.avg_interest_rate_amt??x.average_interest_rate??NaN)})).filter(x=>Number.isFinite(x.averageInterestRate))};
+  out.treasury={status:rows.length?'live':'empty',records:rows.slice(0,5).map(x=>({recordDate:x.record_date,securityDescription:x.security_desc||x.security_type_desc||null,averageInterestRate:Number(String(x.avg_interest_rate_amt??x.average_interest_rate??'').replace('%',''))})).filter(x=>Number.isFinite(x.averageInterestRate))};
   source('U.S. Treasury average interest rates','live','https://fiscaldata.treasury.gov/api-documentation/',{recordDate:rows[0]?.record_date||null});
  }catch(error){out.treasury.status='offline';source('U.S. Treasury average interest rates','offline','https://fiscaldata.treasury.gov/api-documentation/',{error:String(error?.message||error).slice(0,140)});}
  // ECB reference exchange rates are a daily central-bank observation, not a tick feed.
@@ -239,7 +239,7 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
  const key='jpti:microstructure:v1:'+exchange+':'+symbol+':'+marketType;
  if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<15000)return hit.body;}catch{/* continue to public exchange */}}
  const out={orderBookImbalancePct:null,fundingRate:null,sources:[],generatedAt};
- const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),type=String(marketType||'spot').toLowerCase(),derivative=!['spot','margin','cfd'].includes(type),coinMargined=type.includes('coin');
+ const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),type=String(marketType||'spot').toLowerCase(),derivative=!['spot','margin','cfd'].includes(type),coinMargined=type.includes('coin'),baseAsset=String(symbol||'').split(/[/-]/)[0].toUpperCase();
  const get=async url=>{const r=await fetchImpl(url,{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
  let bookUrl=null,fundingUrl=null;
  if(exchange==='bitget'&&marketType!=='cfd'){
@@ -247,8 +247,9 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
   bookUrl=derivative?'https://api.bitget.com/api/v2/mix/market/merge-depth?productType='+productType+'&symbol='+baseSymbol+'&limit=20':'https://api.bitget.com/api/v2/spot/market/orderbook?symbol='+baseSymbol+'&type=step0&limit=20';
   if(derivative)fundingUrl='https://api.bitget.com/api/v2/mix/market/current-fund-rate?productType='+productType+'&symbol='+baseSymbol;
  }else if(exchange==='binance'){
-  bookUrl=(derivative?(coinMargined?'https://dapi.binance.com/dapi/v1/depth?symbol=':'https://fapi.binance.com/fapi/v1/depth?symbol='):'https://api.binance.com/api/v3/depth?symbol=')+baseSymbol+'&limit=20';
-  if(derivative)fundingUrl=(coinMargined?'https://dapi.binance.com/dapi/v1/premiumIndex?symbol=':'https://fapi.binance.com/fapi/v1/premiumIndex?symbol=')+baseSymbol;
+  const binanceSymbol=coinMargined?baseAsset+'USD_PERP':baseSymbol;
+  bookUrl=(derivative?(coinMargined?'https://dapi.binance.com/dapi/v1/depth?symbol=':'https://fapi.binance.com/fapi/v1/depth?symbol='):'https://api.binance.com/api/v3/depth?symbol=')+(coinMargined?binanceSymbol:baseSymbol)+'&limit=20';
+  if(derivative)fundingUrl=(coinMargined?'https://dapi.binance.com/dapi/v1/premiumIndex?symbol=':'https://fapi.binance.com/fapi/v1/premiumIndex?symbol=')+(coinMargined?binanceSymbol:baseSymbol);
  }else if(exchange==='bybit'){
   const category=derivative?(String(marketType).includes('coin')?'inverse':'linear'):'spot';
   bookUrl='https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+baseSymbol+'&limit=25';
