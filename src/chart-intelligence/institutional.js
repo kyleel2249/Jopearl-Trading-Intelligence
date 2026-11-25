@@ -1,7 +1,7 @@
 // Normalise cross-domain institutional evidence before it reaches the chart decision engine.
 // Only timestamped, source-attributed observations are scored. Missing or stale inputs remain unavailable.
 const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
-const finite = (v) => Number.isFinite(Number(v));
+const finite = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 const signed = (v, scale) => finite(v) ? clamp(Number(v) / scale, -1, 1) : null;
 const round = (v, n = 3) => Number.isFinite(v) ? Number(v.toFixed(n)) : null;
 
