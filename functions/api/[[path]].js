@@ -201,7 +201,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const u='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=5';
   const p=await safeJson(u),rows=Array.isArray(p.data)?p.data:[];
   out.treasury={status:rows.length?'live':'empty',records:rows.slice(0,5).map(x=>({recordDate:x.record_date,securityDescription:x.security_desc||x.security_type_desc||null,averageInterestRate:Number(String(x.avg_interest_rate_amt??x.average_interest_rate??'').replace('%',''))})).filter(x=>Number.isFinite(x.averageInterestRate))};
-  source('U.S. Treasury average interest rates','live','https://fiscaldata.treasury.gov/api-documentation/',{recordDate:rows[0]?.record_date||null});
+  source('U.S. Treasury average interest rates',rows.length?'live':'empty','https://fiscaldata.treasury.gov/api-documentation/',{recordDate:rows[0]?.record_date||null});
  }catch(error){out.treasury.status='offline';source('U.S. Treasury average interest rates','offline','https://fiscaldata.treasury.gov/api-documentation/',{error:String(error?.message||error).slice(0,140)});}
  // ECB reference exchange rates are a daily central-bank observation, not a tick feed.
  try{
@@ -214,7 +214,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   if(ecbFresh&&vals.length>1&&vals.at(-2).value)out.macro.ecbUsdPerEurChangePct=(vals.at(-1).value/vals.at(-2).value-1)*100;
   if(out.macro.riskBias==null&&Number.isFinite(out.macro.ecbUsdPerEurChangePct))out.macro.riskBias=Math.max(-1,Math.min(1,out.macro.ecbUsdPerEurChangePct/.15));
   if(out.macro.status!=='live'&&Number.isFinite(out.macro.riskBias))out.macro.status='live';
-  source('European Central Bank daily reference exchange rates','live','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
+  source('European Central Bank daily reference exchange rates',vals.length?'live':'empty','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
  }catch(error){out.ecb.status='offline';source('European Central Bank daily reference exchange rates','offline','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{error:String(error?.message||error).slice(0,140)});}
  // Public retail crowd sentiment: a broad index, not a measured long/short account ratio.
  try{
