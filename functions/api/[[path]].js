@@ -109,7 +109,7 @@ async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date(
  const dexCacheKey='jpti:dex-context:v1:'+target;
  if(env.JPTI_KV&&/^[A-Z0-9]{2,16}$/.test(target)){try{const hit=await env.JPTI_KV.get(dexCacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* live discovery remains available if KV is down */}}
  if(!/^[A-Z0-9]{2,16}$/.test(target))return{status:'unavailable',reason:'Unsupported market symbol for DEX discovery',generatedAt,pools:[],trades:[],sources:[],flow:{basis:'unavailable'}};
- const result={status:'unavailable',symbol:target,generatedAt,pools:[],trades:[],sources:[],flow:{buyUsd:0,sellUsd:0,buys:0,sells:0,basis:'unavailable'},coverage:{chains:0,pools:0},limitations:[]};
+ const result={status:'unavailable',symbol:target,generatedAt,identityVerified:false,identityStatus:'symbol-match-unverified',pools:[],trades:[],sources:[],flow:{buyUsd:0,sellUsd:0,buys:0,sells:0,basis:'unavailable'},coverage:{chains:0,pools:0},limitations:[]};
  try{
   const response=await fetchImpl('https://api.dexscreener.com/latest/dex/search?q='+encodeURIComponent(target),{headers:{accept:'application/json'}});
   if(!response.ok)throw new Error('DexScreener HTTP '+response.status);
