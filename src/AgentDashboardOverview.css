@@ -8,7 +8,7 @@
 .agent-overview-status{display:inline-flex;align-items:center;gap:6px;padding:6px 8px;border-radius:6px;background:#263447;color:#c3d2e2;font-size:9px;font-weight:800;letter-spacing:.05em}
 .agent-overview-status i{width:6px;height:6px;border-radius:50%;background:#8da1b7}
 .agent-overview-status.ready i{background:#55d6a1}.agent-overview-status.locked i{background:#f0bd67}.agent-overview-status.waiting i{background:#8294aa}
-.agent-overview-kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px}
+.agent-overview-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:9px}
 .agent-overview-kpis article{display:grid;gap:5px;min-width:0;padding:12px;border:1px solid #293e55;border-radius:9px;background:#101f30}
 .agent-overview-kpis svg{width:16px;height:16px;color:#75bdf4}
 .agent-overview-kpis span{font-size:9px;color:#8ea4bd;letter-spacing:.06em}
