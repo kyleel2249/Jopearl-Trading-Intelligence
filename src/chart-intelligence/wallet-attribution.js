@@ -1,5 +1,5 @@
-// Wallet identity is only labelled verified when a cryptographically or registry-verifiable claim exists.
-// A wallet's activity alone never proves that it belongs to an institution.
+// Wallet identity is labelled verified only when a configured claim has explicit proof metadata and a traceable HTTPS source.
+// JPTI validates the registry record shape; an operator must independently verify the source and proof before configuring it.
 const EVM=/^0x[a-fA-F0-9]{40}$/;
 const SOL=/^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
 const norm=(s)=>String(s||"").trim();
