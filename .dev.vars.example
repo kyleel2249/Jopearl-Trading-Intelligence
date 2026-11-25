@@ -18,12 +18,17 @@ JPTI_BITGET_API_PASSPHRASE=
 # Configure this as a Cloudflare Pages secret in production; never commit a real key.
 FRED_API_KEY=
 
-# Optional BIS SDMX JSON endpoint. Supply the exact documented dataset/series URL from BIS.
+# BIS SDMX catalogue discovery and rotating financial-series monitoring are automatic; no key or URL is required.
+# Legacy BIS_LBS_DATA_URL is retained only for compatibility with older local configurations.
 BIS_LBS_DATA_URL=
+
+# Optional Bitquery multi-chain wallet-label enrichment. Provider labels are not cryptographic proof.
+BITQUERY_ACCESS_TOKEN=
 
 # Optional verified wallet registry JSON. Keep this server-side; use evidence-backed records only.
 # Example shape: [{"chain":"ethereum","address":"0x...","claims":[{"type":"official-entity-registry","verified":true,"registryRecordId":"record-id","entityName":"Entity","entityType":"exchange","source":"Official registry","sourceUrl":"https://..."}]}]
 JPTI_VERIFIED_WALLET_REGISTRY=[]
 
-# Optional verified event calendar JSON. Entries are direction-neutral unless an actual/forecast mapping is explicitly provided.
+# Additional verified event calendar JSON. Official FOMC, ECB, BoE, BoJ, EIA and Treasury calendars are fetched automatically.
+# Entries are direction-neutral unless an actual/forecast mapping is explicitly provided.
 JPTI_EVENT_CALENDAR_JSON=[]
