@@ -64,3 +64,22 @@ test('event-impact model ranks imminent high-impact events without inventing dir
   assert.equal(result.events[0].direction,'neutral');
   assert.ok(result.impactScore>=80);
 });
+
+import { analyzeSmtDivergence } from './smt-divergence.js';
+
+test('SMT divergence detects a primary higher high not confirmed by the correlated market',()=>{
+  const primary=[],correlated=[];
+  for(let i=0;i<30;i++){
+    const ts=now-(29-i)*60_000,base=100+i*.1;
+    primary.push([ts,base,base+1,base-1,base+.2,1000]);
+    correlated.push([ts,base,base+1,base-1,base+.2,1000]);
+  }
+  for(const [rows,highs,lows] of [[primary,[112,115],[90,89]],[correlated,[112,111],[90,91]]]){
+    rows[10][2]=highs[0];rows[20][2]=highs[1];rows[15][3]=lows[0];rows[25][3]=lows[1];
+  }
+  const result=analyzeSmtDivergence(primary,correlated,{primarySymbol:'BTC/USDT',correlatedSymbol:'ETH/USDT',swingLen:2,now:now+60_000});
+  assert.equal(result.status,'ready');
+  assert.equal(result.direction,'bearish');
+  assert.equal(result.kind,'high-divergence');
+  assert.ok(result.confidence>=.5);
+});
