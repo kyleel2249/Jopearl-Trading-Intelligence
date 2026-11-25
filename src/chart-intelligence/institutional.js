@@ -37,5 +37,6 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
   const freshness = clamp(1 - ageMs / maxAgeMs, 0, 1);
   const completeness = clamp(usedWeight, 0, 1);
   const confidence = round(clamp(coverage * 0.45 + freshness * 0.25 + completeness * 0.30, 0, 1));
-  return { status: evidence.length ? 'ready' : 'unavailable', score: round(raw), confidence, ageMs, sourceCoverage: round(coverage), evidence, sources: sourceRows, limitations: Array.isArray(context.limitations) ? context.limitations : [], generatedAt: context.generatedAt || null, method: 'Timestamp-gated weighted evidence; missing sources are excluded and remaining weights are renormalised' };
+  const available = evidence.length > 0 && (!knownSources || liveSources > 0);
+  return { status: available ? 'ready' : 'unavailable', score: available ? round(raw) : 0, confidence: available ? confidence : 0, ageMs, sourceCoverage: round(coverage), evidence, sources: sourceRows, limitations: Array.isArray(context.limitations) ? context.limitations : [], generatedAt: context.generatedAt || null, reason: available ? null : 'No live corroborating source is available', method: 'Timestamp-gated weighted evidence; missing sources are excluded and remaining weights are renormalised' };
 }
