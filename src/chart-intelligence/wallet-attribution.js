@@ -60,7 +60,7 @@ export function aggregateAttributedWalletSwapFlows(trades,attributions,{now=Date
   const key=attribution.entity||attribution.entityName||attribution.address;entities.set(key,(entities.get(key)||0)+(t.side==="buy"?amount:-amount));
  }
  const total=buyUsd+sellUsd,netflowUsd=buyUsd-sellUsd,attributedTrades=verifiedTrades+providerAttributedTrades;
- return{status:attributedTrades?"ready":"unavailable",basis:"manual-verified-and-provider-attributed-geckoterminal-swap-sample",buyUsd,sellUsd,netflowUsd,score:total?Number((netflowUsd/total).toFixed(4)):0,verifiedTrades,providerAttributedTrades,attributedTrades,
+ return{status:attributedTrades?"ready":"unavailable",basis:"manual-verified-and-provider-attributed-geckoterminal-swap-sample",buyUsd,sellUsd,netflowUsd,score:total?Number((netflowUsd/total).toFixed(4)):0,verifiedTrades,providerAttributedTrades,attributedTrades,confidence:verifiedTrades?0.95:providerAttributedTrades?0.65:0,
   entities:[...entities].map(([entity,netflowUsd])=>({entity,netflowUsd})).sort((a,b)=>Math.abs(b.netflowUsd)-Math.abs(a.netflowUsd)).slice(0,25),
   coverage:{sampledTrades:rows.length,attributedTrades,verifiedTrades,providerAttributedTrades},caveat:"Manual proof-verified and third-party provider-labelled wallets are reported separately. Only observed swaps from sampled pools are counted; provider labels are not cryptographic proof and no identity is inferred for unknown addresses."};
 }
