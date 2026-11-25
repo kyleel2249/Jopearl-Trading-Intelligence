@@ -30,6 +30,10 @@ The repository retains the legacy Node/Express + CCXT service for desktop packag
 - Smart Money Concepts (SMC) analysis calculated from closed OHLCV candles: three-candle Fair Value Gaps, confirmed swing-high/low liquidity sweeps, close-confirmed BOS/CHoCH structure breaks, and heuristic last-opposing-candle order-block zones.
 - Independent visibility controls for FVG, liquidity sweeps, BOS/CHoCH and order blocks, configurable swing sensitivity (2/3/5/8 bars), chart overlays and an SMC event summary.
 
+**Agent Desk Live (read-only visual desk)**
+
+- Animated workspace (`Agent Desk Live`, also reachable with `OPEN Agent Desk Live` in the Institutional Terminal) that shows the ten shared specialist agents scoring live exchange candles and optional order-book/funding context, next to the real paper-trading fleet ledger (equity, roster, closed-trade recap, event log). It is display-only: no order path exists, and agents without evidence show "no data" instead of a guess. See `docs/AGENT_DESK_LIVE.md`.
+
 **Phase 9 — Institutional terminal and operator experience**
 - Dedicated institutional command terminal with a safe allowlisted command parser (`HELP`, `STATUS`, `REFRESH`, `OPEN`, `SYMBOL`, `WATCH`, `UNWATCH`, `RISK`); no shell, arbitrary code execution or direct order command is exposed.
 - Multi-venue public ticker watchlist across Binance, Bitget, Bybit and OKX, with local non-sensitive watchlist persistence, source/dispersion context and explicit indicative-data caveats.

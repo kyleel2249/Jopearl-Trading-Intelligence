@@ -4,7 +4,7 @@ import { apiFetch } from './lib/api.js';
 import { parseTerminalCommand } from './terminalCommands.js';
 
 const DEFAULT_WATCHLIST = ['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT'];
-const WORKSPACES = ['Overview','Spot & Markets','Futures','AI Intelligence','Market Scanner','Financial & On-chain','Portfolio & Ledger','Risk Management','Trading Bots','Universal Engine','Backtesting Lab','Forecast & Strategy','Walk-Forward Lab','News & Events','Connection Settings'];
+const WORKSPACES = ['Overview','Spot & Markets','Futures','AI Intelligence','Market Scanner','Financial & On-chain','Portfolio & Ledger','Risk Management','Trading Bots','Agent Desk Live','Universal Engine','Backtesting Lab','Forecast & Strategy','Walk-Forward Lab','News & Events','Connection Settings'];
 const fmt = value => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined,{maximumFractionDigits:6});
 function readWatchlist(){try{const value=JSON.parse(localStorage.getItem('jpti.phase9.watchlist')||'null');return Array.isArray(value)?value.filter(x=>typeof x==='string').slice(0,12):DEFAULT_WATCHLIST;}catch{return DEFAULT_WATCHLIST;}}
 function Metric({label,value,detail,icon:Icon,tone='blue'}){return <article className={'p9-metric tone-'+tone}><span className="p9-metric-icon"><Icon size={16}/></span><small>{label}</small><b>{value}</b><em>{detail}</em></article>;}

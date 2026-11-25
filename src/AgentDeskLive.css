@@ -1,0 +1,34 @@
+.adl{display:flex;flex-direction:column;gap:14px}
+.adl-controls{display:flex;flex-wrap:wrap;gap:10px;align-items:flex-end}
+.adl-controls label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--jpti-muted,#8494ad);letter-spacing:.6px}
+.adl-controls input,.adl-controls select{padding:8px 10px;border:1px solid var(--jpti-border,rgba(126,160,196,.16));border-radius:8px;background:rgba(8,15,27,.8);color:var(--jpti-text,#e8edf6);min-width:120px}
+.adl .quote-error:empty{display:none}
+.adl-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px}
+.adl-stats>div{padding:12px;border:1px solid var(--jpti-border,rgba(126,160,196,.16));border-radius:10px;background:rgba(10,18,32,.6)}
+.adl-stats span{display:block;font-size:10px;letter-spacing:1.2px;color:var(--jpti-muted,#8494ad)}
+.adl-stats b{display:block;font-size:20px;margin:3px 0}.adl-stats small{color:var(--jpti-muted,#8494ad)}
+.adl .up,.adl .bull b{color:#35d49a}.adl .down,.adl .bear b{color:#ff6b7a}
+.adl-grid{display:grid;grid-template-columns:minmax(300px,1fr) minmax(280px,1fr);gap:14px}
+@media (max-width:860px){.adl-grid{grid-template-columns:1fr}}
+.adl-orbit{position:relative;aspect-ratio:1/1;max-height:520px;border:1px solid var(--jpti-border,rgba(126,160,196,.16));border-radius:12px;background:radial-gradient(circle at 50% 50%,rgba(83,197,213,.08),transparent 60%),rgba(8,15,27,.7)}
+.adl-orbit svg{position:absolute;inset:0;width:100%;height:100%}
+.adl-orbit .ring{fill:none;stroke:rgba(126,160,196,.18);stroke-dasharray:1 2;vector-effect:non-scaling-stroke}
+.adl-orbit .spoke{stroke:#53c5d5;stroke-width:2;stroke-dasharray:3 3;vector-effect:non-scaling-stroke;animation:adl-flow .8s linear infinite}
+.adl-orbit .core{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:22%;aspect-ratio:1/1;border-radius:50%;border:3px solid #53c5d5;display:grid;place-items:center;text-align:center;font-weight:800;font-size:clamp(9px,1.6vw,13px);letter-spacing:1px;box-shadow:0 0 0 6px rgba(83,197,213,.1)}
+.adl-orbit ul{list-style:none;margin:0;padding:0}
+.adl-orbit .node{position:absolute;transform:translate(-50%,-50%);padding:5px 8px;border:1px solid var(--jpti-border,rgba(126,160,196,.3));border-radius:9px;background:#0d1a2c;font-size:clamp(9px,1.4vw,12px);text-align:center;min-width:78px;transition:transform .25s,box-shadow .25s,border-color .25s}
+.adl-orbit .node b{display:block;text-transform:capitalize}.adl-orbit .node small{color:var(--jpti-muted,#8494ad)}
+.adl-orbit .node.bull{border-color:#35d49a}.adl-orbit .node.bear{border-color:#ff6b7a}.adl-orbit .node.blocked{border-color:#f5b94a}.adl-orbit .node.missing{border-style:dashed;opacity:.7}
+.adl-orbit .node.on{transform:translate(-50%,-50%) scale(1.12);box-shadow:0 0 0 2px #53c5d5,0 0 18px rgba(83,197,213,.55)}
+.adl-charts h4{margin:0 0 6px;font-size:12px;letter-spacing:1px;color:var(--jpti-muted,#8494ad)}
+.adl-canvas{display:block;width:100%;height:210px;margin-bottom:12px;border:1px solid var(--jpti-border,rgba(126,160,196,.16));border-radius:10px;background:rgba(8,15,27,.7)}.adl-canvas.short{height:110px}
+.adl-terminal{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:12px;overflow-x:auto}
+.adl-terminal table{width:100%;border-collapse:collapse;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace}
+.adl-terminal caption{text-align:left;padding:5px 8px;background:#14243a;color:#d7eaff;font-weight:700}
+.adl-terminal th,.adl-terminal td{text-align:left;padding:4px 8px;border-bottom:1px solid rgba(126,160,196,.12);font-weight:400}.adl-terminal thead th{color:var(--jpti-muted,#8494ad)}
+.adl-terminal .bar{display:inline-block;width:46px;height:6px;border-radius:3px;background:rgba(126,160,196,.18);vertical-align:middle}.adl-terminal .bar em{display:block;height:100%;border-radius:3px;background:#53c5d5}
+.adl-tape{list-style:none;margin:0;padding:0;max-height:200px;overflow:auto;font:12px/1.4 ui-monospace,Menlo,Consolas,monospace;background:#05080f;border-radius:8px}
+.adl-tape li{display:flex;gap:10px;padding:4px 10px;border-bottom:1px solid rgba(126,160,196,.1);color:#f5b94a}.adl-tape em{margin-left:auto;font-style:normal}
+.adl-tape .k-target b{color:#35d49a}.adl-tape .k-stop b,.adl-tape .k-block b{color:#ff6b7a}.adl-tape .k-open b{color:#53c5d5}
+@keyframes adl-flow{to{stroke-dashoffset:-12}}
+@media (prefers-reduced-motion:reduce){.adl-orbit .spoke{animation:none}.adl-orbit .node{transition:none}}

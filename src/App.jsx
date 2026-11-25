@@ -27,6 +27,7 @@ const IntelligenceFoundation = lazy(() => import('./IntelligenceFoundation.jsx')
 const AgentGovernance = lazy(() => import('./AgentGovernance.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 const MarketDigitalTwin = lazy(() => import('./MarketDigitalTwin.jsx'));
+const AgentDeskLive = lazy(() => import('./AgentDeskLive.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -91,6 +92,7 @@ const navigation = [
   { label: 'Institutional Governance', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
   { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
+  { label: 'Agent Desk Live', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Shared Intelligence Memory', icon: Database, group: 'INTELLIGENCE' },
   { label: 'Agent Organisation', icon: Network, group: 'INTELLIGENCE' },
@@ -559,6 +561,7 @@ function App() {
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
+    if (page === 'Agent Desk Live') return <AgentDeskLive/>;
     if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
     if (page === 'Agent Governance & Approval Centre') return <AgentGovernance/>;
     if (['Shared Intelligence Memory','Agent Organisation','Strategy Research Laboratory','Independent Risk Command Centre','Trade Intelligence Records'].includes(page)) return <IntelligenceFoundation page={page} symbol={symbol}/>;
