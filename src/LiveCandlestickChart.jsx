@@ -755,6 +755,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span> Sweep {fmt(setup.sweep.price)} → FVG {fmt(setup.fvg.bottom)}–{fmt(setup.fvg.top)} · {setup.fvg.lifecycle}</span>
         <span> Targets {(setup.targets || []).slice(0,3).map(t=>fmt(t.price)).join(' / ') || 'Not mapped'}</span>
         <small>{setup.confirmations.displacement ? 'Displacement ✓' : 'Displacement pending'} · {setup.confirmations.structure ? 'Structure ✓' : 'Structure pending'} · {setup.confirmations.freshFvg ? 'Fresh FVG' : 'Mitigated FVG'}</small>
+        <small>OTE overlap {setup.metrics.oteOverlap ? '✓' : '—'} · Order-block overlap {setup.metrics.orderBlockOverlap ? '✓' : '—'} · {setup.metrics.premiumDiscount}</small>
       </div>)}
       <div className="market-context-evidence">
         <span>Cross-exchange flow: <b>{marketContext?.crossExchangeFlows?.bias || 'unavailable'}</b> · {marketContext?.crossExchangeFlows?.venueCount ?? 0} venues · confidence {marketContext?.crossExchangeFlows?.confidence ?? '—'}</span>
