@@ -94,7 +94,7 @@ The chart's canonical closed-candle engine now consumes independently sourced in
 - **U.S. Treasury:** public Fiscal Data average-interest-rate observations.
 - **European Central Bank:** daily EUR/USD reference exchange-rate observations through the ECB SDMX API.
 - **Federal Reserve releases:** official press-release RSS headlines are surfaced as event context only; headline text is not automatically assigned a bullish/bearish score.
-- **DEX / on-chain swaps:** DexScreener multi-chain pool discovery and 24-hour liquidity/volume/transaction aggregates, with GeckoTerminal confirmed pool-swap samples where the chain is supported.
+- **DEX / on-chain swaps:** DexScreener multi-chain pool discovery and 24-hour liquidity/volume/transaction aggregates, with GeckoTerminal confirmed swap samples from up to two highest-liquidity supported chains per token refresh.
 
 ### Chart integration and controls
 
@@ -108,7 +108,7 @@ The chart's canonical closed-candle engine now consumes independently sourced in
 
 ### Data coverage and limitations
 
-DEX discovery is symbol-based and ranks returned pools by liquidity. It is not a guarantee that every contract with the same ticker is the intended asset. Review the chain, token contract, pool and liquidity before relying on a pool. The current feed samples the highest-liquidity supported pool for confirmed swaps and aggregates the top discovered pools; it does **not** claim to capture every swap on every chain or every historical transaction. The D1 history contains only swaps observed by this JPTI feed after it is deployed.
+DEX discovery is symbol-based and ranks returned pools by liquidity. It is not a guarantee that every contract with the same ticker is the intended asset. Review the chain, token contract, pool and liquidity before relying on a pool. The current feed samples up to two highest-liquidity supported chains for confirmed swaps and aggregates the top discovered pools; it does **not** claim to capture every swap on every chain or every historical transaction. The D1 history contains only swaps observed by this JPTI feed after it is deployed.
 
 CFTC positioning is weekly and delayed. Treasury, ECB and FRED series follow their own release calendars. These feeds provide context, not tick-level bank order flow. Private bank/prime-broker client flows, proprietary dealer inventory, paid institutional datasets, wallet watchlists and provider-authenticated full-chain transfer streams still require licensed access, provider credentials and/or explicitly configured wallet addresses. Missing feeds are marked unavailable and are not fabricated.
 
