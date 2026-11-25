@@ -163,7 +163,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const gainzAlpha = useMemo(() => analyzeGainzAlphaInspired(candles.slice(0, -1), { symbol, timeframe, historicalOutcomes: sessionMemory, now: sessionClock }), [candles, symbol, timeframe, sessionMemory, sessionClock]);
   const [gaOverlaysMounted, setGaOverlaysMounted] = useState(false);
   const ga = useGainzAlpha({ exchange, symbol, timeframe, candles });
-  const ci = useChartIntelligence({ exchange, symbol, timeframe, marketType, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, clock: sessionClock });
+  const ci = useChartIntelligence({ exchange, symbol, timeframe, marketType, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, crossExchangeFlows: marketContext?.crossExchangeFlows || null, bisFlows: marketContext?.bisFlows || null, walletAttributionContext: marketContext?.walletAttribution || null, eventImpact: marketContext?.eventImpact || null, clock: sessionClock });
   const ciReady = Boolean(ci.settings.enabled && ci.result && ci.result.status === 'ready');
   const [ciOverlaysMounted, setCiOverlaysMounted] = useState(false);
   const [compactChart, setCompactChart] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 600px)').matches : false));
@@ -741,6 +741,31 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <p>{ci.result.entryAssessment.trigger}</p><ul>{(ci.result.entryAssessment.reasons || []).map((reason,i)=><li key={i}>{reason}</li>)}</ul>
         <small>Invalidation: {ci.result.entryAssessment.invalidation == null ? 'Not established' : fmt(ci.result.entryAssessment.invalidation)} · {ci.result.entryAssessment.gradeNote}</small>
       </> : <p>Waiting for sufficient closed-candle structure and market evidence.</p>}
+    </div>
+    <div className="market-context-panel fvg-liquidity-panel">
+      <div className="market-context-heading"><b>FVG + LIQUIDITY CONFLUENCE ENGINE</b><span>{ci.result?.fvgLiquidity?.status === 'ready' ? 'CLOSED-CANDLE ANALYSIS' : 'AWAITING DATA'}</span></div>
+      <div className="market-context-summary">
+        <strong>{ci.result?.fvgLiquidity?.summary?.correlatedSetupCount ?? 0} linked setups</strong>
+        <span>High quality {ci.result?.fvgLiquidity?.summary?.highQualityCount ?? 0}</span>
+        <span>Liquidity clusters {ci.result?.fvgLiquidity?.clusters?.length ?? 0}</span>
+        <span>Confluence {ci.result?.confluence?.components?.find(x=>x.key==='fvgLiquidity')?.contribution ?? '—'}</span>
+      </div>
+      {(ci.result?.fvgLiquidity?.setups || []).slice(0,5).map(setup => <div className="market-context-evidence" key={setup.id}>
+        <b>{setup.direction.toUpperCase()} · {setup.score}/100 · {setup.state.replaceAll('-',' ')}</b>
+        <span> Sweep {fmt(setup.sweep.price)} → FVG {fmt(setup.fvg.bottom)}–{fmt(setup.fvg.top)} · {setup.fvg.lifecycle}</span>
+        <span> Targets {(setup.targets || []).slice(0,3).map(t=>fmt(t.price)).join(' / ') || 'Not mapped'}</span>
+        <small>{setup.confirmations.displacement ? 'Displacement ✓' : 'Displacement pending'} · {setup.confirmations.structure ? 'Structure ✓' : 'Structure pending'} · {setup.confirmations.freshFvg ? 'Fresh FVG' : 'Mitigated FVG'}</small>
+      </div>)}
+      <div className="market-context-evidence">
+        <span>Cross-exchange flow: <b>{marketContext?.crossExchangeFlows?.bias || 'unavailable'}</b> · {marketContext?.crossExchangeFlows?.venueCount ?? 0} venues · confidence {marketContext?.crossExchangeFlows?.confidence ?? '—'}</span>
+        <span>Verified wallet swaps: <b>{marketContext?.walletAttribution?.flows?.verifiedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
+        <span>BIS banking data: <b>{marketContext?.bisFlows?.status || 'not configured'}</b> · {marketContext?.bisFlows?.latest?.period || 'no observation'}</span>
+        <span>Event impact: <b>{marketContext?.eventImpact?.risk || 'unavailable'}</b> · score {marketContext?.eventImpact?.impactScore ?? '—'}/100</span>
+      </div>
+      {(marketContext?.eventImpact?.events || []).slice(0,3).map(event=><div className="market-context-evidence" key={event.id}>
+        <span>{event.title}</span><small>{event.importance} · {event.minutesFromNow} min · {event.impactScore}/100 · Direction neutral</small>
+      </div>)}
+      <p>FVG + Liquidity scores rank linked sweep, displacement, structure and imbalance evidence. Cross-exchange data is public order-book/funding proxy; wallet attribution is shown only for explicitly verified addresses. BIS observations are macro context, not tick-level flows.</p>
     </div>
     <div className="smc-event-strip">
       <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
