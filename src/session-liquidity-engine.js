@@ -214,7 +214,7 @@ const percentileValue = (values,p) => { const a=values.filter(Number.isFinite).s
  * Historical session ranges are measured from timestamped candles; projected levels are estimates, never guaranteed highs/lows.
  */
 export function predictSessionHighLow(candleInput=[],{now=Date.now(),timeframe='1h',chainDex=null,maxHistory=20}={}){
- const candles=normalizeCandles(candleInput),tfMs=timeframeToMs(timeframe);
+ const candles=normalizeCandles(candleInput);
  if(candles.length<24)return{status:'insufficient',generatedAt:new Date(now).toISOString(),sessions:[],reason:'At least 24 valid candles are required for session forecasts'};
  const grouped=new Map();
  for(const row of candles){for(const session of TRADING_SESSIONS){const local=zonedParts(row[0],session.timezone);const [oh,om]=session.open.split(':').map(Number),[ch,cm]=session.close.split(':').map(Number);if(local.minute<oh*60+om||local.minute>=ch*60+cm)continue;const key=session.id+'|'+local.date;let b=grouped.get(key);if(!b){b={sessionId:session.id,date:local.date,open:row[1],high:row[2],low:row[3],close:row[4],volume:0,candles:0};grouped.set(key,b);}b.high=Math.max(b.high,row[2]);b.low=Math.min(b.low,row[3]);b.close=row[4];b.volume+=row[5];b.candles++;}}
