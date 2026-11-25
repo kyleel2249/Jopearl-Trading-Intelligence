@@ -183,7 +183,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly futures positioning cohorts','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
  }else{out.cftc.status='unsupported';source('CFTC weekly futures positioning cohorts','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
  // FRED: Treasury yields, broad dollar and policy rate. A user-provided key remains server-side only.
- const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR'];
+ const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR','WCESTUS1','WGTSTUS1','WDISTUS1'];
  if(env.FRED_API_KEY){
   const observations=await Promise.all(fredSeries.map(async id=>{try{const u='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+encodeURIComponent(env.FRED_API_KEY)+'&file_type=json&sort_order=desc&limit=5';const p=await safeJson(u);const rows=(p.observations||[]).filter(x=>x.value!=='.'&&Number.isFinite(Number(x.value)));return[id,{status:'live',latest:rows[0]?{date:rows[0].date,value:Number(rows[0].value)}:null,previous:rows[1]?{date:rows[1].date,value:Number(rows[1].value)}:null}];}catch(error){return[id,{status:'offline',error:String(error?.message||error).slice(0,140)}];}}));
   out.macro.fred=Object.fromEntries(observations);
@@ -195,6 +195,10 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const pctMove=id=>{const x=out.macro.fred[id];return freshObservation(x)&&x.previous?.value?((x.latest.value/x.previous.value)-1)*100:null;};
   for(const id of ['WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR']){const move=pctMove(id);if(Number.isFinite(move))risk.push(Math.max(-1,Math.min(1,move/.2)));}
   out.macro.riskBias=risk.length?Number((risk.reduce((a,b)=>a+b,0)/risk.length).toFixed(3)):null;
+  const inventoryIds=['WCESTUS1','WGTSTUS1','WDISTUS1'];
+  out.macro.commodityInventories=Object.fromEntries(inventoryIds.map(id=>{const x=out.macro.fred[id],move=freshObservation(x)&&x.previous?.value!=null?Number((x.latest.value-x.previous.value).toFixed(2)):null;return[id,{latest:x?.latest||null,previous:x?.previous||null,weeklyChange:move}];}));
+  const crudeInventory=out.macro.commodityInventories.WCESTUS1;
+  out.macro.commodityRiskBias=Number.isFinite(crudeInventory.weeklyChange)&&crudeInventory.previous?.value?Math.max(-1,Math.min(1,-(crudeInventory.weeklyChange/crudeInventory.previous.value*100)/1)):null;
   out.macro.status=risk.length?'live':'partial';
   source('Federal Reserve FRED observations',observations.some(x=>x[1].status==='live')?'live':'offline','https://fred.stlouisfed.org/docs/api/fred/series_observations.html',{series:fredSeries});
  }else{out.macro.fredStatus='not-configured';source('Federal Reserve FRED observations','not-configured','https://fred.stlouisfed.org/docs/api/fred/series_observations.html');out.limitations.push('FRED policy rates, Treasury yields and bank-balance-sheet series require the server-side FRED_API_KEY secret.');}
@@ -234,6 +238,19 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   out.news=items;source('Federal Reserve official press releases','live',url);
  }catch(error){source('Federal Reserve official press releases','offline','https://www.federalreserve.gov/feeds/press_all.xml',{error:String(error?.message||error).slice(0,140)});}
  out.status=out.sources.some(x=>x.status==='live')?'partial':'unavailable';
+ // GDELT DOC 2.0 adds a broad, public geopolitical and financial-news layer. Headlines are event-risk context, never a directional signal.
+ try{
+  const query='(bitcoin OR cryptocurrency OR financial markets OR banking) AND (war OR sanctions OR conflict OR tariff OR central bank OR inflation OR interest rate OR bank failure OR regulation)';
+  const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(query)+'&mode=ArtList&format=json&maxrecords=20&timespan=24h&sort=DateDesc';
+  const p=await safeJson(url),rows=Array.isArray(p.articles)?p.articles:[];
+  const parseSeen=value=>{const raw=String(value||''),m=raw.match(/^(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})(\\d{2})Z$/);return m?m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'Z':raw;};
+  const articles=rows.map(x=>({title:String(x.title||'').slice(0,260),url:x.url||null,domain:x.domain||null,sourceCountry:x.sourcecountry||null,tone:Number.isFinite(Number(x.tone))?Number(x.tone):null,publishedAt:parseSeen(x.seendate),source:'GDELT'})).filter(x=>x.title&&x.url);
+  const riskTerms=/(war|invasion|missile|attack|sanction|tariff|emergency|default|bank failure|capital control|fomc|rate decision|inflation shock|exchange halt|cyberattack)/i;
+  const highImpact=articles.filter(x=>riskTerms.test(x.title)&&Number.isFinite(Date.parse(x.publishedAt))&&Date.parse(generatedAt)-Date.parse(x.publishedAt)>=-60000&&Date.parse(generatedAt)-Date.parse(x.publishedAt)<=6*3600000);
+  out.geopoliticalNews=articles.slice(0,12);out.news=[...(out.news||[]),...out.geopoliticalNews].slice(0,20);
+  out.eventRisk={status:'live',active:highImpact.length>0,severity:highImpact.some(x=>/(war|invasion|missile|attack|emergency|default|bank failure|cyberattack)/i.test(x.title))?2:highImpact.length?1:0,count:highImpact.length,headlines:highImpact.slice(0,5).map(x=>({title:x.title,url:x.url,publishedAt:x.publishedAt,source:x.source}))};
+  source('GDELT geopolitical and financial news','live',url,{articles:articles.length,eventRiskCount:highImpact.length});
+ }catch(error){out.eventRisk={status:'offline',active:false,severity:0,count:0,headlines:[]};source('GDELT geopolitical and financial news','offline','https://api.gdeltproject.org/api/v2/doc/doc',{error:String(error?.message||error).slice(0,140)});}
  out.limitations.push('CFTC positioning is weekly and lagged; it represents reported futures positions, not live bank orders or spot-wallet flows.');
  out.limitations.push('Treasury, ECB and FRED observations are macro context with their own publication schedules, not intraday trade triggers.');
  out.limitations.push('Private bank, prime-broker, dealer client-flow and paid institutional datasets are not connected without licensed provider access.');
