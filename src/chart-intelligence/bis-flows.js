@@ -15,7 +15,8 @@ export function parseBisDataflows(payload){
   for(const[k,v]of Object.entries(node))if(["dataflow","dataflows","Dataflow","Dataflows","structures","structure"].includes(k))visit(v);
  };
  visit(payload);const seen=new Set();
- return candidates.map(x=>{const id=String(x.id),agency=String(x.agencyID||x.agency||"BIS"),version=String(x.version||"latest"),name=Array.isArray(x.name)?(x.name.find(n=>n.lang==="en")?.["#text"]||x.name[0]?.["#text"]||id):typeof x.name==="string"?x.name:Array.isArray(x.names)?(x.names[0]?.value||x.names[0]?.name||id):id,description=Array.isArray(x.description)?(x.description.find(n=>n.lang==="en")?.["#text"]||x.description[0]?.["#text"]||""):String(x.description||"");return{id,agency,version,name:String(name),description:String(description),flowRef:id.includes(",")?id:[agency,id,version].join(","),url:"https://stats.bis.org/api/v1/dataflow/"+encodeURIComponent([agency,id,version].join(","))};})
+ const localized=v=>{if(Array.isArray(v)){const item=v.find(n=>n.lang==="en")||v[0]||{};return item.text||item["#text"]||item.value||item.name||"";}if(v&&typeof v==="object")return v.text||v["#text"]||v.value||"";return String(v||"");};
+ return candidates.map(x=>{const id=String(x.id),agency=String(x.agencyID||x.agency||"BIS"),version=String(x.version||"latest"),name=localized(x.name)||localized(x.names)||id,description=localized(x.description);return{id,agency,version,name:String(name),description:String(description),flowRef:id.includes(",")?id:[agency,id,version].join(","),url:"https://stats.bis.org/api/v1/dataflow/"+encodeURIComponent([agency,id,version].join(","))};})
  .filter(x=>{const k=x.agency+":"+x.id+":"+x.version;if(seen.has(k))return false;seen.add(k);return true;})
  .map(x=>({...x,relevance:FINANCE_TERMS.test(x.id+" "+x.name+" "+x.description)?"financial-context":"general-statistics"}))
  .sort((a,b)=>(a.relevance==="financial-context"?0:1)-(b.relevance==="financial-context"?0:1)||a.id.localeCompare(b.id));
