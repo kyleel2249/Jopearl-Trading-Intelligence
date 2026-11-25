@@ -148,6 +148,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const sessionAnalytics = useMemo(() => analyzeSessionCandles(candles, sessionClock), [candles, sessionClock]);
   const sessionForecast = useMemo(() => sessionForecastAdjustment(candles, {symbol, timeframe, now:sessionClock}), [candles, symbol, timeframe, sessionClock]);
   const sessionForecastBands = useMemo(() => predictSessionHighLow(candles.slice(0, -1), { symbol, timeframe, now: sessionClock, chainDex: marketContext?.chainDex || null }), [candles, symbol, timeframe, sessionClock, marketContext?.chainDex]);
+  const chainDexTrades = useMemo(() => marketContext?.chainDex?.trades?.length ? marketContext.chainDex.trades : (marketContext?.chainDex?.history?.transactions || []), [marketContext?.chainDex]);
   const sessionSweeps = useMemo(() => detectSessionLiquiditySweeps(candles, {now:sessionClock}), [candles, sessionClock]);
   const sessionRisk = useMemo(() => sessionRiskAssessment(candles, {now:sessionClock, baseRiskPercent:1}), [candles, sessionClock]);
   const sessionComparison = useMemo(() => sessionPerformanceComparison(candles, {now:sessionClock}), [candles, sessionClock]);
@@ -741,8 +742,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   </section>;
 }
  + Number(pool.volume24hUsd || 0).toLocaleString()}</span>{pool.pairUrl && <a href={pool.pairUrl} target="_blank" rel="noreferrer">Pool details</a>}</div>)}</div>
-        <div className="chain-dex-transactions"><b>Recent confirmed swaps ({marketContext.chainDex.trades?.length || 0})</b>
-          {(marketContext.chainDex.trades || []).slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · {'
+        <div className="chain-dex-transactions"><b>Recent confirmed swaps / persisted history ({chainDexTrades.length})</b>
+          {chainDexTrades.slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · {'
       <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
       <div><small>Liquidity sweeps</small><strong>{smartMoney.liquiditySweeps.length}</strong></div>
       <div><small>BOS / CHoCH</small><strong>{smartMoney.structureBreaks.length}</strong></div>
