@@ -25,16 +25,16 @@ function sdmxJsonRows(payload){
   }
   return rows;
 }
-export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=45*24*60*60*1000}={}){
+export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=null}={}){
   const raw=Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.observations)?payload.observations:sdmxJsonRows(payload);
   const observations=raw.map(x=>({period:String(x.period||x.TIME_PERIOD||x.time||""),value:Number(x.value??x.OBS_VALUE),unit:x.unit||x.UNIT_MEASURE||null,
     reporter:x.reporter||x.REF_AREA||null,counterparty:x.counterparty||x.COUNTERPART_AREA||null,measure:x.measure||x.MEASURE||null}))
     .filter(x=>x.period&&Number.isFinite(x.value)).sort((a,b)=>a.period.localeCompare(b.period));
   const latest=observations.at(-1)||null,previous=observations.at(-2)||null;
-  const periodTs=latest?periodTimestamp(latest.period):null,ageMs=periodTs==null?null:Math.max(0,now-periodTs);
+  const periodTs=latest?periodTimestamp(latest.period):null,ageMs=periodTs==null?null:Math.max(0,now-periodTs),periodLimit=maxAgeMs??(/^\\d{4}-Q[1-4]$/i.test(latest?.period||"")?240: /^\\d{4}-\\d{2}$/.test(latest?.period||"")?75: /^\\d{4}$/.test(latest?.period||"")?550:14)*24*60*60*1000;
   return{status:latest?"ready":"unavailable",source:"Bank for International Settlements SDMX",dataset:payload?.dataset||payload?.structure?.name||null,
     observationCount:observations.length,latest,previous,change:latest&&previous?latest.value-previous.value:null,
-    freshness:ageMs==null?"unknown":ageMs>maxAgeMs?"stale":"fresh",ageMs,observations:observations.slice(-120),
+    freshness:ageMs==null?"unknown":ageMs>periodLimit?"stale":"fresh",ageMs,observations:observations.slice(-120),
     methodology:"BIS cross-border banking observations are low-frequency, revised macro-financial context; they are not real-time exchange order flow."};
 }
 export async function fetchBisFlows({url,fetchImpl=fetch,now=Date.now(),maxAgeMs,env={}}={}){
