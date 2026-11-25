@@ -31,11 +31,6 @@ function clusterLiquidity(pools, price, atr, toleranceAtr=.18){
   });
 }
 
-function getDisplacement(items,sweep,windowBars){
-  return (items||[]).filter(x=>x.kind==="DISPLACEMENT"&&x.direction===sweep.direction&&x.ts>=sweep.ts&&x.ts<=sweep.ts+windowBars*windowBars._tf)
-    .sort((a,b)=>a.ts-b.ts)[0]||null;
-}
-
 function liquidityTargets(clusters, direction, entry, atr){
   const side=direction==="bullish"?"high":"low", sign=dirSign(direction);
   return clusters.filter(x=>x.side===side&&(x.price-entry)*sign>0)
@@ -44,7 +39,6 @@ function liquidityTargets(clusters, direction, entry, atr){
       distanceAtr:round(Math.abs(x.price-entry)/atr,3),id:x.id}));
 }
 
-function overlap(a,b){return !!a&&!!b&&Math.max(a.bottom,b.bottom)<=Math.min(a.top,b.top);}
 function classifyLifecycle(fvg){
   if(fvg.status==="filled"||Number(fvg.fillPct)>=100)return "fully-mitigated";
   if(Number(fvg.fillPct)>0||fvg.status==="mitigated")return "partially-mitigated";
