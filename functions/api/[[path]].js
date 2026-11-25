@@ -894,7 +894,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       return new Response(null, { status: 204, headers });
     }
-    const publicIntelPath = url.pathname.replace(/\\/+$/, '');
+    const publicIntelPath = url.pathname.replace(/\/+$/, '');
     if (publicIntelPath === '/api/bis/monitor') {
       if (request.method !== 'GET') return json(405, { error: 'BIS monitoring supports GET only.' }, request, { allow: 'GET, OPTIONS' });
       const rawCursor = url.searchParams.get('cursor');
