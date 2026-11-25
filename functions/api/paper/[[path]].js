@@ -92,7 +92,7 @@ async function saveAgent(db,agentId,metrics,kpi,tier){
 export async function runCycle(db,symbol){
  await ensureAgents(db);
  const market=await marketSnapshot(symbol);
- const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
+ const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
  let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
@@ -144,7 +144,7 @@ export async function runCycle(db,symbol){
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
     try{
-     const outcome={exitReason:reason,exitPrice:settled.exitPrice,grossPnlUsd:settled.grossPnlUsd,netPnlUsd:settled.netPnlUsd,rMultiple:settled.rMultiple,closedAt:payload.closedAt};
+     const outcome={exitReason:reason,exitPrice:settled.exitPrice,grossPnlUsd:settled.grossPnlUsd,netPnlUsd:settled.netPnlUsd,rMultiple:settled.rMultiple,partialExits:settled.partialExits||[],closedAt:payload.closedAt};
      await db.prepare("UPDATE jpti_trade_intelligence SET status='closed',closed_at=?,execution_json=?,outcome_json=?,updated_at=? WHERE trade_id=?").bind(payload.closedAt,JSON.stringify({exitFeeUsd:settled.exitFeeUsd,source:'simulated-last-price'}),JSON.stringify(outcome),payload.closedAt,open.trade_id).run();
      await db.prepare('INSERT INTO jpti_intelligence_memory(memory_id,scope,memory_type,title,content,source,evidence_status,confidence,importance,tags_json,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
       .bind(crypto.randomUUID(),'global','paper-trade-lesson','Paper trade closed: '+market.symbol,JSON.stringify({tradeId:open.trade_id,agentId:agent.id,symbol:market.symbol,direction:open.direction,outcome}),'JPTI paper trade '+open.trade_id,'verified',.65,.75,JSON.stringify(['paper-trade','trade-outcome',market.symbol]),JSON.stringify({regime:open.regime}),payload.closedAt,payload.closedAt).run();
