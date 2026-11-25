@@ -19,6 +19,10 @@ assert.equal(offline.status, 'unavailable', 'named sources that are all offline 
 const sparse = scoreInstitutionalContext({ generatedAt: new Date(now).toISOString(), score: { score: -35 }, sources: [] }, { now });
 assert.equal(sparse.status, 'ready');
 assert.ok(sparse.score < 0);
+const broad = scoreInstitutionalContext({ ...fresh, institutionalSources: { cftc: { status: 'live', netBias: 0.7 }, macro: { status: 'live', riskBias: -0.4 }, retailSentiment: { status: 'live', riskBias: 0.5 } } }, { now });
+assert.ok(broad.evidence.some((x) => x.factor === 'cftc-managed-money-positioning'));
+assert.ok(broad.evidence.some((x) => x.factor === 'government-and-central-bank-macro-risk'));
+assert.ok(broad.evidence.some((x) => x.factor === 'retail-risk-sentiment'));
 assert.ok(!sparse.evidence.some((x) => x.factor === 'order-book-pressure'), 'missing order-book data must not be treated as neutral evidence');
 const base = { price: 100, atr: 2, smc: { items: [], trend: 0, dealingRange: null }, levels: [], sr: [], flow: { status: 'unavailable', items: [] }, liq: { status: 'unavailable', clusters: [] }, mtf: [], regimeCfg: { weights: {} } };
 const withInstitutional = scoreComponents({ ...base, institutional: result });
