@@ -41,3 +41,8 @@ CREATE TRIGGER IF NOT EXISTS jpti_agent_behavior_no_delete BEFORE DELETE ON jpti
 CREATE TRIGGER IF NOT EXISTS jpti_governance_simulations_no_update BEFORE UPDATE ON jpti_governance_simulations BEGIN SELECT RAISE(ABORT,'simulation records are append-only'); END;
 CREATE TRIGGER IF NOT EXISTS jpti_governance_simulations_no_delete BEFORE DELETE ON jpti_governance_simulations BEGIN SELECT RAISE(ABORT,'simulation records are append-only'); END;
 INSERT OR IGNORE INTO jpti_schema_migrations(version) VALUES ('0012_autonomous_governance_3');
+
+CREATE TRIGGER IF NOT EXISTS jpti_governance_policy_version_immutable
+BEFORE UPDATE ON jpti_governance_policies
+WHEN NEW.policy_name<>OLD.policy_name OR NEW.policy_version<>OLD.policy_version OR NEW.rules_json<>OLD.rules_json OR NEW.created_by<>OLD.created_by OR NEW.created_at<>OLD.created_at
+BEGIN SELECT RAISE(ABORT,'governance policy versions are immutable'); END;
