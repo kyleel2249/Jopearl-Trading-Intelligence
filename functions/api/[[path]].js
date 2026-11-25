@@ -17,6 +17,7 @@ import { aggregateCrossExchangeFlows } from '../../src/chart-intelligence/cross-
 import { fetchBisFlows } from '../../src/chart-intelligence/bis-flows.js';
 import { predictEventImpact } from '../../src/chart-intelligence/event-impact.js';
 import { assessWalletAttribution, aggregateAttributedWalletSwapFlows } from '../../src/chart-intelligence/wallet-attribution.js';
+import { analyzeSmtDivergence } from '../../src/chart-intelligence/smt-divergence.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -336,6 +337,21 @@ async function fetchCrossExchangeTradeFlow(exchange,symbol,fetchImpl=fetch,env={
  }catch(error){out.status='offline';out.reason=String(error?.message||error).slice(0,160);}
  if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
  return out;
+}
+
+async function fetchSmtContext(exchange,symbol,timeframe,marketType,primaryCandles,marketProvider,env,request,generatedAt){
+ if(marketType==='cfd')return{status:'unsupported',bias:0,confidence:0,reason:'CFD correlation mapping is not configured.'};
+ const base=String(symbol||'').split(/[/-]/)[0].toUpperCase(),correlated=base==='BTC'?'ETH/USDT':'BTC/USDT';
+ const key='jpti:smt:v1:'+exchange+':'+symbol+':'+correlated+':'+timeframe+':'+marketType;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* query fresh candles */}}
+ try{
+  const result=await marketProvider.request('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(correlated)+'?timeframe='+encodeURIComponent(timeframe)+'&limit=200&type='+encodeURIComponent(marketType),{method:'GET',signal:request.signal});
+  if(!result||result.status!==200)throw new Error('Correlated market candles unavailable');
+  const other=result.body?.candles||[];
+  const smt=analyzeSmtDivergence((primaryCandles||[]).slice(0,-1),other.slice(0,-1),{primarySymbol:symbol,correlatedSymbol:correlated,now:Date.parse(generatedAt)});
+  if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:smt}),{expirationTtl:60});}catch{/* optional cache */}}
+  return smt;
+ }catch(error){return{status:'offline',bias:0,confidence:0,primarySymbol:symbol,correlatedSymbol:correlated,reason:String(error?.message||error).slice(0,160)};}
 }
 
 async function fetchGlobalMarketContext(fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
@@ -1119,14 +1135,16 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const generatedAt = now().toISOString();
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
       if (context.status === 200) {
-        const [microstructure, globalContext, multiTimeframe] = await Promise.all([
+        const [microstructure, globalContext, multiTimeframe, smtDivergence] = await Promise.all([
           fetchExchangeMicrostructure(exchange, symbol, contextType, fetchImpl, env, generatedAt),
           fetchGlobalMarketContext(fetchImpl, env, generatedAt),
-          fetchMultiTimeframeContext(exchange, symbol, timeframe, contextType, instrumentId, marketProvider, bitgetCfdProvider, env, request, generatedAt)
+          fetchMultiTimeframeContext(exchange, symbol, timeframe, contextType, instrumentId, marketProvider, bitgetCfdProvider, env, request, generatedAt),
+          fetchSmtContext(exchange, symbol, timeframe, contextType, candlesResult.body?.candles || [], marketProvider, env, request, generatedAt)
         ]);
         context.body.market = { ...context.body.market, orderBookImbalancePct: microstructure.orderBookImbalancePct, fundingRate: microstructure.fundingRate };
         context.body.broadContext = { ...globalContext };
         context.body.multiTimeframe = [...(context.body.multiTimeframe || []), ...(multiTimeframe.timeframes || [])];
+        context.body.smtDivergence = smtDivergence;
         context.body.sources = (context.body.sources || []).filter(x => !['Order book depth','Perpetual funding','Global market context'].includes(x.name));
         context.body.sources = [...context.body.sources, ...(microstructure.sources || []), ...(globalContext.sources || []), ...(multiTimeframe.sources || [])];
         const [chainDex, institutionalSources, bisFlows, venueMicrostructure] = await Promise.all([
