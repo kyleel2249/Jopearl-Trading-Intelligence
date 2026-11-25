@@ -6,7 +6,7 @@ export function predictEventImpact({events=[],now=Date.now(),horizonMinutes=240,
   const relevant=(events||[]).filter(e=>e&&Number.isFinite(Date.parse(e.time||e.scheduledAt||e.publishedAt)))
     .map(e=>{const ts=Date.parse(e.time||e.scheduledAt||e.publishedAt),delta=ts-now,importance=String(e.importance||e.impact||"medium").toLowerCase();
       const base=importanceWeight[importance]??.45,proximity=delta<0?Math.max(0,1-Math.abs(delta)/horizonMs):Math.max(0,1-delta/horizonMs);
-      const surprise=Number.isFinite(Number(e.actual))&&Number.isFinite(Number(e.forecast))?Number(e.actual)-Number(e.forecast):null;
+      const surprise=e.actual!=null&&e.forecast!=null&&Number.isFinite(Number(e.actual))&&Number.isFinite(Number(e.forecast))?Number(e.actual)-Number(e.forecast):null;
       const surpriseMagnitude=surprise==null?0:Math.min(1,Math.abs(surprise)/(Math.abs(Number(e.forecast)||1)*.1+1));
       const score=clamp(100*base*(.35+.65*proximity)*(1+.2*surpriseMagnitude));
       return{id:e.id||[e.source||"event",ts,e.title||e.name||"event"].join("|"),title:e.title||e.name||"Unnamed event",category:e.category||"macro",
