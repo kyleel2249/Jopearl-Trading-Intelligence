@@ -12,6 +12,7 @@ import { summarizeAgentPerformance } from '../../src/agent-performance-engine.js
 import { evaluateResearchCouncil } from '../../src/research-council-engine.js';
 import { handleOrganizationApi } from '../organization-intelligence.js';
 import { handleIntelligenceFoundationApi } from '../intelligence-foundation.js';
+import { normaliseDexTrade } from '../../src/chart-intelligence/chain-dex.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -98,6 +99,51 @@ async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
   } catch {
     // Stale cache is best-effort; D1 remains the durable source.
   }
+}
+
+const DEX_NETWORK_MAP={ethereum:'eth',eth:'eth',bsc:'bsc',polygon:'polygon_pos',polygon_pos:'polygon_pos',arbitrum:'arbitrum',optimism:'optimism',base:'base',solana:'solana',avalanche:'avax',avax:'avax',fantom:'ftm',ftm:'ftm',cronos:'cro',linea:'linea',zksync:'zksync',sui:'sui',ton:'ton'};
+const DEX_TOKEN_ALIASES={BTC:['BTC','WBTC'],ETH:['ETH','WETH'],BNB:['BNB','WBNB'],AVAX:['AVAX','WAVAX'],MATIC:['MATIC','WMATIC','POL'],SOL:['SOL'],DOGE:['DOGE'],XRP:['XRP'],LINK:['LINK'],UNI:['UNI'],AAVE:['AAVE'],ARB:['ARB'],OP:['OP']};
+const STABLE_QUOTES=new Set(['USDT','USDC','DAI','FDUSD','USDE','BUSD','USD']);
+async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date().toISOString()){
+ const target=String(symbol||'').split(/[/-]/)[0].toUpperCase(),aliases=new Set(DEX_TOKEN_ALIASES[target]||[target]);
+ if(!/^[A-Z0-9]{2,16}$/.test(target))return{status:'unavailable',reason:'Unsupported market symbol for DEX discovery',generatedAt,pools:[],trades:[],sources:[],flow:{basis:'unavailable'}};
+ const result={status:'unavailable',symbol:target,generatedAt,pools:[],trades:[],sources:[],flow:{buyUsd:0,sellUsd:0,buys:0,sells:0,basis:'unavailable'},coverage:{chains:0,pools:0},limitations:[]};
+ try{
+  const response=await fetchImpl('https://api.dexscreener.com/latest/dex/search?q='+encodeURIComponent(target),{headers:{accept:'application/json'}});
+  if(!response.ok)throw new Error('DexScreener HTTP '+response.status);
+  const payload=await response.json(),all=Array.isArray(payload.pairs)?payload.pairs:[];
+  const matches=all.filter(p=>{const bs=String(p.baseToken?.symbol||'').toUpperCase(),qs=String(p.quoteToken?.symbol||'').toUpperCase();return aliases.has(bs)||aliases.has(qs);});
+  const ranked=matches.map(p=>{const baseIsTarget=aliases.has(String(p.baseToken?.symbol||'').toUpperCase()),quote=String(p.quoteToken?.symbol||'').toUpperCase(),liq=Number(p.liquidity?.usd||0),vol=Number(p.volume?.h24||0);return{p,baseIsTarget,liq,vol,rank:liq*(STABLE_QUOTES.has(quote)?1.35:1)*(baseIsTarget?1.05:0.95)};}).filter(x=>x.liq>0).sort((a,b)=>b.rank-a.rank);
+  const selected=ranked.slice(0,5);
+  if(!selected.length){result.limitations.push('No exact token-symbol match with measurable DEX pool liquidity was returned.');result.sources.push({name:'DexScreener pair discovery',status:'live',retrievedAt:generatedAt});return result;}
+  result.status='ready';result.coverage={chains:new Set(selected.map(x=>x.p.chainId)).size,pools:selected.length};
+  let estBuy=0,estSell=0,buyCount=0,sellCount=0;
+  result.pools=selected.map(({p,baseIsTarget})=>{const tx=p.txns?.h24||{},buys=Number(tx.buys||0),sells=Number(tx.sells||0),volume=Number(p.volume?.h24||0),total=buys+sells;if(total>0){const buy=volume*buys/total,sell=volume*sells/total;if(baseIsTarget){estBuy+=buy;estSell+=sell;}else{estBuy+=sell;estSell+=buy;}buyCount+=baseIsTarget?buys:sells;sellCount+=baseIsTarget?sells:buys;}return{chainId:p.chainId,dexId:p.dexId,pairAddress:p.pairAddress,pairUrl:p.url,baseToken:p.baseToken,quoteToken:p.quoteToken,baseIsTarget,priceUsd:Number(p.priceUsd||0)||null,liquidityUsd:Number(p.liquidity?.usd||0)||0,volume24hUsd:volume,priceChange24hPct:Number(p.priceChange?.h24||0),buys,sells,pairCreatedAt:p.pairCreatedAt||null};});
+  result.flow={buyUsd:estBuy,sellUsd:estSell,buys:buyCount,sells:sellCount,basis:'dexscreener-count-weighted-estimate'};
+  result.sources.push({name:'DexScreener multi-chain pool and 24h transaction aggregates',status:'live',retrievedAt:generatedAt});
+  const best=selected[0],network=DEX_NETWORK_MAP[String(best.p.chainId||'').toLowerCase()];
+  if(network){
+   try{
+    const url='https://api.geckoterminal.com/api/v2/networks/'+encodeURIComponent(network)+'/pools/'+encodeURIComponent(best.p.pairAddress)+'/trades?trade_volume_in_usd_greater_than=0';
+    const gr=await fetchImpl(url,{headers:{accept:'application/json;version=20230203'}});
+    if(!gr.ok)throw new Error('GeckoTerminal HTTP '+gr.status);
+    const gp=await gr.json(),raw=Array.isArray(gp.data)?gp.data:[];
+    const trades=raw.map(x=>normaliseDexTrade(x,{baseIsTarget:best.baseIsTarget,chainId:best.p.chainId,poolAddress:best.p.pairAddress,dexId:best.p.dexId})).filter(Boolean).filter(t=>Date.parse(generatedAt)-t.timestamp<=24*60*60*1000).sort((a,b)=>b.timestamp-a.timestamp).slice(0,60);
+    result.trades=trades;
+    if(trades.length){const buy=trades.filter(t=>t.side==='buy').reduce((a,t)=>a+t.amountUsd,0),sell=trades.filter(t=>t.side==='sell').reduce((a,t)=>a+t.amountUsd,0);result.flow={buyUsd:buy,sellUsd:sell,buys:trades.filter(t=>t.side==='buy').length,sells:trades.filter(t=>t.side==='sell').length,basis:'geckoterminal-confirmed-swap-sample'};}
+    result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'live',retrievedAt:generatedAt,network,poolAddress:best.p.pairAddress});
+   }catch(error){result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,160)});result.limitations.push('Confirmed swap sampling was unavailable; DEX aggregate buy/sell counts are retained as an explicitly estimated fallback.');}
+  }else{result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'unsupported',retrievedAt:generatedAt});result.limitations.push('The highest-liquidity DEX chain has no configured GeckoTerminal network mapping.');}
+  result.transactionsBasis=result.trades.length?'confirmed-swap-sample':'24h-aggregate-only';
+  result.limitations.push('DEX pool coverage is a symbol-based discovery sample, not every pool or every blockchain transaction. Token identity must be checked before using low-liquidity or similarly named assets.');
+ }catch(error){result.error=String(error?.message||error).slice(0,200);result.sources.push({name:'DexScreener pair discovery',status:'offline',retrievedAt:generatedAt,error:result.error});}
+ return result;
+}
+async function persistDexTransactions(env,symbol,trades){
+ if(!env.JPTI_DB)return{persisted:false,count:0,reason:'JPTI_DB binding unavailable'};
+ let count=0;
+ try{for(const t of trades){await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?,'dex-swap','geckoterminal',?,?,?,?)").bind('dex-swap:'+t.id,t.txHash,String(symbol||'').slice(0,40),t.occurredAt,JSON.stringify(t)).run();count++;}return{persisted:true,count};}
+ catch(error){return{persisted:false,count,reason:String(error?.message||error).slice(0,180)};}
 }
 
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
@@ -845,7 +891,12 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       const generatedAt = now().toISOString();
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
-      if (context.status === 200) await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
+      if (context.status === 200) {
+        const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt);
+        const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol, chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
+        context.body.chainDex = { ...chainDex, persistence: persisted };
+        await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
+      }
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
     }
 
