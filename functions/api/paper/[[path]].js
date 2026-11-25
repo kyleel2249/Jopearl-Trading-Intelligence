@@ -111,6 +111,23 @@ export async function runCycle(db,symbol){
     await db.prepare('UPDATE jpti_paper_trades SET stop_price=?,payload=? WHERE trade_id=? AND status=\'open\'').bind(stopUpdate.stopPrice,JSON.stringify(updatedPayload),open.trade_id).run();
     open.stop_price=stopUpdate.stopPrice;
    }
+   let openPayload={};try{openPayload=JSON.parse(open.payload||'{}')}catch{}
+   const initialQuantity=num(openPayload.initialQuantity)||num(open.quantity),initialRisk=num(openPayload.originalRiskUsd)||num(open.risk_usd),initialEntryFee=num(openPayload.originalEntryFeeUsd)||num(open.entry_fee_usd),initialDistance=initialRisk/Math.max(1e-12,initialQuantity),moveR=initialDistance>0?(market.ticker.last-num(open.entry_price))*(open.direction==='LONG'?1:-1)/initialDistance:0;
+   const plan=openPayload.partialExitPlan?.exits||[],nextIndex=Number(openPayload.nextPartialExitIndex)||0,partialFills=[],partialState={...openPayload,initialQuantity,originalRiskUsd:initialRisk,originalEntryFeeUsd:initialEntryFee,partialRealizedPnlUsd:num(openPayload.partialRealizedPnlUsd),partialGrossPnlUsd:num(openPayload.partialGrossPnlUsd),partialExitFeesUsd:num(openPayload.partialExitFeesUsd),partialExits:Array.isArray(openPayload.partialExits)?openPayload.partialExits:[],nextPartialExitIndex:nextIndex};
+   let remainingQuantity=num(open.quantity),remainingRisk=num(open.risk_usd),remainingEntryFee=num(open.entry_fee_usd),nextPartial=nextIndex;
+   while(nextPartial<plan.length&&moveR>=Number(plan[nextPartial].r)&&remainingQuantity>1e-12){
+    const level=plan[nextPartial],closeQuantity=Math.min(remainingQuantity,initialQuantity*Number(level.portion)),allocation=closeQuantity/initialQuantity;
+    const partial=settlePaperTrade({...open,entryPrice:num(open.entry_price),quantity:closeQuantity,entryFeeUsd:initialEntryFee*allocation,riskUsd:initialRisk*allocation},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    const fillRecord={r:Number(level.r),portion:allocation,quantity:closeQuantity,...partial,filledAt:iso()};
+    partialFills.push(fillRecord);partialState.partialExits.push(fillRecord);partialState.partialRealizedPnlUsd+=partial.netPnlUsd;partialState.partialGrossPnlUsd+=partial.grossPnlUsd;partialState.partialExitFeesUsd+=partial.exitFeeUsd;
+    remainingQuantity=Math.max(0,remainingQuantity-closeQuantity);remainingRisk=initialRisk*(remainingQuantity/initialQuantity);remainingEntryFee=initialEntryFee*(remainingQuantity/initialQuantity);nextPartial++;
+   }
+   if(nextPartial!==nextIndex){
+    partialState.nextPartialExitIndex=nextPartial;
+    await db.prepare("UPDATE jpti_paper_trades SET quantity=?,risk_usd=?,entry_fee_usd=?,payload=? WHERE trade_id=? AND status='open'").bind(remainingQuantity,remainingRisk,remainingEntryFee,JSON.stringify(partialState),open.trade_id).run();
+    open.quantity=remainingQuantity;open.risk_usd=remainingRisk;open.entry_fee_usd=remainingEntryFee;open.payload=JSON.stringify(partialState);
+    report.partialExits.push({agentId:agent.id,tradeId:open.trade_id,fills:partialFills,remainingQuantity,realizedPartialPnlUsd:partialState.partialRealizedPnlUsd});
+   }
    const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
    const unrealizedToday=trades.filter(t=>t.status==='open').reduce((s,t)=>{const move=(market.ticker.last-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);return s+move-num(t.entryFeeUsd)-market.ticker.last*num(t.quantity)*PAPER_POLICY.feeRate;},0);
    const dailyCircuit=realizedToday+unrealizedToday<=-(PAPER_POLICY.initialEquityUsd*PAPER_POLICY.maxDailyLossPct/100);
@@ -119,7 +136,10 @@ export async function runCycle(db,symbol){
    const timed=Date.now()-Date.parse(open.opened_at)>60*60*1000;
    if(hitStop||hitTarget||timed||dailyCircuit){
     const reason=dailyCircuit?'daily-loss-circuit-breaker':hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
-    const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    const settledRaw=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    let partialTotals={};try{partialTotals=JSON.parse(open.payload||'{}')}catch{}
+    const originalRisk=num(partialTotals.originalRiskUsd)||num(open.risk_usd);
+    const settled={...settledRaw,grossPnlUsd:num(partialTotals.partialGrossPnlUsd)+settledRaw.grossPnlUsd,netPnlUsd:num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd,exitFeeUsd:num(partialTotals.partialExitFeesUsd)+settledRaw.exitFeeUsd,rMultiple:(num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd)/Math.max(1e-12,originalRisk),partialExits:partialTotals.partialExits||[]};
     const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
@@ -159,9 +179,9 @@ export async function runCycle(db,symbol){
      try{await db.prepare('INSERT INTO jpti_risk_events(event_id,event_type,severity,decision,reason,context_json,created_at) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),'paper-entry-veto','warning','REJECT',reason,JSON.stringify({agentId:agent.id,symbol:market.symbol,riskDecision}),iso()).run();}catch{/* Risk event persistence is available after migration 0010. */}
     }else{
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
-    const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
+    const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*3:-stopDistance*3);
     const tradeId=crypto.randomUUID(),openedAt=iso();
-    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,session:sessionName,partialExitPlan:buildPartialExitPlan({entryPrice:fill.entryPrice,stopPrice:stop,direction:signal.direction}),sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
+    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,initialQuantity:quantity,originalRiskUsd:riskUsd,originalEntryFeeUsd:fill.entryFeeUsd,partialRealizedPnlUsd:0,partialGrossPnlUsd:0,partialExitFeesUsd:0,partialExits:[],nextPartialExitIndex:0,regime:signal.features.regime,session:sessionName,partialExitPlan:buildPartialExitPlan({entryPrice:fill.entryPrice,stopPrice:stop,direction:signal.direction}),sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
     try{
      await db.prepare("INSERT INTO jpti_paper_trades(trade_id,agent_id,symbol,direction,status,opened_at,entry_price,quantity,stop_price,target_price,risk_usd,entry_fee_usd,regime,source_candle_at,payload) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)")
       .bind(tradeId,agent.id,market.symbol,signal.direction,openedAt,fill.entryPrice,quantity,stop,target,riskUsd,fill.entryFeeUsd,signal.features.regime,signal.features.closedCandleAt,JSON.stringify(trade)).run();
