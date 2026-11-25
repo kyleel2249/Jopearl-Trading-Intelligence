@@ -9,5 +9,5 @@ database_name = "jopearl-trading-intelligence-db"
 database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
 migrations_dir = "../migrations/d1"
 
-[triggers]
-crons = ["*/1 * * * *"]
+# Cron triggers are intentionally omitted here. Wrangler leaves the currently deployed
+# schedules unchanged when triggers are undefined. This account is at its 5-trigger Free limit.
