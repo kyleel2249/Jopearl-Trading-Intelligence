@@ -77,7 +77,7 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
     const sweepQuality=clamp(Number(sweep.quality??sweep.strength??.35));
     const fvgSizeAtr=(fvg.top-fvg.bottom)/atr;
     const sizeQuality=clamp(fvgSizeAtr/.8);
-    const freshness=lifecycle==="fresh"?1:lifecycle==="partially-mitigated"?.65:lifecycle==="fully-mitigated"?.25:0;
+    const freshness=lifecycle==="fresh" ? 1 : lifecycle==="partially-mitigated" ? 0.65 : lifecycle==="fully-mitigated" ? 0.25 : 0;
     const structureQuality=structure?(structure.kind==="MSS"?1:structure.kind==="CHoCH"?.8:.65):0;
     const ageQuality=clamp(1-fvgAgeBars/Math.max(1,maxSweepAgeBars));
     const mid=(fvg.top+fvg.bottom)/2;
