@@ -10,7 +10,7 @@ export function normalizeBitqueryWalletLabels(rows=[]){
  for(const row of rows||[]){const address=norm(row?.Address||row?.address),chain=norm(row?.Chain||row?.chain).toLowerCase(),type=norm(row?.Label?.Type||row?.label?.type),value=norm(row?.Label?.Value||row?.label?.value),recordedAt=row?.RecordedAt||row?.recordedAt||null;
   if(!address||!chain||!value)continue;
   const key=chain+":"+(/^(0x)[a-f0-9]{40}$/i.test(address)?address.toLowerCase():address);
-  const category=/cex|exchange|custod|institution|market-maker|otc|treasury|issuer|protocol|bridge|dex|lending|staking/i.test(type)?"entity":/scam|phishing|sanction|hacker|mixer|ransom|darknet|frozen/i.test(type)?"risk":"other";
+  const category=/cex|exchange|custod|institution|market-maker|otc|treasury|issuer|protocol|bridge|dex|lending|staking|proof-of-reserves/i.test(type)?"entity":/scam|phishing|sanction|hacker|mixer|ransom|darknet|frozen|issuer-blocked|token-clone/i.test(type)?"risk":"other";
   const current=map.get(key)||{chain,address,providerAttributed:false,verified:false,entityName:null,entityType:null,confidence:0.0,labels:[],evidence:[],source:"Bitquery Address Labels",sourceUrl:"https://docs.bitquery.io/docs/labels/address-labels-api/"};
   current.labels.push({type,value,recordedAt,category});if(category==="entity"){current.providerAttributed=true;current.entityName=current.entityName||value;current.entityType=current.entityType||type;current.confidence=Math.max(current.confidence,.72);}
   if(category==="risk")current.riskLabels=(current.riskLabels||[]).concat([{type,value,recordedAt}]);
