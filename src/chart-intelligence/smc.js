@@ -52,7 +52,7 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     if (g.index < start) continue;
     let inverted = false, invIdx = -1;
     for (let j = g.index + 1; j <= last; j++) { if (g.direction === 'bullish' ? rows[j][4] < g.bottom : rows[j][4] > g.top) { inverted = true; invIdx = j; break; } }
-    if (g.status === 'filled' && !inverted) continue;
+    // Keep the original FVG formation visible after mitigation; filled zones must not disappear from chart history.
     const dir = inverted ? (g.direction === 'bullish' ? 'bearish' : 'bullish') : g.direction;
     add({ id: [inverted ? 'IFVG' : 'FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: inverted ? 'IFVG' : 'FVG', direction: dir, ts: g.ts, endTs: inverted ? rows[invIdx][0] : null, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: inverted ? 'IFVG' : 'FVG', status: inverted ? 'inverted' : g.status, fillPct: g.fillPct, strength: inverted ? 0.55 : clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src(inverted ? 'fvg-closed-through' : 'three-candle-imbalance', { minGapAtr: 0.1 }) });
   }
@@ -102,7 +102,11 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
       const best = hits.filter((p) => p.side === side).sort((x, y) => rank(y) - rank(x) || (side === 'high' ? y.price - x.price : x.price - y.price))[0];
       if (!best) continue;
       sweeps.push({ ...best, index: j, sweptAt: c[0] });
-      add({ id: ['SWEEP', c[0], side].join('|'), layer: 'sweeps', kind: 'LIQUIDITY_SWEEP', direction: side === 'high' ? 'bearish' : 'bullish', ts: c[0], price: r8(best.price), label: (side === 'high' ? 'BSL' : 'SSL') + ' sweep', strength: rank(best) >= 2 ? 0.8 : 0.55, source: src('wick-beyond-pool-close-back', { pool: best.kind, method: best.method, touches: best.count }) });
+      const atrAtSweep = atrS[j] || atr, penetrationAtr = Math.abs((side === 'high' ? c[2] : c[3]) - best.price) / atrAtSweep;
+      const reclaimAtr = Math.abs(c[4] - best.price) / atrAtSweep;
+      const rvAtSweep = relativeVolume(rows.slice(0, j + 1));
+      const sweepQuality = clamp((rank(best) >= 2 ? 0.35 : 0.2) + Math.min(penetrationAtr, 1) * 0.2 + Math.min(reclaimAtr, 1) * 0.2 + (rvAtSweep == null ? 0.05 : clamp((rvAtSweep - 1) / 3, 0, 1) * 0.25), 0, 1);
+      add({ id: ['SWEEP', c[0], side].join('|'), layer: 'sweeps', kind: 'LIQUIDITY_SWEEP', direction: side === 'high' ? 'bearish' : 'bullish', ts: c[0], price: r8(best.price), label: (side === 'high' ? 'BSL' : 'SSL') + ' sweep', strength: r8(sweepQuality), quality: r8(sweepQuality), penetrationAtr: r8(penetrationAtr), reclaimAtr: r8(reclaimAtr), relativeVolume: r8(rvAtSweep), poolType: best.kind, source: src('wick-beyond-pool-close-back-quality-scored', { pool: best.kind, method: best.method, touches: best.count, penetrationAtr: r8(penetrationAtr), reclaimAtr: r8(reclaimAtr), relativeVolume: r8(rvAtSweep) }) });
     }
   }
   // Unswept liquidity right now (display): nearest pools on each side, capped.
