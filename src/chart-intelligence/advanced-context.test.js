@@ -83,3 +83,22 @@ test('SMT divergence detects a primary higher high not confirmed by the correlat
   assert.equal(result.kind,'high-divergence');
   assert.ok(result.confidence>=.5);
 });
+
+test('BIS SDMX JSON dimension keys are flattened into dated observations',()=>{
+  const result=normalizeBisFlows({
+    structure:{name:'Locational Banking Statistics',dimensions:{
+      series:[
+        {id:'L_REP_CTY',values:[{id:'US'}]},
+        {id:'L_CP_COUNTRY',values:[{id:'GB'}]},
+        {id:'L_MEASURE',values:[{id:'C'}]}
+      ],
+      observation:[{id:'TIME_PERIOD',values:[{id:'2026-Q1'},{id:'2026-Q2'}]}]
+    }},
+    dataSets:[{series:{'0:0:0':{observations:{'0':[100],'1':[110]}}}}]
+  },{now});
+  assert.equal(result.status,'ready');
+  assert.equal(result.latest.value,110);
+  assert.equal(result.latest.reporter,'US');
+  assert.equal(result.latest.counterparty,'GB');
+  assert.equal(result.latest.measure,'C');
+});
