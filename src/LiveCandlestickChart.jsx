@@ -765,7 +765,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>SMT divergence: <b>{marketContext?.smtDivergence?.direction || 'neutral'}</b> · {marketContext?.smtDivergence?.primarySymbol || symbol} vs {marketContext?.smtDivergence?.correlatedSymbol || 'correlated market'} · confidence {marketContext?.smtDivergence?.confidence ?? '—'}</span>
       </div>
       {(marketContext?.eventImpact?.events || []).slice(0,6).map(event=><div className="market-context-evidence" key={event.id}>
-        <span>{event.title}</span><small>{event.importance} · {event.minutesFromNow} min · {event.impactScore}/100 · Direction neutral</small>
+        <span>{event.title}</span><small>{event.importance} · {event.country || event.currency || 'Global'} · {event.minutesFromNow} min · {event.impactScore}/100 · {(event.assets || []).slice(0,3).join(', ')} · Direction neutral</small>
       </div>)}
       <p>FVG + Liquidity scores rank linked sweep, displacement, structure and imbalance evidence. Cross-exchange data is public order-book/funding proxy; wallet identities distinguish proof-verified entries from third-party provider labels; unknown addresses remain unattributed. BIS scans rotate across all financially relevant dataflows and retain observation frequency.</p>
     </div>
