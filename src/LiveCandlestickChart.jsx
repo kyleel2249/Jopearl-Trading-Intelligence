@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
 import { detectSmartMoney } from './smartMoney.js';
 import { getSessionSnapshot, analyzeSessionCandles } from './session-intelligence.js';
+import { predictSessionHighLow, analyze24hLiquidity } from './session-liquidity-engine.js';
 import { sessionForecastAdjustment, detectSessionLiquiditySweeps, sessionRiskAssessment, sessionPerformanceComparison, readSessionMemory, recordSessionOutcome, summarizeSessionMemory } from './session-trading-intelligence.js';
 import { analyzeGainzAlphaInspired } from './gainz-alpha-intelligence.js';
 import { useGainzAlpha } from './gainz-alpha/useGainzAlpha.js';
@@ -78,6 +79,8 @@ function atr(candles, period = 14) {
 }
 
 const fmt = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
+const TX_EXPLORERS = { ethereum:'https://etherscan.io/tx/', eth:'https://etherscan.io/tx/', base:'https://basescan.org/tx/', arbitrum:'https://arbiscan.io/tx/', optimism:'https://optimistic.etherscan.io/tx/', bsc:'https://bscscan.com/tx/', polygon:'https://polygonscan.com/tx/', polygon_pos:'https://polygonscan.com/tx/', avalanche:'https://snowtrace.io/tx/', avax:'https://snowtrace.io/tx/', solana:'https://solscan.io/tx/' };
+const transactionUrl = (trade) => TX_EXPLORERS[String(trade.chainId || '').toLowerCase()] ? TX_EXPLORERS[String(trade.chainId).toLowerCase()] + encodeURIComponent(trade.txHash) : null;
 const timeLabel = (stamp, timeframe) => {
   const date = new Date(stamp);
   return ['1d', '3d', '1w', '1M'].includes(timeframe)
@@ -144,6 +147,10 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const sessionSnapshot = useMemo(() => getSessionSnapshot(sessionClock), [sessionClock]);
   const sessionAnalytics = useMemo(() => analyzeSessionCandles(candles, sessionClock), [candles, sessionClock]);
   const sessionForecast = useMemo(() => sessionForecastAdjustment(candles, {symbol, timeframe, now:sessionClock}), [candles, symbol, timeframe, sessionClock]);
+  const sessionForecastBands = useMemo(() => predictSessionHighLow(candles.slice(0, -1), { symbol, timeframe, now: sessionClock, chainDex: marketContext?.chainDex || null }), [candles, symbol, timeframe, sessionClock, marketContext?.chainDex]);
+  const observed24hLiquidity = useMemo(() => analyze24hLiquidity(candles.slice(0, -1), { now: sessionClock, timeframe, ticker }), [candles, sessionClock, timeframe, ticker]);
+  const sessionDecisionContext = useMemo(() => ({ ...sessionForecastBands, liquidity24h: observed24hLiquidity }), [sessionForecastBands, observed24hLiquidity]);
+  const chainDexTrades = useMemo(() => marketContext?.chainDex?.trades?.length ? marketContext.chainDex.trades : (marketContext?.chainDex?.history?.transactions || []), [marketContext?.chainDex]);
   const sessionSweeps = useMemo(() => detectSessionLiquiditySweeps(candles, {now:sessionClock}), [candles, sessionClock]);
   const sessionRisk = useMemo(() => sessionRiskAssessment(candles, {now:sessionClock, baseRiskPercent:1}), [candles, sessionClock]);
   const sessionComparison = useMemo(() => sessionPerformanceComparison(candles, {now:sessionClock}), [candles, sessionClock]);
@@ -156,7 +163,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const gainzAlpha = useMemo(() => analyzeGainzAlphaInspired(candles.slice(0, -1), { symbol, timeframe, historicalOutcomes: sessionMemory, now: sessionClock }), [candles, symbol, timeframe, sessionMemory, sessionClock]);
   const [gaOverlaysMounted, setGaOverlaysMounted] = useState(false);
   const ga = useGainzAlpha({ exchange, symbol, timeframe, candles });
-  const ci = useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels: alphaLevels, clock: sessionClock });
+  const ci = useChartIntelligence({ exchange, symbol, timeframe, marketType, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, clock: sessionClock });
   const ciReady = Boolean(ci.settings.enabled && ci.result && ci.result.status === 'ready');
   const [ciOverlaysMounted, setCiOverlaysMounted] = useState(false);
   const [compactChart, setCompactChart] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 600px)').matches : false));
@@ -665,6 +672,75 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <div className="market-context-sources">{marketContext.sources.map((item) => <span key={item.name}><i className={item.status === 'live' ? 'source-live' : 'source-down'}/>{item.name}: {item.status}</span>)}</div>
         <p>{marketContext.limitations[0]} {marketContext.limitations[1]}</p>
       </> : <p>{contextError || 'Calculating exchange and global market context…'}</p>}
+    </div>
+    <div className="market-context-panel institutional-decision-panel">
+      <div className="market-context-heading"><b>INSTITUTIONAL DECISION INPUT</b><span>{ci.result?.institutional?.status === 'ready' ? 'FED INTO CHART CONFLUENCE' : ci.result?.institutional?.status === 'stale' ? 'STALE · EXCLUDED' : 'AWAITING VERIFIED INPUT'}</span></div>
+      <div className="market-context-summary">
+        <strong className={ci.result?.institutional?.score > 0 ? 'up' : ci.result?.institutional?.score < 0 ? 'down' : ''}>{ci.result?.institutional?.status === 'ready' ? (ci.result.institutional.score > 0 ? 'BULLISH' : ci.result.institutional.score < 0 ? 'BEARISH' : 'NEUTRAL') : 'UNAVAILABLE'}</strong>
+        <span>Institutional score {ci.result?.institutional?.score ?? '—'}</span><span>Confidence {ci.result?.institutional?.confidence ?? '—'}</span>
+        <span>Source coverage {ci.result?.institutional?.sourceCoverage == null ? '—' : (ci.result.institutional.sourceCoverage * 100).toFixed(0) + '%'}</span>
+        <span>Chart confluence {ci.result?.confluence?.score ?? '—'}</span>
+        <span>Institutional contribution {ci.result?.confluence?.components?.find(x => x.key === 'institutional')?.contribution ?? '0'}</span>
+      </div>
+      <div className="market-context-evidence">{(ci.result?.institutional?.evidence || []).map(item => <span key={item.factor}>{item.factor}: <b>{item.contribution > 0 ? '+' : ''}{item.contribution}</b></span>)}</div>
+      <div className="market-context-evidence">
+        <span>CFTC dealer net: <b>{marketContext?.institutionalSources?.cftc?.dealer?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.dealer.net).toLocaleString()}</b></span>
+        <span>CFTC asset-manager net: <b>{marketContext?.institutionalSources?.cftc?.assetManager?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.assetManager.net).toLocaleString()}</b></span>
+        <span>CFTC leveraged-fund net: <b>{marketContext?.institutionalSources?.cftc?.leveragedMoney?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.leveragedMoney.net).toLocaleString()}</b></span>
+        <span>CFTC other-reportable net: <b>{marketContext?.institutionalSources?.cftc?.otherReportables?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.otherReportables.net).toLocaleString()}</b></span>
+        <span>CFTC non-reportable net: <b>{marketContext?.institutionalSources?.cftc?.nonReportables?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.nonReportables.net).toLocaleString()}</b></span>
+        <span>COT report date: <b>{marketContext?.institutionalSources?.cftc?.reportDate || '—'}</b></span>
+        <span>10Y Treasury: <b>{marketContext?.institutionalSources?.macro?.fred?.DGS10?.latest?.value ?? '—'}%</b></span>
+        <span>Fed funds: <b>{marketContext?.institutionalSources?.macro?.fred?.DFF?.latest?.value ?? '—'}%</b></span>
+        <span>Commercial-bank deposits: <b>{marketContext?.institutionalSources?.macro?.fred?.DPSACBW027SBOG?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.DPSACBW027SBOG.latest.value).toLocaleString()}</b></span>
+        <span>Fed assets (WALCL): <b>{marketContext?.institutionalSources?.macro?.fred?.WALCL?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.WALCL.latest.value).toLocaleString()}</b></span>
+        <span>Commercial-bank loans: <b>{marketContext?.institutionalSources?.macro?.fred?.BUSLOANS?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.BUSLOANS.latest.value).toLocaleString()}</b></span>
+        <span>Crude inventory weekly change: <b>{marketContext?.institutionalSources?.macro?.commodityInventories?.WCESTUS1?.weeklyChange == null ? '—' : Number(marketContext.institutionalSources.macro.commodityInventories.WCESTUS1.weeklyChange).toLocaleString()} thousand barrels</b></span>
+        <span>Retail Fear & Greed: <b>{marketContext?.institutionalSources?.retailSentiment?.value ?? '—'} {marketContext?.institutionalSources?.retailSentiment?.classification || ''}</b></span>
+        <span>ECB USD per EUR: <b>{marketContext?.institutionalSources?.ecb?.latest?.value ?? '—'}</b></span>
+      </div>
+      <div className="market-context-evidence">{(marketContext?.institutionalSources?.news || []).slice(0,4).map((item,i)=><a key={i} href={item.url} target="_blank" rel="noreferrer">{item.title}</a>)}</div>
+      <div className="market-context-evidence">{(marketContext?.institutionalSources?.geopoliticalNews || []).slice(0,4).map((item,i)=><a key={'geo-'+i} href={item.url} target="_blank" rel="noreferrer">{item.title}</a>)}</div>
+      {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced.</p>}
+      {marketContext?.institutionalSources?.eventRisk?.active && <p className="quote-error">High-impact geopolitical or financial event risk is active ({marketContext.institutionalSources.eventRisk.count} recent headlines). Entry quality is reduced; wait for post-event confirmation.</p>}
+    </div>
+    <div className="market-context-panel chain-dex-panel">
+      <div className="market-context-heading"><b>BLOCKCHAIN & DEX TRANSACTION INTELLIGENCE</b><span>{marketContext?.chainDex?.status === 'ready' ? 'LIVE MULTI-CHAIN EVIDENCE' : 'AWAITING DEX DATA'}</span></div>
+      {marketContext?.chainDex ? <>
+        <div className="market-context-summary">
+          <strong className={ci.result?.chainDex?.score > 0 ? 'up' : ci.result?.chainDex?.score < 0 ? 'down' : ''}>{ci.result?.chainDex?.status === 'ready' ? (ci.result.chainDex.score > 0 ? 'BUY PRESSURE' : ci.result.chainDex.score < 0 ? 'SELL PRESSURE' : 'BALANCED') : 'UNAVAILABLE'}</strong>
+          <span>DEX evidence {ci.result?.chainDex?.score ?? '—'}</span><span>Confidence {ci.result?.chainDex?.confidence ?? '—'}</span>
+          <span>Net swap flow {marketContext.chainDex.flow?.netUsd == null ? '—' : 'USD ' + Number(marketContext.chainDex.flow.netUsd).toLocaleString()}</span>
+          <span>Pools {marketContext.chainDex.coverage?.pools ?? marketContext.chainDex.pools?.length ?? 0}</span>
+          <span>Chains {marketContext.chainDex.coverage?.chains ?? '—'}</span>
+          <span>Stored recent swaps {marketContext.chainDex.history?.count ?? 0}</span><span>Newly saved {marketContext.chainDex.persistence?.count ?? 0}</span>
+        </div>
+        <div className="market-context-evidence">Token contract identity: <b>{ci.result?.chainDex?.identityVerified ? 'verified' : 'symbol match only · unverified'}</b>. Unverified pool matches have capped confidence.</div>
+        <div className="market-context-sources">{(marketContext.chainDex.sources || []).map(source => <span key={source.name}><i className={source.status === 'live' ? 'source-live' : 'source-down'}/>{source.name}: {source.status}</span>)}</div>
+        <div className="chain-dex-pools">{(marketContext.chainDex.pools || []).slice(0, 4).map(pool => <div key={pool.chainId + '|' + pool.pairAddress}><b>{pool.baseToken?.symbol}/{pool.quoteToken?.symbol}</b><span>{pool.chainId} · {pool.dexId}</span><span>Liquidity USD {Number(pool.liquidityUsd || 0).toLocaleString()}</span><span>24h volume USD {Number(pool.volume24hUsd || 0).toLocaleString()}</span>{pool.pairUrl && <a href={pool.pairUrl} target="_blank" rel="noreferrer">Pool details</a>}</div>)}</div>
+        <div className="chain-dex-transactions"><b>Recent confirmed swaps / persisted history ({chainDexTrades.length})</b>
+          {chainDexTrades.slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · USD {Number(trade.amountUsd || 0).toLocaleString()}</span><span>{trade.trader ? trade.trader.slice(0, 6) + '…' + trade.trader.slice(-4) : 'Wallet unavailable'}</span><time>{new Date(trade.timestamp).toLocaleTimeString()}</time>{transactionUrl(trade) && <a href={transactionUrl(trade)} target="_blank" rel="noreferrer">Tx</a>}</div>)}
+        </div>
+        {ci.result?.conflicts?.some(x => x.id === 'chain-dex-flow-opposes') && <p className="quote-error">Confirmed DEX swap flow opposes the active chart direction. Confluence and entry quality have been reduced.</p>}
+        {(marketContext.chainDex.limitations || []).map((note,i)=><p key={i}>{note}</p>)}
+      </> : <p>{contextError || 'Searching supported DEX pools and confirmed on-chain swaps…'}</p>}
+    </div>
+    <div className="market-context-panel session-forecast-panel">
+      <div className="market-context-heading"><b>24-HOUR SESSION HIGH / LOW FORECAST</b><span>{sessionForecastBands.status === 'ready' ? 'HISTORICAL RANGE MODEL' : 'INSUFFICIENT HISTORY'}</span></div>
+      <div className="market-context-summary"><span>Observed rolling 24h high: {observed24hLiquidity.levels?.high?.price == null ? '—' : fmt(observed24hLiquidity.levels.high.price)}</span><span>Observed rolling 24h low: {observed24hLiquidity.levels?.low?.price == null ? '—' : fmt(observed24hLiquidity.levels.low.price)}</span><span>Range position: {observed24hLiquidity.range?.positionPercent == null ? '—' : observed24hLiquidity.range.positionPercent.toFixed(1) + '%'}</span></div>
+      <div className="session-forecast-grid">{(sessionForecastBands.sessions || []).map(session => <div key={session.id} className="session-forecast-card"><b>{session.name}</b><small>{session.phase} · {session.confidence} confidence · {session.historySamples} samples</small><span className="up">Forecast high: {session.forecast.high == null ? '—' : fmt(session.forecast.high)}</span><span className="down">Forecast low: {session.forecast.low == null ? '—' : fmt(session.forecast.low)}</span><small>Observed high / low: {session.observed.high == null ? '—' : fmt(session.observed.high)} / {session.observed.low == null ? '—' : fmt(session.observed.low)}</small></div>)}</div>
+      <p>{sessionForecastBands.methodology || sessionForecastBands.reason}</p>
+    </div>
+    <div className="market-context-panel entry-assessment-panel">
+      <div className="market-context-heading"><b>SMC ENTRY LOCATION & EXECUTION FILTER</b><span>{ci.result?.entryAssessment?.status?.replaceAll('-', ' ').toUpperCase() || 'WAITING FOR SIGNAL'}</span></div>
+      {ci.result?.entryAssessment ? <>
+        <div className="market-context-summary"><strong className={ci.result.entryAssessment.status === 'ready-for-review' ? 'up' : ci.result.entryAssessment.status === 'blocked-conflict' ? 'down' : ''}>{ci.result.entryAssessment.status.replaceAll('-', ' ').toUpperCase()}</strong><span>Setup checklist {ci.result.entryAssessment.qualityScore}/100</span><span>Direction {ci.result.entryAssessment.direction || '—'}</span><span>Current price {ci.result.entryAssessment.currentPrice == null ? '—' : fmt(ci.result.entryAssessment.currentPrice)}</span></div>
+        {ci.result.entryAssessment.entryZone && <div className="market-context-evidence">Candidate zone: {fmt(ci.result.entryAssessment.entryZone.low)} – {fmt(ci.result.entryAssessment.entryZone.high)} · {ci.result.entryAssessment.entryZone.kind} · {ci.result.entryAssessment.inZone ? 'Price inside zone' : 'Awaiting retest'}</div>}
+        <div className="market-context-evidence">Preferred entry: {ci.result.entryAssessment.plannedEntry == null ? '—' : fmt(ci.result.entryAssessment.plannedEntry)} · Stop: {ci.result.entryAssessment.stopLoss == null ? '—' : fmt(ci.result.entryAssessment.stopLoss)} · Targets: {(ci.result.entryAssessment.targets || []).map(t=>fmt(t.price)).join(' / ') || '—'}</div>
+        <div className="market-context-evidence">Sweep {ci.result.entryAssessment.confirmations?.liquiditySweep ? '✓' : '—'} · Structure {ci.result.entryAssessment.confirmations?.structureBreak ? '✓' : '—'} · Displacement {ci.result.entryAssessment.confirmations?.displacement ? '✓' : '—'} · DEX flow {ci.result.entryAssessment.confirmations?.dexFlow ? '✓' : '—'} · Institutional {ci.result.entryAssessment.confirmations?.institutional ? '✓' : '—'}</div>
+        <p>{ci.result.entryAssessment.trigger}</p><ul>{(ci.result.entryAssessment.reasons || []).map((reason,i)=><li key={i}>{reason}</li>)}</ul>
+        <small>Invalidation: {ci.result.entryAssessment.invalidation == null ? 'Not established' : fmt(ci.result.entryAssessment.invalidation)} · {ci.result.entryAssessment.gradeNote}</small>
+      </> : <p>Waiting for sufficient closed-candle structure and market evidence.</p>}
     </div>
     <div className="smc-event-strip">
       <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyze24hLiquidity, timeframeToMs } from './session-liquidity-engine.js';
+import { analyze24hLiquidity, timeframeToMs, predictSessionHighLow } from './session-liquidity-engine.js';
 
 const candle=(t,o,h,l,c,v=10)=>[t,o,h,l,c,v];
 const ts=(day,hour,minute=0)=>Date.UTC(2026,10,20+day,hour,minute);
@@ -62,4 +62,9 @@ test('flags high sweep reclaim and abnormal range/volume without authorizing tra
  assert.ok(out.alerts.some(alert=>alert.code==='HIGH_SWEEP_RECLAIM'));
  assert.ok(out.alerts.some(alert=>alert.code==='RANGE_EXPANSION'));
  assert.ok(out.alerts.some(alert=>alert.code==='VOLUME_EXPANSION'));
+});
+
+test('session high-low forecasts use historical ranges, report confidence and preserve observed extremes',()=>{
+ const rows=[];const start=Date.parse('2026-11-01T00:00:00Z');for(let d=0;d<18;d++){for(let h=0;h<24;h++){const ts=start+d*86400000+h*3600000;const p=100+d*.2+h*.03;rows.push(candle(ts,p,p+1.2,p-.8,p+.2,20));}}
+ const now=Date.parse('2026-11-19T12:00:00Z');const out=predictSessionHighLow(rows,{now,timeframe:'1h'});assert.equal(out.status,'ready');assert.equal(out.sessions.length,4);const london=out.sessions.find(x=>x.id==='london');assert.ok(london.forecast.high>london.forecast.low);assert.ok(['low','moderate','high'].includes(london.confidence));assert.ok(london.historySamples>0);
 });

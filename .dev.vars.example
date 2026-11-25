@@ -13,3 +13,7 @@ JPTI_JOURNAL_TOKEN=replace-with-a-long-random-secret
 JPTI_BITGET_API_KEY=
 JPTI_BITGET_API_SECRET=
 JPTI_BITGET_API_PASSPHRASE=
+
+# Optional FRED API key for Federal Reserve yields, policy rates and bank balance-sheet data.
+# Configure this as a Cloudflare Pages secret in production; never commit a real key.
+FRED_API_KEY=

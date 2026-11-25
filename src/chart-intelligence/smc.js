@@ -32,18 +32,24 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     let ob = -1;
     for (let i = e.index - 1; i >= from; i--) { if (bull ? rows[i][4] < rows[i][1] : rows[i][4] > rows[i][1]) { ob = i; break; } }
     if (ob < 0) continue;
-    blocks.push({ index: ob, direction: e.direction, top: rows[ob][2], bottom: rows[ob][3], formedAt: e.index, kind: e.kind });
+    const impulse = rows[e.index], impulseAtr = (atrS[e.index] || atr), impulseBodyAtr = Math.abs(impulse[4] - impulse[1]) / impulseAtr, impulseVolume = relativeVolume(rows.slice(0, e.index + 1));
+    blocks.push({ index: ob, direction: e.direction, top: rows[ob][2], bottom: rows[ob][3], formedAt: e.index, kind: e.kind, impulseBodyAtr, impulseVolume });
   }
   for (const b of blocks) {
-    let status = 'active', touchedAt = null, brokeAt = null;
+    let status = 'active', touchedAt = null, brokeAt = null, mitigationTouches = 0, deepestMitigation = 0;
     for (let j = b.formedAt + 1; j <= last; j++) {
       const c = rows[j];
-      if (b.direction === 'bullish') { if (c[4] < b.bottom) { status = 'breaker'; brokeAt = j; break; } if (c[3] <= b.top && touchedAt == null) { touchedAt = j; status = 'mitigated'; } }
-      else { if (c[4] > b.top) { status = 'breaker'; brokeAt = j; break; } if (c[2] >= b.bottom && touchedAt == null) { touchedAt = j; status = 'mitigated'; } }
+      const touched = b.direction === 'bullish' ? c[3] <= b.top && c[2] >= b.bottom : c[2] >= b.bottom && c[3] <= b.top;
+      if (touched) { mitigationTouches++; const depth = b.direction === 'bullish' ? clamp((b.top - c[3]) / Math.max(1e-12, b.top - b.bottom), 0, 1) : clamp((c[2] - b.bottom) / Math.max(1e-12, b.top - b.bottom), 0, 1); deepestMitigation = Math.max(deepestMitigation, depth); if (touchedAt == null) touchedAt = j; }
+      if (b.direction === 'bullish') { if (c[4] < b.bottom) { status = 'breaker'; brokeAt = j; break; } if (touchedAt != null) status = 'mitigated'; }
+      else { if (c[4] > b.top) { status = 'breaker'; brokeAt = j; break; } if (touchedAt != null) status = 'mitigated'; }
     }
     const dir = status === 'breaker' ? (b.direction === 'bullish' ? 'bearish' : 'bullish') : b.direction;
     const kind = status === 'breaker' ? 'BREAKER' : status === 'mitigated' ? 'MITIGATION_BLOCK' : 'ORDER_BLOCK';
-    add({ id: [kind, rows[b.index][0], b.direction].join('|'), layer: 'orderBlocks', kind, direction: dir, ts: rows[b.index][0], endTs: brokeAt != null ? rows[brokeAt][0] : null, top: r8(b.top), bottom: r8(b.bottom), price: r8((b.top + b.bottom) / 2), label: kind === 'BREAKER' ? 'Breaker' : kind === 'MITIGATION_BLOCK' ? 'Mitigation' : 'OB', status, strength: status === 'active' ? 0.75 : status === 'mitigated' ? 0.5 : 0.6, source: src('last-opposite-candle-before-structure-break', { origin: b.kind, formedAt: rows[b.formedAt][0] }) });
+    const impulseQuality = clamp((b.impulseBodyAtr / 2) * 0.55 + (b.impulseVolume == null ? 0.1 : clamp((b.impulseVolume - 0.8) / 2, 0, 1) * 0.3) + (b.kind === 'CHoCH' ? 0.15 : 0.1), 0, 1);
+    const mitigationPenalty = Math.min(0.35, mitigationTouches * 0.08 + deepestMitigation * 0.12);
+    const blockQuality = clamp(impulseQuality - mitigationPenalty + (status === 'active' ? 0.12 : 0), 0.15, 1);
+    add({ id: [kind, rows[b.index][0], b.direction].join('|'), layer: 'orderBlocks', kind, direction: dir, ts: rows[b.index][0], endTs: brokeAt != null ? rows[brokeAt][0] : null, top: r8(b.top), bottom: r8(b.bottom), price: r8((b.top + b.bottom) / 2), label: kind === 'BREAKER' ? 'Breaker' : kind === 'MITIGATION_BLOCK' ? 'Mitigation' : 'OB', status, strength: r8(blockQuality), quality: r8(blockQuality), mitigationTouches, deepestMitigation: r8(deepestMitigation), impulseBodyAtr: r8(b.impulseBodyAtr), relativeVolume: r8(b.impulseVolume), source: src('last-opposite-candle-before-structure-break-quality-scored', { origin: b.kind, formedAt: rows[b.formedAt][0], impulseBodyAtr: r8(b.impulseBodyAtr), relativeVolume: r8(b.impulseVolume), mitigationTouches, deepestMitigation: r8(deepestMitigation) }) });
   }
 
   // --- FVG / IFVG ---------------------------------------------------------------------------------------
@@ -52,9 +58,9 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     if (g.index < start) continue;
     let inverted = false, invIdx = -1;
     for (let j = g.index + 1; j <= last; j++) { if (g.direction === 'bullish' ? rows[j][4] < g.bottom : rows[j][4] > g.top) { inverted = true; invIdx = j; break; } }
-    if (g.status === 'filled' && !inverted) continue;
-    const dir = inverted ? (g.direction === 'bullish' ? 'bearish' : 'bullish') : g.direction;
-    add({ id: [inverted ? 'IFVG' : 'FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: inverted ? 'IFVG' : 'FVG', direction: dir, ts: g.ts, endTs: inverted ? rows[invIdx][0] : null, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: inverted ? 'IFVG' : 'FVG', status: inverted ? 'inverted' : g.status, fillPct: g.fillPct, strength: inverted ? 0.55 : clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src(inverted ? 'fvg-closed-through' : 'three-candle-imbalance', { minGapAtr: 0.1 }) });
+    // Preserve the immutable FVG formation and record a separate IFVG event if a later close invalidates it.
+    add({ id: ['FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: 'FVG', direction: g.direction, ts: g.ts, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: 'FVG', status: g.status, fillPct: g.fillPct, strength: clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src('three-candle-imbalance', { minGapAtr: 0.1, fillPct: g.fillPct }) });
+    if (inverted) add({ id: ['IFVG', rows[invIdx][0], g.direction].join('|'), layer: 'fvg', kind: 'IFVG', direction: g.direction === 'bullish' ? 'bearish' : 'bullish', ts: rows[invIdx][0], top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: 'IFVG', status: 'active', fillPct: g.fillPct, strength: 0.55, source: src('fvg-closed-through', { originalFvg: g.ts, inversionAt: rows[invIdx][0] }) });
   }
 
   // --- Displacement: closed-candle impulse with range/body and relative-volume evidence -------------------
@@ -102,16 +108,20 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
       const best = hits.filter((p) => p.side === side).sort((x, y) => rank(y) - rank(x) || (side === 'high' ? y.price - x.price : x.price - y.price))[0];
       if (!best) continue;
       sweeps.push({ ...best, index: j, sweptAt: c[0] });
-      add({ id: ['SWEEP', c[0], side].join('|'), layer: 'sweeps', kind: 'LIQUIDITY_SWEEP', direction: side === 'high' ? 'bearish' : 'bullish', ts: c[0], price: r8(best.price), label: (side === 'high' ? 'BSL' : 'SSL') + ' sweep', strength: rank(best) >= 2 ? 0.8 : 0.55, source: src('wick-beyond-pool-close-back', { pool: best.kind, method: best.method, touches: best.count }) });
+      const atrAtSweep = atrS[j] || atr, penetrationAtr = Math.abs((side === 'high' ? c[2] : c[3]) - best.price) / atrAtSweep;
+      const reclaimAtr = Math.abs(c[4] - best.price) / atrAtSweep;
+      const rvAtSweep = relativeVolume(rows.slice(0, j + 1));
+      const sweepQuality = clamp((rank(best) >= 2 ? 0.35 : 0.2) + Math.min(penetrationAtr, 1) * 0.2 + Math.min(reclaimAtr, 1) * 0.2 + (rvAtSweep == null ? 0.05 : clamp((rvAtSweep - 1) / 3, 0, 1) * 0.25), 0, 1);
+      add({ id: ['SWEEP', c[0], side].join('|'), layer: 'sweeps', kind: 'LIQUIDITY_SWEEP', direction: side === 'high' ? 'bearish' : 'bullish', ts: c[0], price: r8(best.price), label: (side === 'high' ? 'BSL' : 'SSL') + ' sweep', strength: r8(sweepQuality), quality: r8(sweepQuality), penetrationAtr: r8(penetrationAtr), reclaimAtr: r8(reclaimAtr), relativeVolume: r8(rvAtSweep), poolType: best.kind, source: src('wick-beyond-pool-close-back-quality-scored', { pool: best.kind, method: best.method, touches: best.count, penetrationAtr: r8(penetrationAtr), reclaimAtr: r8(reclaimAtr), relativeVolume: r8(rvAtSweep) }) });
     }
   }
   // Unswept liquidity right now (display): nearest pools on each side, capped.
   const price = rows[last][4], live = poolsAt(last + 1).filter((p) => !consumedBefore(p, last + 1));
   const byDist = (side) => live.filter((p) => p.side === side).sort((x, y) => Math.abs(x.price - price) - Math.abs(y.price - price)).slice(0, 5);
-  const pools = [...byDist('high'), ...byDist('low')].map((p) => ({ ...p, swept: false }));
-  for (const p of pools) add({ id: ['LIQ', p.kind, p.side, r8(p.price)].join('|'), layer: 'liquidity', kind: p.kind === 'EQH' ? 'EQUAL_HIGHS' : p.kind === 'EQL' ? 'EQUAL_LOWS' : p.kind + '_LIQUIDITY', direction: p.side === 'high' ? 'buy-side' : 'sell-side', ts: rows[p.fromIdx][0], price: r8(p.price), label: (p.side === 'high' ? 'BSL ' : 'SSL ') + (p.kind === 'EQH' || p.kind === 'EQL' ? p.kind : p.kind.toLowerCase()), strength: clamp(0.35 + 0.15 * Math.min(p.count, 4) + (p.kind === 'EXTERNAL' ? 0.15 : 0), 0, 1), count: p.count, source: src(p.method, { touches: p.count }) });
-  // Liquidity magnets: nearest unswept pools weighted by size and proximity.
-  const magnets = pools.map((p) => { const dist = Math.abs(p.price - price) / atr; const w = (p.kind === 'EXTERNAL' ? 1.2 : 1) * (1 + 0.4 * (p.count - 1)) / (1 + dist); return { price: r8(p.price), side: p.side === 'high' ? 'above' : 'below', kind: p.kind, distanceAtr: r8(dist), pull: r8(w) }; }).sort((a, b) => b.pull - a.pull).slice(0, 4);
+  const pools = [...byDist('high'), ...byDist('low')].map((p) => { const distanceAtr = Math.abs(p.price - price) / atr, ageBars = Math.max(0, last - (p.toIdx ?? p.fromIdx)), role = p.kind === 'EXTERNAL' ? 'external' : (p.kind === 'EQH' || p.kind === 'EQL' ? 'equal-level' : 'internal'), quality = clamp(0.3 + 0.12 * Math.min(p.count, 4) + (role === 'external' ? 0.2 : role === 'equal-level' ? 0.12 : 0) - Math.min(distanceAtr, 10) * 0.025 - Math.min(ageBars, 220) / 220 * 0.1, 0.1, 1); return { ...p, swept: false, distanceAtr: r8(distanceAtr), ageBars, role, quality: r8(quality) }; });
+  for (const p of pools) add({ id: ['LIQ', p.kind, p.side, r8(p.price)].join('|'), layer: 'liquidity', kind: p.kind === 'EQH' ? 'EQUAL_HIGHS' : p.kind === 'EQL' ? 'EQUAL_LOWS' : p.kind + '_LIQUIDITY', direction: p.side === 'high' ? 'buy-side' : 'sell-side', ts: rows[p.fromIdx][0], price: r8(p.price), label: (p.side === 'high' ? 'BSL ' : 'SSL ') + (p.kind === 'EQH' || p.kind === 'EQL' ? p.kind : p.kind.toLowerCase()), strength: p.quality, quality: p.quality, count: p.count, distanceAtr: p.distanceAtr, ageBars: p.ageBars, role: p.role, source: src(p.method, { touches: p.count, distanceAtr: p.distanceAtr, ageBars: p.ageBars, role: p.role, quality: p.quality }) });
+  // Liquidity magnets: nearest unswept pools weighted by external/internal hierarchy, touch count and proximity.
+  const magnets = pools.map((p) => { const dist = p.distanceAtr, w = (p.role === 'external' ? 1.2 : 1) * (1 + 0.4 * (p.count - 1)) * p.quality / (1 + dist); return { price: r8(p.price), side: p.side === 'high' ? 'above' : 'below', kind: p.kind, role: p.role, quality: p.quality, distanceAtr: r8(dist), pull: r8(w) }; }).sort((a, b) => b.pull - a.pull).slice(0, 4);
   magnets.forEach((m, i) => add({ id: ['MAGNET', m.side, m.price].join('|'), layer: 'liquidity', kind: 'LIQUIDITY_MAGNET', direction: m.side === 'above' ? 'buy-side' : 'sell-side', ts: rows[last][0], price: m.price, label: 'Magnet #' + (i + 1), strength: clamp(m.pull / 2, 0.2, 1), source: src('proximity-weighted-unswept-pools', { distanceAtr: m.distanceAtr, pull: m.pull }) }));
 
   // --- Inducement: a minor swing swept by a wick that closed back, then a structure break within 8 bars -----

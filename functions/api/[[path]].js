@@ -12,6 +12,7 @@ import { summarizeAgentPerformance } from '../../src/agent-performance-engine.js
 import { evaluateResearchCouncil } from '../../src/research-council-engine.js';
 import { handleOrganizationApi } from '../organization-intelligence.js';
 import { handleIntelligenceFoundationApi } from '../intelligence-foundation.js';
+import { normaliseDexTrade } from '../../src/chart-intelligence/chain-dex.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -100,6 +101,232 @@ async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
   }
 }
 
+const DEX_NETWORK_MAP={ethereum:'eth',eth:'eth',bsc:'bsc',polygon:'polygon_pos',polygon_pos:'polygon_pos',arbitrum:'arbitrum',optimism:'optimism',base:'base',solana:'solana',avalanche:'avax',avax:'avax',fantom:'ftm',ftm:'ftm',cronos:'cro',linea:'linea',zksync:'zksync',sui:'sui',ton:'ton'};
+const DEX_TOKEN_ALIASES={BTC:['BTC','WBTC'],ETH:['ETH','WETH'],BNB:['BNB','WBNB'],AVAX:['AVAX','WAVAX'],MATIC:['MATIC','WMATIC','POL'],SOL:['SOL'],DOGE:['DOGE'],XRP:['XRP'],LINK:['LINK'],UNI:['UNI'],AAVE:['AAVE'],ARB:['ARB'],OP:['OP']};
+const STABLE_QUOTES=new Set(['USDT','USDC','DAI','FDUSD','USDE','BUSD','USD']);
+async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date().toISOString(),env={}){
+ const target=String(symbol||'').split(/[/-]/)[0].toUpperCase(),aliases=new Set(DEX_TOKEN_ALIASES[target]||[target]);
+ const dexCacheKey='jpti:dex-context:v1:'+target;
+ if(env.JPTI_KV&&/^[A-Z0-9]{2,16}$/.test(target)){try{const hit=await env.JPTI_KV.get(dexCacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* live discovery remains available if KV is down */}}
+ if(!/^[A-Z0-9]{2,16}$/.test(target))return{status:'unavailable',reason:'Unsupported market symbol for DEX discovery',generatedAt,pools:[],trades:[],sources:[],flow:{basis:'unavailable'}};
+ const result={status:'unavailable',symbol:target,generatedAt,identityVerified:false,identityStatus:'symbol-match-unverified',pools:[],trades:[],sources:[],flow:{buyUsd:0,sellUsd:0,buys:0,sells:0,basis:'unavailable'},coverage:{chains:0,pools:0},limitations:[]};
+ try{
+  const response=await fetchImpl('https://api.dexscreener.com/latest/dex/search?q='+encodeURIComponent(target),{headers:{accept:'application/json'}});
+  if(!response.ok)throw new Error('DexScreener HTTP '+response.status);
+  const payload=await response.json(),all=Array.isArray(payload.pairs)?payload.pairs:[];
+  const matches=all.filter(p=>{const bs=String(p.baseToken?.symbol||'').toUpperCase(),qs=String(p.quoteToken?.symbol||'').toUpperCase();return aliases.has(bs)||aliases.has(qs);});
+  const ranked=matches.map(p=>{const baseIsTarget=aliases.has(String(p.baseToken?.symbol||'').toUpperCase()),quote=String(p.quoteToken?.symbol||'').toUpperCase(),liq=Number(p.liquidity?.usd||0),vol=Number(p.volume?.h24||0);return{p,baseIsTarget,liq,vol,rank:liq*(STABLE_QUOTES.has(quote)?1.35:1)*(baseIsTarget?1.05:0.95)};}).filter(x=>x.liq>0&&x.p.pairAddress).sort((a,b)=>b.rank-a.rank);
+  const selected=ranked.slice(0,5);
+  if(!selected.length){result.limitations.push('No exact token-symbol match with measurable DEX pool liquidity was returned.');result.sources.push({name:'DexScreener pair discovery',status:'live',retrievedAt:generatedAt});if(env.JPTI_KV){try{await env.JPTI_KV.put(dexCacheKey,JSON.stringify({cachedAt:generatedAt,body:result}),{expirationTtl:60});}catch{/* best effort */}}return result;}
+  result.status='ready';result.coverage={chains:new Set(selected.map(x=>x.p.chainId)).size,pools:selected.length};
+  let estBuy=0,estSell=0,buyCount=0,sellCount=0;
+  result.pools=selected.map(({p,baseIsTarget})=>{const tx=p.txns?.h24||{},buys=Number(tx.buys||0),sells=Number(tx.sells||0),volume=Number(p.volume?.h24||0),total=buys+sells;if(total>0){const buy=volume*buys/total,sell=volume*sells/total;if(baseIsTarget){estBuy+=buy;estSell+=sell;}else{estBuy+=sell;estSell+=buy;}buyCount+=baseIsTarget?buys:sells;sellCount+=baseIsTarget?sells:buys;}return{chainId:p.chainId,dexId:p.dexId,pairAddress:p.pairAddress,pairUrl:p.url,baseToken:p.baseToken,quoteToken:p.quoteToken,baseIsTarget,priceUsd:baseIsTarget?(Number(p.priceUsd||0)||null):null,liquidityUsd:Number(p.liquidity?.usd||0)||0,volume24hUsd:volume,priceChange24hPct:baseIsTarget?Number(p.priceChange?.h24||0):(Number(p.priceChange?.h24||0)>-99?((1/(1+Number(p.priceChange?.h24||0)/100)-1)*100):null),buys,sells,tokenAddress:baseIsTarget?p.baseToken?.address:p.quoteToken?.address,identityVerified:false,identityMethod:'symbol-alias-match-unverified',pairCreatedAt:p.pairCreatedAt||null};});
+  result.flow={buyUsd:estBuy,sellUsd:estSell,buys:buyCount,sells:sellCount,basis:'dexscreener-count-weighted-estimate'};
+  result.sources.push({name:'DexScreener multi-chain pool and 24h transaction aggregates',status:'live',retrievedAt:generatedAt});
+  const tradePools=[];const seenNetworks=new Set();
+  for(const candidate of selected){const network=DEX_NETWORK_MAP[String(candidate.p.chainId||'').toLowerCase()];if(network&&!seenNetworks.has(network)){tradePools.push({...candidate,network});seenNetworks.add(network);}if(tradePools.length>=2)break;}
+  const sampled=await Promise.all(tradePools.map(async candidate=>{try{
+   const url='https://api.geckoterminal.com/api/v2/networks/'+encodeURIComponent(candidate.network)+'/pools/'+encodeURIComponent(candidate.p.pairAddress)+'/trades?trade_volume_in_usd_greater_than=0';
+   const gr=await fetchImpl(url,{headers:{accept:'application/json;version=20230203'}});if(!gr.ok)throw new Error('GeckoTerminal HTTP '+gr.status);
+   const gp=await gr.json(),raw=Array.isArray(gp.data)?gp.data:[];
+   const trades=raw.map(x=>normaliseDexTrade(x,{baseIsTarget:candidate.baseIsTarget,chainId:candidate.p.chainId,poolAddress:candidate.p.pairAddress,dexId:candidate.p.dexId})).filter(Boolean).filter(t=>Date.parse(generatedAt)-t.timestamp>=-60000&&Date.parse(generatedAt)-t.timestamp<=24*60*60*1000).sort((a,b)=>b.timestamp-a.timestamp).slice(0,60);
+   return{trades,source:{name:'GeckoTerminal confirmed pool swaps · '+candidate.p.chainId,status:'live',retrievedAt:generatedAt,network:candidate.network,poolAddress:candidate.p.pairAddress}};
+  }catch(error){return{trades:[],source:{name:'GeckoTerminal confirmed pool swaps · '+candidate.p.chainId,status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,160)}};}}));
+  result.trades=sampled.flatMap(x=>x.trades).sort((a,b)=>b.timestamp-a.timestamp).slice(0,120);
+  result.sources.push(...sampled.map(x=>x.source));
+  if(result.trades.length){const buy=result.trades.filter(t=>t.side==='buy').reduce((a,t)=>a+t.amountUsd,0),sell=result.trades.filter(t=>t.side==='sell').reduce((a,t)=>a+t.amountUsd,0);result.flow={buyUsd:buy,sellUsd:sell,buys:result.trades.filter(t=>t.side==='buy').length,sells:result.trades.filter(t=>t.side==='sell').length,basis:'geckoterminal-confirmed-swap-sample'};}
+  if(!tradePools.length){result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'unsupported',retrievedAt:generatedAt});result.limitations.push('No supported GeckoTerminal network was found for the highest-liquidity pools.');}
+  if(!result.trades.length)result.limitations.push('Confirmed swap sampling returned no usable trades; DEX aggregate buy/sell counts remain an explicitly estimated fallback.');
+  result.transactionsBasis=result.trades.length?'confirmed-swap-sample':'24h-aggregate-only';
+  result.limitations.push('DEX pool coverage is a symbol-based discovery sample, not every pool or every blockchain transaction. Token identity must be checked before using low-liquidity or similarly named assets.');
+ }catch(error){result.error=String(error?.message||error).slice(0,200);result.sources.push({name:'DexScreener pair discovery',status:'offline',retrievedAt:generatedAt,error:result.error});}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(dexCacheKey,JSON.stringify({cachedAt:generatedAt,body:result}),{expirationTtl:60});}catch{/* best effort */}}
+ return result;
+}
+async function readDexTransactions(env,symbol,limit=60){
+ if(!env.JPTI_DB)return{transactions:[],storage:'unavailable',reason:'JPTI_DB binding unavailable'};
+ try{const rows=await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='dex-swap' AND symbol=? ORDER BY occurred_at DESC LIMIT ?").bind(String(symbol||'').slice(0,40),Math.floor(Math.min(100,Math.max(1,Number(limit)||60)))).all();const transactions=(rows.results||[]).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);return{transactions,storage:'cloudflare-d1',count:transactions.length};}
+ catch(error){return{transactions:[],storage:'degraded',reason:String(error?.message||error).slice(0,160)};}
+}
+async function persistDexTransactions(env,symbol,trades){
+ if(!env.JPTI_DB)return{persisted:false,count:0,reason:'JPTI_DB binding unavailable'};
+ let count=0;
+ try{for(const t of trades){const saved=await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?,'dex-swap','geckoterminal',?,?,?,?)").bind('dex-swap:'+t.id,t.txHash,String(symbol||'').slice(0,40),t.occurredAt,JSON.stringify(t)).run();count+=Number(saved?.meta?.changes||0);}return{persisted:true,count};}
+ catch(error){return{persisted:false,count,reason:String(error?.message||error).slice(0,180)};}
+}
+
+async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generatedAt=new Date().toISOString()){
+ const base=String(symbol||'').split(/[/-]/)[0].toUpperCase(),cacheKey='jpti:institutional-context:v1:'+base;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(cacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<900000)return hit.body;}catch{/* source requests remain available without KV */}}
+ const out={status:'partial',generatedAt,macro:{status:'unavailable',riskBias:null},cftc:{status:'unavailable',netBias:null},treasury:{status:'unavailable',records:[]},ecb:{status:'unavailable'},news:[],sources:[],limitations:[]};
+ const source=(name,status,url,extra={})=>out.sources.push({name,status,url,retrievedAt:generatedAt,...extra});
+ const safeJson=async(url,headers={accept:'application/json'})=>{const r=await fetchImpl(url,{headers});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
+ // CFTC Traders in Financial Futures, futures-only weekly positioning. It is a lagged report, not live order flow.
+ if(['BTC','ETH'].includes(base)){
+  try{
+   const term=base==='BTC'?'BITCOIN':'ETHER';
+   const query=new URLSearchParams({$select:'market_and_exchange_names,report_date_as_yyyy_mm_dd,open_interest_all,dealer_positions_long_all,dealer_positions_short_all,asset_mgr_positions_long,asset_mgr_positions_short,lev_money_positions_long,lev_money_positions_short,other_rept_positions_long_all,other_rept_positions_short_all,nonrept_positions_long_all,nonrept_positions_short_all', $where:"upper(market_and_exchange_names) like '%"+term+"%'", $order:'report_date_as_yyyy_mm_dd DESC',$limit:'50'});
+   const rows=await safeJson('https://publicreporting.cftc.gov/resource/gpe5-46if.json?'+query.toString());
+   const validRows=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.open_interest_all)>0),latestReport=validRows[0]?.report_date_as_yyyy_mm_dd,cohort=validRows.filter(x=>String(x.report_date_as_yyyy_mm_dd||'').slice(0,10)===String(latestReport||'').slice(0,10));
+   const row=cohort[0];
+   if(row){
+    const field=(x,names)=>{for(const name of names){const v=Number(x[name]);if(Number.isFinite(v))return v;}return null;};
+    const sumFields=names=>{const values=cohort.map(x=>field(x,names));return values.some(v=>v!==null)?values.reduce((sum,v)=>sum+(v??0),0):null;};
+    const oi=cohort.reduce((sum,x)=>sum+Number(x.open_interest_all||0),0),dealerLong=sumFields(['dealer_positions_long_all']),dealerShort=sumFields(['dealer_positions_short_all']),assetLong=sumFields(['asset_mgr_positions_long','asset_mgr_positions_long_all']),assetShort=sumFields(['asset_mgr_positions_short','asset_mgr_positions_short_all']),levLong=sumFields(['lev_money_positions_long','lev_money_positions_long_all']),levShort=sumFields(['lev_money_positions_short','lev_money_positions_short_all']),otherLong=sumFields(['other_rept_positions_long_all']),otherShort=sumFields(['other_rept_positions_short_all']),nonLong=sumFields(['nonrept_positions_long_all']),nonShort=sumFields(['nonrept_positions_short_all']);
+    const makeGroup=(long,short)=>long===null||short===null||oi<=0?null:{long,short,net:long-short,bias:Math.max(-1,Math.min(1,(long-short)/oi/.25)),longShortRatio:short?long/short:null};
+    const dealer=makeGroup(dealerLong,dealerShort),assetManager=makeGroup(assetLong,assetShort),leveragedMoney=makeGroup(levLong,levShort),otherReportables=makeGroup(otherLong,otherShort),nonReportables=makeGroup(nonLong,nonShort),groups=[dealer,assetManager,leveragedMoney,otherReportables,nonReportables].filter(Boolean),hasPositionData=groups.length>0,netBias=hasPositionData?groups.reduce((sum,x)=>sum+x.bias,0)/groups.length:null,reportDate=String(latestReport||'').slice(0,10);
+    const ageDays=reportDate?Math.max(0,(Date.parse(generatedAt)-Date.parse(reportDate))/86400000):null;
+    const cftcStatus=hasPositionData&&oi>0&&ageDays!==null&&ageDays<=14?'live':'stale';
+    out.cftc={status:cftcStatus,reportName:'Traders in Financial Futures · Futures Only',market:cohort.slice(0,4).map(x=>x.market_and_exchange_names).join(' · '),contracts:cohort.length,reportDate,openInterest:oi,dealer,assetManager,leveragedMoney,otherReportables,nonReportables,netBias,ageDays};
+    source('CFTC weekly futures positioning cohorts',cftcStatus,'https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
+   }else{out.cftc.status='no-match';source('CFTC weekly futures positioning cohorts','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
+  }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly futures positioning cohorts','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
+ }else{out.cftc.status='unsupported';source('CFTC weekly futures positioning cohorts','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
+ // FRED: Treasury yields, broad dollar and policy rate. A user-provided key remains server-side only.
+ const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR','WCESTUS1','WGTSTUS1','WDISTUS1'];
+ if(env.FRED_API_KEY){
+  const observations=await Promise.all(fredSeries.map(async id=>{try{const u='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+encodeURIComponent(env.FRED_API_KEY)+'&file_type=json&sort_order=desc&limit=5';const p=await safeJson(u);const rows=(p.observations||[]).filter(x=>x.value!=='.'&&Number.isFinite(Number(x.value)));return[id,{status:'live',latest:rows[0]?{date:rows[0].date,value:Number(rows[0].value)}:null,previous:rows[1]?{date:rows[1].date,value:Number(rows[1].value)}:null}];}catch(error){return[id,{status:'offline',error:String(error?.message||error).slice(0,140)}];}}));
+  out.macro.fred=Object.fromEntries(observations);
+  const dgs=out.macro.fred.DGS10,dollar=out.macro.fred.DTWEXBGS;
+  const risk=[];
+  const freshObservation=x=>x?.latest?.date&&Date.parse(generatedAt)-Date.parse(x.latest.date)<=14*86400000;
+  if(freshObservation(dgs)&&dgs?.previous)risk.push(Math.max(-1,Math.min(1,-(dgs.latest.value-dgs.previous.value)/.15)));
+  if(freshObservation(dollar)&&dollar?.previous&&dollar.previous.value!==0)risk.push(Math.max(-1,Math.min(1,-((dollar.latest.value-dollar.previous.value)/dollar.previous.value*100)/.15)));
+  const pctMove=id=>{const x=out.macro.fred[id];return freshObservation(x)&&x.previous?.value?((x.latest.value/x.previous.value)-1)*100:null;};
+  for(const id of ['WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR']){const move=pctMove(id);if(Number.isFinite(move))risk.push(Math.max(-1,Math.min(1,move/.2)));}
+  out.macro.riskBias=risk.length?Number((risk.reduce((a,b)=>a+b,0)/risk.length).toFixed(3)):null;
+  const inventoryIds=['WCESTUS1','WGTSTUS1','WDISTUS1'];
+  out.macro.commodityInventories=Object.fromEntries(inventoryIds.map(id=>{const x=out.macro.fred[id],move=freshObservation(x)&&x.previous?.value!=null?Number((x.latest.value-x.previous.value).toFixed(2)):null;return[id,{latest:x?.latest||null,previous:x?.previous||null,weeklyChange:move}];}));
+  const crudeInventory=out.macro.commodityInventories.WCESTUS1;
+  out.macro.commodityRiskBias=Number.isFinite(crudeInventory.weeklyChange)&&crudeInventory.previous?.value?Math.max(-1,Math.min(1,-(crudeInventory.weeklyChange/crudeInventory.previous.value*100)/1)):null;
+  out.macro.status=risk.length?'live':'partial';
+  source('Federal Reserve FRED observations',observations.some(x=>x[1].status==='live')?'live':'offline','https://fred.stlouisfed.org/docs/api/fred/series_observations.html',{series:fredSeries});
+ }else{out.macro.fredStatus='not-configured';source('Federal Reserve FRED observations','not-configured','https://fred.stlouisfed.org/docs/api/fred/series_observations.html');out.limitations.push('FRED policy rates, Treasury yields and bank-balance-sheet series require the server-side FRED_API_KEY secret.');}
+ // U.S. Treasury Fiscal Data is public and does not require an API key.
+ try{
+  const u='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=5';
+  const p=await safeJson(u),rows=Array.isArray(p.data)?p.data:[];
+  out.treasury={status:rows.length?'live':'empty',records:rows.slice(0,5).map(x=>({recordDate:x.record_date,securityDescription:x.security_desc||x.security_type_desc||null,averageInterestRate:Number(String(x.avg_interest_rate_amt??x.average_interest_rate??'').replace('%',''))})).filter(x=>Number.isFinite(x.averageInterestRate))};
+  source('U.S. Treasury average interest rates',rows.length?'live':'empty','https://fiscaldata.treasury.gov/api-documentation/',{recordDate:rows[0]?.record_date||null});
+ }catch(error){out.treasury.status='offline';source('U.S. Treasury average interest rates','offline','https://fiscaldata.treasury.gov/api-documentation/',{error:String(error?.message||error).slice(0,140)});}
+ // ECB reference exchange rates are a daily central-bank observation, not a tick feed.
+ try{
+  const u='https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=3&format=csvdata';
+  const r=await fetchImpl(u,{headers:{accept:'text/csv'}});if(!r.ok)throw new Error('HTTP '+r.status);
+  const lines=(await r.text()).trim().split(/\r?\n/),headers=(lines[0]||'').split(','),ti=headers.indexOf('TIME_PERIOD'),vi=headers.indexOf('OBS_VALUE');
+  const vals=lines.slice(1).map(line=>line.split(',')).map(row=>({date:row[ti],value:Number(row[vi])})).filter(x=>x.date&&Number.isFinite(x.value)).sort((a,b)=>a.date.localeCompare(b.date));
+  out.ecb={status:vals.length?'live':'empty',series:'EUR/USD reference (USD per EUR)',latest:vals.at(-1)||null,previous:vals.at(-2)||null};
+  const ecbFresh=vals.length&&Date.parse(generatedAt)-Date.parse(vals.at(-1).date)<=14*86400000;
+  if(ecbFresh&&vals.length>1&&vals.at(-2).value)out.macro.ecbUsdPerEurChangePct=(vals.at(-1).value/vals.at(-2).value-1)*100;
+  if(out.macro.riskBias==null&&Number.isFinite(out.macro.ecbUsdPerEurChangePct))out.macro.riskBias=Math.max(-1,Math.min(1,out.macro.ecbUsdPerEurChangePct/.15));
+  if(out.macro.status!=='live'&&Number.isFinite(out.macro.riskBias))out.macro.status='live';
+  source('European Central Bank daily reference exchange rates',vals.length?'live':'empty','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
+ }catch(error){out.ecb.status='offline';source('European Central Bank daily reference exchange rates','offline','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{error:String(error?.message||error).slice(0,140)});}
+ // Public retail crowd sentiment: a broad index, not a measured long/short account ratio.
+ try{
+  const p=await safeJson('https://api.alternative.me/fng/?limit=2&format=json');
+  const rows=Array.isArray(p.data)?p.data:[];
+  const latest=rows[0],previous=rows[1],value=Number(latest?.value);
+  if(Number.isFinite(value)){const ageMs=latest.timestamp?Math.max(0,Date.parse(generatedAt)-Number(latest.timestamp)*1000):null;const status=ageMs!==null&&ageMs<=48*3600000?'live':'stale';out.retailSentiment={status,value,classification:latest.value_classification||null,timestamp:latest.timestamp||null,ageMs,previousValue:previous?Number(previous.value):null,riskBias:status==='live'?Math.max(-1,Math.min(1,(value-50)/50)):null};source('Alternative.me Crypto Fear & Greed retail sentiment',status,'https://api.alternative.me/fng/');}
+  else{out.retailSentiment={status:'empty'};source('Alternative.me Crypto Fear & Greed retail sentiment','empty','https://api.alternative.me/fng/');}
+ }catch(error){out.retailSentiment={status:'offline',error:String(error?.message||error).slice(0,140)};source('Alternative.me Crypto Fear & Greed retail sentiment','offline','https://api.alternative.me/fng/',{error:out.retailSentiment.error});}
+ // Official Federal Reserve press releases are contextual event evidence only; headlines never receive an automatic directional score.
+ try{
+  const url='https://www.federalreserve.gov/feeds/press_all.xml',r=await fetchImpl(url,{headers:{accept:'application/rss+xml, application/xml, text/xml'}});if(!r.ok)throw new Error('HTTP '+r.status);
+  const xml=await r.text(),items=[];
+  for(const match of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)){const block=match[1],field=name=>decodeXml(block.match(new RegExp('<'+name+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+name+'>','i'))?.[1]||'').replace(/<[^>]+>/g,'').trim(),title=field('title'),link=field('link'),date=field('pubDate');if(title&&link)items.push({title:title.slice(0,260),url:link,publishedAt:date||null,source:'Federal Reserve'});if(items.length>=8)break;}
+  out.news=items;source('Federal Reserve official press releases','live',url);
+ }catch(error){source('Federal Reserve official press releases','offline','https://www.federalreserve.gov/feeds/press_all.xml',{error:String(error?.message||error).slice(0,140)});}
+ out.status=out.sources.some(x=>x.status==='live')?'partial':'unavailable';
+ // GDELT DOC 2.0 adds a broad, public geopolitical and financial-news layer. Headlines are event-risk context, never a directional signal.
+ try{
+  const query='(bitcoin OR cryptocurrency OR financial markets OR banking) AND (war OR sanctions OR conflict OR tariff OR central bank OR inflation OR interest rate OR bank failure OR regulation)';
+  const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(query)+'&mode=ArtList&format=json&maxrecords=20&timespan=24h&sort=DateDesc';
+  const p=await safeJson(url),rows=Array.isArray(p.articles)?p.articles:[];
+  const parseSeen=value=>{const raw=String(value||''),m=raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);return m?m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'Z':raw;};
+  const articles=rows.map(x=>({title:String(x.title||'').slice(0,260),url:x.url||null,domain:x.domain||null,sourceCountry:x.sourceCountry||x.sourcecountry||null,tone:Number.isFinite(Number(x.tone))?Number(x.tone):null,publishedAt:parseSeen(x.seendate),source:'GDELT'})).filter(x=>x.title&&x.url);
+  const riskTerms=/(war|invasion|missile|attack|sanction|tariff|emergency|default|bank failure|capital control|fomc|rate decision|inflation shock|exchange halt|cyberattack)/i;
+  const highImpact=articles.filter(x=>riskTerms.test(x.title)&&Number.isFinite(Date.parse(x.publishedAt))&&Date.parse(generatedAt)-Date.parse(x.publishedAt)>=-60000&&Date.parse(generatedAt)-Date.parse(x.publishedAt)<=6*3600000);
+  out.geopoliticalNews=articles.slice(0,12);out.news=[...(out.news||[]),...out.geopoliticalNews].slice(0,20);
+  out.eventRisk={status:'live',active:highImpact.length>0,severity:highImpact.some(x=>/(war|invasion|missile|attack|emergency|default|bank failure|cyberattack)/i.test(x.title))?2:highImpact.length?1:0,count:highImpact.length,headlines:highImpact.slice(0,5).map(x=>({title:x.title,url:x.url,publishedAt:x.publishedAt,source:x.source}))};
+  source('GDELT geopolitical and financial news','live',url,{articles:articles.length,eventRiskCount:highImpact.length});
+ }catch(error){out.eventRisk={status:'offline',active:false,severity:0,count:0,headlines:[]};source('GDELT geopolitical and financial news','offline','https://api.gdeltproject.org/api/v2/doc/doc',{error:String(error?.message||error).slice(0,140)});}
+ out.status=out.sources.some(x=>x.status==='live')?'partial':'unavailable';
+ out.limitations.push('CFTC positioning is weekly and lagged; it represents reported futures positions, not live bank orders or spot-wallet flows.');
+ out.limitations.push('Treasury, ECB and FRED observations are macro context with their own publication schedules, not intraday trade triggers.');
+ out.limitations.push('Private bank, prime-broker, dealer client-flow and paid institutional datasets are not connected without licensed provider access.');
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:900});}catch{/* optional cache */}}
+ return out;
+}
+
+function depthNotionalImbalance(bids,asks){
+ const total=rows=>(Array.isArray(rows)?rows.slice(0,20):[]).reduce((sum,row)=>{const price=Number(row?.[0]),size=Number(row?.[1]);return sum+(Number.isFinite(price)&&Number.isFinite(size)?price*size:0);},0);
+ const bid=total(bids),ask=total(asks),all=bid+ask;return all>0?Number(((bid-ask)/all*100).toFixed(3)):null;
+}
+async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
+ const key='jpti:microstructure:v1:'+exchange+':'+symbol+':'+marketType;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<15000)return hit.body;}catch{/* continue to public exchange */}}
+ const out={orderBookImbalancePct:null,fundingRate:null,sources:[],generatedAt};
+ const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),type=String(marketType||'spot').toLowerCase(),derivative=!['spot','margin','cfd'].includes(type),coinMargined=type.includes('coin'),baseAsset=String(symbol||'').split(/[/-]/)[0].toUpperCase();
+ const get=async url=>{const r=await fetchImpl(url,{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
+ let bookUrl=null,fundingUrl=null;
+ if(exchange==='bitget'&&marketType!=='cfd'){
+  const productType=String(marketType).includes('coin')?'COIN-FUTURES':String(marketType).includes('usdc')?'USDC-FUTURES':'USDT-FUTURES';
+  bookUrl=derivative?'https://api.bitget.com/api/v2/mix/market/merge-depth?productType='+productType+'&symbol='+baseSymbol+'&limit=20':'https://api.bitget.com/api/v2/spot/market/orderbook?symbol='+baseSymbol+'&type=step0&limit=20';
+  if(derivative)fundingUrl='https://api.bitget.com/api/v2/mix/market/current-fund-rate?productType='+productType+'&symbol='+baseSymbol;
+ }else if(exchange==='binance'){
+  const binanceSymbol=coinMargined?baseAsset+'USD_PERP':baseSymbol;
+  bookUrl=(derivative?(coinMargined?'https://dapi.binance.com/dapi/v1/depth?symbol=':'https://fapi.binance.com/fapi/v1/depth?symbol='):'https://api.binance.com/api/v3/depth?symbol=')+(coinMargined?binanceSymbol:baseSymbol)+'&limit=20';
+  if(derivative)fundingUrl=(coinMargined?'https://dapi.binance.com/dapi/v1/premiumIndex?symbol=':'https://fapi.binance.com/fapi/v1/premiumIndex?symbol=')+(coinMargined?binanceSymbol:baseSymbol);
+ }else if(exchange==='bybit'){
+  const category=derivative?(String(marketType).includes('coin')?'inverse':'linear'):'spot';
+  bookUrl='https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+baseSymbol+'&limit=25';
+  if(derivative)fundingUrl='https://api.bybit.com/v5/market/tickers?category='+category+'&symbol='+baseSymbol;
+ }else if(exchange==='okx'){
+  const pair=String(symbol||'').replace('/', '-');
+  const inst=derivative?(coinMargined?pair.split('-')[0]+'-USD-SWAP':pair+'-SWAP'):pair;
+  bookUrl='https://www.okx.com/api/v5/market/books?instId='+encodeURIComponent(inst)+'&sz=20';
+  if(derivative)fundingUrl='https://www.okx.com/api/v5/public/funding-rate?instId='+encodeURIComponent(inst);
+ }
+ if(bookUrl){
+  try{
+   const p=await get(bookUrl),d=exchange==='bybit'?p.result:(exchange==='okx'?p.data?.[0]:p.data||p);
+   const bids=d?.bids||d?.b||[],asks=d?.asks||d?.a||[];
+   out.orderBookImbalancePct=depthNotionalImbalance(bids,asks);
+   out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:out.orderBookImbalancePct==null?'empty':'live',retrievedAt:generatedAt,levels:Math.min(20,bids.length,asks.length)});
+  }catch(error){out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ }else out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:'unsupported',retrievedAt:generatedAt});
+ if(fundingUrl){
+  try{
+   const p=await get(fundingUrl),d=exchange==='bybit'?p.result?.list?.[0]:(exchange==='okx'?p.data?.[0]:(Array.isArray(p.data)?p.data[0]:p.data||p));
+   const rate=Number(d?.fundingRate??d?.funding_rate??d?.lastFundingRate);
+   out.fundingRate=Number.isFinite(rate)?rate:null;
+   out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:out.fundingRate==null?'empty':'live',retrievedAt:generatedAt});
+  }catch(error){out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ }else out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'unsupported',retrievedAt:generatedAt});
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
+ return out;
+}
+async function fetchGlobalMarketContext(fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
+ const key='jpti:global-market-context:v1';
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<300000)return hit.body;}catch{/* continue */}}
+ const out={globalMarketCapChange24hPct:null,status:'unavailable',sources:[]};
+ try{const r=await fetchImpl('https://api.coingecko.com/api/v3/global',{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);const p=await r.json(),data=p.data||{};const change=Number(data.market_cap_change_percentage_24h_usd);out.globalMarketCapChange24hPct=Number.isFinite(change)?Number(change.toFixed(3)):null;out.totalMarketCapUsd=Number(data.total_market_cap?.usd)||null;out.totalVolume24hUsd=Number(data.total_volume?.usd)||null;out.btcDominancePct=Number(data.market_cap_percentage?.btc)||null;out.activeCryptocurrencies=Number(data.active_cryptocurrencies)||null;out.status=out.globalMarketCapChange24hPct==null?'empty':'live';out.sources.push({name:'CoinGecko global crypto market breadth',status:out.status,retrievedAt:generatedAt});}
+ catch(error){out.status='offline';out.sources.push({name:'CoinGecko global crypto market breadth',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:300});}catch{/* optional cache */}}
+ return out;
+}
+async function fetchMultiTimeframeContext(exchange,symbol,timeframe,marketType,instrumentId,marketProvider,bitgetCfdProvider,env,request,generatedAt){
+ const key='jpti:multi-timeframe:v1:'+exchange+':'+symbol+':'+marketType;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* continue */}}
+ const frames=timeframe==='1m'||timeframe==='3m'?['15m','1h','4h','1d']:timeframe==='5m'||timeframe==='15m'||timeframe==='30m'?['1h','4h','1d']:timeframe==='1h'||timeframe==='2h'?['4h','1d','1w']:timeframe==='4h'||timeframe==='6h'||timeframe==='8h'?['1d','1w','1h']:['1h','4h','1d'];
+ const selected=[...new Set(frames)].filter(x=>x!==timeframe).slice(0,3),instrumentQuery=instrumentId?'&instrumentId='+encodeURIComponent(instrumentId):'';
+ const rows=await Promise.all(selected.map(async tf=>{try{let result;if(exchange==='bitget'&&marketType==='cfd')result=await bitgetCfdProvider.request(env,{kind:'ohlcv',symbol,timeframe:tf,side:new URL(request.url).searchParams.get('side')||'buy',limit:100});else result=await marketProvider.request('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(symbol)+'?timeframe='+tf+'&limit=100&type='+encodeURIComponent(marketType)+instrumentQuery,{method:'GET',signal:request.signal});const candles=(result?.body?.candles||[]).filter(x=>Array.isArray(x)&&x.length>=6).map(x=>x.map(Number));const closed=candles.slice(0,-1);if(closed.length<21)return null;const a=closed.at(-1)[4],b=closed.at(-21)[4],change=b?((a-b)/b)*100:0;return{timeframe:tf,bias:change>.15?'bullish':change<-.15?'bearish':'neutral',biasScore:change>.15?1:change<-.15?-1:0,changePct:Number(change.toFixed(4)),last:a,source:'exchange closed-candle OHLCV',status:'fresh'};}catch{return null;}}));
+ const out={timeframes:rows.filter(Boolean),sources:[{name:'Exchange multi-timeframe closed-candle context',status:rows.some(Boolean)?'live':'offline',retrievedAt:generatedAt}]};
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:60});}catch{/* optional cache */}}
+ return out;
+}
+
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
   const rows = (Array.isArray(candles) ? candles : [])
     .filter((row) => Array.isArray(row) && row.length >= 6 && row.slice(0, 6).every((value) => Number.isFinite(Number(value))))
@@ -135,7 +362,7 @@ function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
         volumeChangePct: volumeChangePct === null ? null : Number(volumeChangePct.toFixed(2)),
         orderBookImbalancePct: null, fundingRate: null, last: latest[4], sma20
       },
-      broadContext: { globalMarketCapChange24hPct: null, status: 'not-connected' },
+      broadContext: { globalMarketCapChange24hPct: null, status: 'pending' },
       multiTimeframe: [{ timeframe, bias, changePct: Number(priceChangePct.toFixed(4)), source: 'selected-timeframe OHLCV' }],
       score: {
         score, direction, confidence,
@@ -147,13 +374,13 @@ function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
       },
       sources: [
         { name: exchange.toUpperCase() + ' OHLCV', status: 'live' },
-        { name: 'Order book depth', status: 'unsupported' },
-        { name: 'Perpetual funding', status: 'unsupported' },
-        { name: 'Global market context', status: 'not-connected' }
+        { name: 'Order book depth', status: 'pending' },
+        { name: 'Perpetual funding', status: 'pending' },
+        { name: 'Global market context', status: 'pending' }
       ],
       limitations: [
-        'This is a lightweight, single-timeframe OHLCV heuristic generated at the Cloudflare edge.',
-        'Order-book depth, funding, global market breadth and multi-timeframe confirmation are not included; this is not a trade instruction.'
+        'Exchange depth, funding, global breadth and multi-timeframe data are provider-dependent; unsupported or stale feeds are excluded.',
+        'Institutional positioning and macro releases have slower publication schedules and are context inputs, not tick-level order flow or trade instructions.'
       ],
       source: 'cloudflare-edge'
     }
@@ -653,6 +880,14 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       return handleMentorRoute(request, env, fetchImpl);
     }
 
+    const dexHistoryMatch=url.pathname.match(/^\/api\/chain-dex\/transactions\/([^/]+)$/i);
+    if(dexHistoryMatch){
+      if(request.method!=='GET')return json(405,{error:'DEX transaction history supports GET only.'},request,{allow:'GET, OPTIONS'});
+      let requestedSymbol;try{requestedSymbol=decodeURIComponent(dexHistoryMatch[1]).replace('-', '/');}catch{return json(400,{error:'Invalid DEX history symbol.'},request);}
+      const history=await readDexTransactions(env,requestedSymbol,url.searchParams.get('limit')||60);
+      return json(history.storage==='unavailable'?503:200,{symbol:requestedSymbol,...history,source:'jpti-cloudflare-d1'},request);
+    }
+
     if (!['GET', 'HEAD'].includes(request.method)) {
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
     }
@@ -845,7 +1080,31 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       const generatedAt = now().toISOString();
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
-      if (context.status === 200) await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
+      if (context.status === 200) {
+        const [microstructure, globalContext, multiTimeframe] = await Promise.all([
+          fetchExchangeMicrostructure(exchange, symbol, contextType, fetchImpl, env, generatedAt),
+          fetchGlobalMarketContext(fetchImpl, env, generatedAt),
+          fetchMultiTimeframeContext(exchange, symbol, timeframe, contextType, instrumentId, marketProvider, bitgetCfdProvider, env, request, generatedAt)
+        ]);
+        context.body.market = { ...context.body.market, orderBookImbalancePct: microstructure.orderBookImbalancePct, fundingRate: microstructure.fundingRate };
+        context.body.broadContext = { ...globalContext };
+        context.body.multiTimeframe = [...(context.body.multiTimeframe || []), ...(multiTimeframe.timeframes || [])];
+        context.body.sources = (context.body.sources || []).filter(x => !['Order book depth','Perpetual funding','Global market context'].includes(x.name));
+        context.body.sources = [...context.body.sources, ...(microstructure.sources || []), ...(globalContext.sources || []), ...(multiTimeframe.sources || [])];
+        const [chainDex, institutionalSources] = await Promise.all([
+          fetchChainDexContext(symbol, fetchImpl, generatedAt, env),
+          fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt)
+        ]);
+        context.body.institutionalSources = institutionalSources;
+        context.body.sources = [...(context.body.sources || []), ...(institutionalSources.sources || [])];
+        context.body.limitations = [...(context.body.limitations || []), ...(institutionalSources.limitations || [])];
+        const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol.replace('-', '/'), chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
+        const history = await readDexTransactions(env, symbol.replace('-', '/'), 80);
+        context.body.sources = [...(context.body.sources || []), ...(chainDex.sources || [])];
+        context.body.limitations = [...(context.body.limitations || []), ...(chainDex.limitations || [])];
+        context.body.chainDex = { ...chainDex, persistence: persisted, history };
+        await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
+      }
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
     }
 
@@ -975,6 +1234,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           '/api/alpha/gainz/outcomes',
           '/api/alpha/gainz/calibration',
           '/api/alerts',
+          '/api/chain-dex/transactions/:symbol',
           '/api/mentor/analyze'
         ],
         note: 'Public chart data, private reflective journal, session outcome memory and GainzAlpha outcome persistence run on Cloudflare Pages Functions and D1. Private account access and order execution remain disabled.'

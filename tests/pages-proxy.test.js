@@ -70,7 +70,7 @@ test('Cloudflare Pages builds chart context from closed OHLCV candles with expli
   assert.equal(body.multiTimeframe[0].timeframe, '1h');
   assert.ok(Number.isFinite(body.score.score));
   assert.equal(body.market.orderBookImbalancePct, null);
-  assert.match(body.limitations[1], /not included/);
+  assert.match(body.limitations[1], /publication schedules|tick-level order flow/);
 });
 
 test('Cloudflare edge API permits only the standard Capacitor WebView origin for native requests', async () => {

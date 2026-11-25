@@ -94,6 +94,35 @@ test('absorption is detected on a heavy-volume, small-body candle with a long lo
   assert.ok(hit); assert.equal(hit.direction, 'bullish'); assert.equal(hit.source.basis, 'ohlcv-estimate');
 });
 
+test('filled fair-value gaps remain in historical chart output and sweeps expose quality metadata',()=>{
+ const rows=[];for(let i=0;i<70;i++)rows.push([i*H,100,101,99,100,100]);
+ rows[43]=[43*H,100,100.5,99.8,100.2,100];
+ rows[45]=[45*H,103,104,102,103.5,180];
+ const prefix=analyzeSmc(rows.slice(0,46)),full=analyzeSmc(rows);
+ const formed=prefix.items.find(x=>x.kind==='FVG'&&x.ts===45*H);
+ const later=full.items.find(x=>x.id===formed?.id);
+ assert.ok(formed,'bullish FVG is detected on its formation prefix');
+ assert.ok(later,'the FVG remains represented after later candles mitigate it');
+ assert.equal(later.price,formed.price);
+ assert.ok(['active','filled','partial'].includes(later.status));
+ const hardened=analyzeSmc(walk(215,12));
+ for(const pool of hardened.liquidity.pools){assert.ok(['external','internal','equal-level'].includes(pool.role));assert.ok(Number.isFinite(pool.quality)&&pool.quality>=0&&pool.quality<=1);assert.ok(Number.isFinite(pool.distanceAtr));}
+ const sweeps=analyzeSmc(walk(215,12)).items.filter(x=>x.kind==='LIQUIDITY_SWEEP');
+ assert.ok(sweeps.length>0);
+ for(const x of sweeps){assert.ok(Number.isFinite(x.quality)&&x.quality>=0&&x.quality<=1);assert.ok(Number.isFinite(x.penetrationAtr));}
+});
+
+test('chain DEX and session forecast are part of the same canonical confluence result',()=>{
+ const rows=walk(420,71),now=nowFor(rows),generatedAt=new Date(now).toISOString();
+ const chainDexContext={status:'ready',generatedAt,sources:[{name:'DexScreener',status:'live'},{name:'GeckoTerminal',status:'live'}],pools:[{liquidityUsd:800000,volume24hUsd:1600000,priceChange24hPct:3}],flow:{buyUsd:900000,sellUsd:300000,buys:20,sells:9,basis:'geckoterminal-confirmed-swap-sample'},trades:Array.from({length:15},(_,i)=>({basis:'geckoterminal-confirmed-swap',amountUsd:100+i}))};
+ const sessionContext={status:'ready',generatedAt,directionalBias:.35,sessions:[{id:'london',forecast:{high:105,low:95},confidence:'moderate',historySamples:8}]};
+ const r=analyzeChartIntelligence(rows,{exchange:'x',symbol:'ETH/USDT',timeframe:'1h',now,chainDexContext,sessionContext,ledger:createMemoryLedger()});
+ assert.equal(r.status,'ready');assert.equal(r.chainDex.status,'ready');assert.equal(r.sessionForecast.directionalBias,.35);
+ assert.ok(r.confluence.components.some(x=>x.key==='chainDex'&&x.available));
+ assert.ok(r.confluence.components.some(x=>x.key==='session'&&x.available));
+ assert.ok(r.layers.liquidity.some(x=>x.kind==='SESSION_FORECAST_HIGH'));
+ assert.ok(r.entryAssessment&&typeof r.entryAssessment.status==='string');
+});
 test('SMC items never repaint: items found on a prefix reappear unchanged on the longer series', () => {
   const rows = walk(215, 12), prefix = analyzeSmc(rows.slice(0, 150)), full = analyzeSmc(rows);
   for (const layer of ['structure', 'sweeps']) {
