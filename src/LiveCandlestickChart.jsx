@@ -156,7 +156,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const gainzAlpha = useMemo(() => analyzeGainzAlphaInspired(candles.slice(0, -1), { symbol, timeframe, historicalOutcomes: sessionMemory, now: sessionClock }), [candles, symbol, timeframe, sessionMemory, sessionClock]);
   const [gaOverlaysMounted, setGaOverlaysMounted] = useState(false);
   const ga = useGainzAlpha({ exchange, symbol, timeframe, candles });
-  const ci = useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels: alphaLevels, clock: sessionClock });
+  const ci = useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, clock: sessionClock });
   const ciReady = Boolean(ci.settings.enabled && ci.result && ci.result.status === 'ready');
   const [ciOverlaysMounted, setCiOverlaysMounted] = useState(false);
   const [compactChart, setCompactChart] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 600px)').matches : false));
