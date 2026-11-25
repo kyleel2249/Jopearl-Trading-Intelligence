@@ -89,7 +89,7 @@ The chart's canonical closed-candle engine now consumes independently sourced in
 - **Exchange and derivatives:** closed-candle OHLCV, top-20 order-book depth and perpetual funding where supported for Bitget, Binance, Bybit and OKX, plus 15m/1h/4h/1d/1w multi-timeframe context where the venue exposes those intervals.
 - **Global market breadth:** CoinGecko global market-cap change, total market capitalisation, 24h volume and BTC dominance.
 - **Retail sentiment:** Alternative.me Crypto Fear & Greed index.
-- **CFTC positioning:** Traders in Financial Futures, Futures Only dataset for Bitcoin/Ether dealer/intermediary, asset-manager and leveraged-fund positioning. This is a weekly report with a publication lag, not live dealer flow.
+- **CFTC positioning:** Traders in Financial Futures, Futures Only dataset for Bitcoin/Ether dealer/intermediary, asset-manager, leveraged-fund, other-reportable and non-reportable positioning cohorts (the last is a smaller-trader proxy, not a pure retail measure). This is a weekly report with a publication lag, not live dealer flow.
 - **Federal Reserve:** optional FRED series for 10-year Treasury yields, broad trade-weighted dollar, effective fed funds rate, Federal Reserve assets, commercial-bank deposits, commercial and industrial loans, and total commercial-bank assets. Configure the server-side `FRED_API_KEY` Cloudflare Pages secret; the browser never receives the key.
 - **U.S. Treasury:** public Fiscal Data average-interest-rate observations.
 - **European Central Bank:** daily EUR/USD reference exchange-rate observations through the ECB SDMX API.
