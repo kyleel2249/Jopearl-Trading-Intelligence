@@ -61,3 +61,41 @@ export function isRiskPolicyTightening(current={},proposed={}) {
   if(proposed.killSwitch===false&&current.killSwitch===true)return false;
   return true;
 }
+
+export function classifyBehaviourEvent(input={}) {
+ const severity=['info','low','medium','high','critical'].includes(String(input.severity))?String(input.severity):'medium';
+ const type=String(input.eventType||'').trim().toLowerCase().slice(0,80);
+ const summary=String(input.summary||'').trim().slice(0,500);
+ const risk=Number(input.riskScore);
+ if(!type||!summary||!Number.isFinite(risk)||risk<0||risk>100)return{valid:false,reason:'Event type, summary and a risk score from 0 to 100 are required.'};
+ const criticalTypes=['unauthorised-access','credential-compromise','policy-bypass','prompt-injection','secret-access-attempt','ledger-tamper-attempt'];
+ const effectiveSeverity=criticalTypes.includes(type)?'critical':severity;
+ return{valid:true,event:{eventType:type,severity:effectiveSeverity,riskScore:Math.round(risk*100)/100,summary}};
+}
+export function calculateAgentTrust(input={}) {
+ const decisions=Math.max(0,Number(input.decisions)||0),correct=Math.max(0,Math.min(decisions,Number(input.correctDecisions)||0));
+ const evidence=Math.max(0,Number(input.evidenceContributions)||0),violations=Math.max(0,Number(input.riskViolations)||0);
+ const brier=Number.isFinite(Number(input.brierScore))?Math.max(0,Math.min(1,Number(input.brierScore))):.5;
+ const eventRisk=Math.max(0,Math.min(100,Number(input.behaviourRisk)||0));
+ const reliability=decisions?100*correct/decisions:50;
+ const calibration=100*(1-brier),evidenceScore=Math.min(100,evidence*5);
+ const compliance=100/(1+violations*1.5),trust=Math.max(0,Math.min(100,.3*reliability+.2*calibration+.15*evidenceScore+.2*compliance+.15*(100-eventRisk)));
+ const risk=100-trust,authorityBand=trust>=85&&risk<20?'standard':trust>=70&&risk<30?'restricted':'supervised';
+ return{trustScore:Math.round(trust*100)/100,riskScore:Math.round(risk*100)/100,authorityBand,components:{reliability:Math.round(reliability*100)/100,calibration:Math.round(calibration*100)/100,evidence:Math.round(evidenceScore*100)/100,compliance:Math.round(compliance*100)/100,behaviour:Math.round((100-eventRisk)*100)/100},sampleSize:decisions};
+}
+export function simulateGovernanceScenario(input={}) {
+ const type=String(input.scenarioType||'').trim(),authority=Number(input.authorityIncreasePct??0),risk=Number(input.agentRiskScore??0),affected=Array.isArray(input.affectedCapabilities)?input.affectedCapabilities.slice(0,20):[];
+ if(!['authority-expansion','agent-compromise','risk-supervisor-outage','department-access-revocation','resource-overrun','conflicting-instructions'].includes(type))return{valid:false,reason:'Unsupported governance simulation scenario.'};
+ if(!Number.isFinite(authority)||authority<0||authority>100||!Number.isFinite(risk)||risk<0||risk>100)return{valid:false,reason:'Scenario risk and authority inputs must be between 0 and 100.'};
+ const controls={liveExecutionRemainsDisabled:true,productionPermissionsChanged:false,realAgentsPaused:false,externalMessagesSent:false};
+ const impact={affectedCapabilities:affected,estimatedRisk:Math.min(100,Math.round((risk+(type==='agent-compromise'?45:type==='risk-supervisor-outage'?35:type==='conflicting-instructions'?25:authority*.35))*100)/100),requiredApprovals:type==='authority-expansion'||type==='risk-supervisor-outage'?2:1,containmentRequired:['agent-compromise','risk-supervisor-outage','resource-overrun'].includes(type),recommendedActions:[]};
+ const actions={
+ 'authority-expansion':['Run capability sandbox tests','Require independent risk and governance approval','Apply least-privilege scope and expiry'],
+ 'agent-compromise':['Revoke agent credentials','Quarantine agent messages and outputs','Preserve forensic evidence','Require human-led reinstatement'],
+ 'risk-supervisor-outage':['Fail closed for sensitive operations','Pause affected autonomous workflows','Restore independent risk supervision'],
+ 'department-access-revocation':['Calculate dependent workflows','Revoke scoped access in simulation only','Prepare reassignment and recovery plan'],
+ 'resource-overrun':['Throttle task intake','Prioritise critical workloads','Escalate budget and resource limits'],
+ 'conflicting-instructions':['Freeze conflicting action proposals','Resolve instruction hierarchy','Record independent adjudication']
+ };
+ impact.recommendedActions=actions[type];return{valid:true,scenarioType:type,impact,controls,disclaimer:'Simulation only. No production permissions, agents, orders or external systems were changed.'};
+}
