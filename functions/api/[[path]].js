@@ -894,6 +894,21 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       return new Response(null, { status: 204, headers });
     }
+    const publicIntelPath = url.pathname.replace(/\\/+$/, '');
+    if (publicIntelPath === '/api/bis/monitor') {
+      if (request.method !== 'GET') return json(405, { error: 'BIS monitoring supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      const rawCursor = url.searchParams.get('cursor');
+      const cursor = rawCursor === null ? null : Number(rawCursor);
+      const rawBatch = Number(url.searchParams.get('batchSize') || 12);
+      const batchSize = Number.isFinite(rawBatch) ? Math.max(1, Math.min(12, Math.floor(rawBatch))) : 12;
+      if (cursor !== null && (!Number.isInteger(cursor) || cursor < 0)) return json(400, { error: 'cursor must be a non-negative integer.' }, request);
+      const result = await fetchBisFlows({ fetchImpl, now: now().getTime(), env, batchSize, cursor });
+      return json(result.status === 'offline' ? 503 : 200, result, request);
+    }
+    if (publicIntelPath === '/api/market/event-calendar') {
+      if (request.method !== 'GET') return json(405, { error: 'Event calendar supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      return json(200, await fetchMarketEventCalendar({ fetchImpl, now: now().getTime(), env }), request);
+    }
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/intelligence-foundation/')) return handleIntelligenceFoundationApi({ request, env });
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/org/')) return handleOrganizationApi({ request, env, fetchImpl });
     const agentPath = url.pathname.replace(/\/+$/, '');
