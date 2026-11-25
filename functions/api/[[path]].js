@@ -30,6 +30,15 @@ const JSON_HEADERS = {
 };
 const MAX_URL_LENGTH = 2048;
 
+// Workers KV rejects any expirationTtl below 60 seconds. Short-lived entries are therefore stored for
+// at least that long, and their real freshness is enforced from the stored cachedAt timestamp on read.
+const KV_MIN_TTL_SECONDS = 60;
+const kvTtl = (seconds) => Math.max(KV_MIN_TTL_SECONDS, Math.ceil(Number(seconds) || 0));
+const isFreshEntry = (cachedAt, maxAgeMs, nowMs = Date.now()) => {
+  const age = nowMs - Date.parse(cachedAt || '');
+  return Number.isFinite(age) && age >= -5000 && age <= maxAgeMs;
+};
+
 
 async function sha256Hex(value) {
   const bytes = new TextEncoder().encode(String(value));
@@ -48,7 +57,8 @@ async function readMarketCache(env, routeKey) {
   try {
     const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
     const cached = await env.JPTI_KV.get(key, 'json');
-    return cached && Number.isInteger(cached.status) && cached.body ? { ...cached, key } : null;
+    if (!cached || !Number.isInteger(cached.status) || !cached.body) return null;
+    return isFreshEntry(cached.cachedAt, marketCacheTtl(routeKey) * 1000) ? { ...cached, key } : null;
   } catch {
     return null;
   }
@@ -75,7 +85,7 @@ async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
       const value = JSON.stringify({ status, body, cachedAt: occurredAt });
       // KV values have a finite size limit. Skip oversized market catalogs rather than fail the API.
       if (new TextEncoder().encode(value).byteLength <= 900000) {
-        await env.JPTI_KV.put(key, value, { expirationTtl: ttl });
+        await env.JPTI_KV.put(key, value, { expirationTtl: kvTtl(ttl) });
       }
     } catch {
       // Cache failures must not make live exchange data unavailable.
@@ -102,7 +112,7 @@ async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
   if (!env.JPTI_KV) return;
   try {
     const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
-    await env.JPTI_KV.put(key, JSON.stringify({ status: 200, body, cachedAt: occurredAt, stale: true }), { expirationTtl: 5 });
+    await env.JPTI_KV.put(key, JSON.stringify({ status: 200, body, cachedAt: occurredAt, stale: true }), { expirationTtl: kvTtl(5) });
   } catch {
     // Stale cache is best-effort; D1 remains the durable source.
   }
@@ -311,7 +321,7 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
    out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:out.fundingRate==null?'empty':'live',retrievedAt:generatedAt});
   }catch(error){out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
  }else out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'unsupported',retrievedAt:generatedAt});
- if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:kvTtl(15)});}catch{/* optional cache */}}
  return out;
 }
 async function fetchCrossExchangeTradeFlow(exchange,symbol,fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
@@ -337,7 +347,7 @@ async function fetchCrossExchangeTradeFlow(exchange,symbol,fetchImpl=fetch,env={
   if(valid.length){out.perpAggressiveBuyUsd=valid.filter(x=>x.buy).reduce((s,x)=>s+x.usd,0);out.perpAggressiveSellUsd=valid.filter(x=>!x.buy).reduce((s,x)=>s+x.usd,0);out.tradeCount=valid.length;out.status='live';}
   else if(!out.reason)out.reason='No usable recent perpetual trades were returned.';
  }catch(error){out.status='offline';out.reason=String(error?.message||error).slice(0,160);}
- if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:kvTtl(15)});}catch{/* optional cache */}}
  return out;
 }
 
@@ -366,11 +376,14 @@ async function fetchGlobalMarketContext(fetchImpl=fetch,env={},generatedAt=new D
  return out;
 }
 async function fetchMultiTimeframeContext(exchange,symbol,timeframe,marketType,instrumentId,marketProvider,bitgetCfdProvider,env,request,generatedAt){
- const key='jpti:multi-timeframe:v1:'+exchange+':'+symbol+':'+marketType;
+ // The selected frames depend on the requested timeframe (and CFD side / exact instrument), so every
+ // one of those must be part of the cache key or a timeframe switch would receive another set's frames.
+ const cfdSide=exchange==='bitget'&&marketType==='cfd'?(new URL(request.url).searchParams.get('side')||'buy'):'';
+ const key='jpti:multi-timeframe:v2:'+exchange+':'+symbol+':'+marketType+':'+timeframe+':'+(instrumentId||'')+':'+cfdSide;
  if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* continue */}}
  const frames=timeframe==='1m'||timeframe==='3m'?['15m','1h','4h','1d']:timeframe==='5m'||timeframe==='15m'||timeframe==='30m'?['1h','4h','1d']:timeframe==='1h'||timeframe==='2h'?['4h','1d','1w']:timeframe==='4h'||timeframe==='6h'||timeframe==='8h'?['1d','1w','1h']:['1h','4h','1d'];
  const selected=[...new Set(frames)].filter(x=>x!==timeframe).slice(0,3),instrumentQuery=instrumentId?'&instrumentId='+encodeURIComponent(instrumentId):'';
- const rows=await Promise.all(selected.map(async tf=>{try{let result;if(exchange==='bitget'&&marketType==='cfd')result=await bitgetCfdProvider.request(env,{kind:'ohlcv',symbol,timeframe:tf,side:new URL(request.url).searchParams.get('side')||'buy',limit:100});else result=await marketProvider.request('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(symbol)+'?timeframe='+tf+'&limit=100&type='+encodeURIComponent(marketType)+instrumentQuery,{method:'GET',signal:request.signal});const candles=(result?.body?.candles||[]).filter(x=>Array.isArray(x)&&x.length>=6).map(x=>x.map(Number));const closed=candles.slice(0,-1);if(closed.length<21)return null;const a=closed.at(-1)[4],b=closed.at(-21)[4],change=b?((a-b)/b)*100:0;return{timeframe:tf,bias:change>.15?'bullish':change<-.15?'bearish':'neutral',biasScore:change>.15?1:change<-.15?-1:0,changePct:Number(change.toFixed(4)),last:a,source:'exchange closed-candle OHLCV',status:'fresh'};}catch{return null;}}));
+ const rows=await Promise.all(selected.map(async tf=>{try{let result;if(exchange==='bitget'&&marketType==='cfd')result=await bitgetCfdProvider.request(env,{kind:'ohlcv',symbol,timeframe:tf,side:cfdSide||'buy',limit:100});else result=await marketProvider.request('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(symbol)+'?timeframe='+tf+'&limit=100&type='+encodeURIComponent(marketType)+instrumentQuery,{method:'GET',signal:request.signal});const candles=(result?.body?.candles||[]).filter(x=>Array.isArray(x)&&x.length>=6).map(x=>x.map(Number));const closed=candles.slice(0,-1);if(closed.length<21)return null;const a=closed.at(-1)[4],b=closed.at(-21)[4],change=b?((a-b)/b)*100:0;return{timeframe:tf,bias:change>.15?'bullish':change<-.15?'bearish':'neutral',biasScore:change>.15?1:change<-.15?-1:0,changePct:Number(change.toFixed(4)),last:a,source:'exchange closed-candle OHLCV',status:'fresh'};}catch{return null;}}));
  const out={timeframes:rows.filter(Boolean),sources:[{name:'Exchange multi-timeframe closed-candle context',status:rows.some(Boolean)?'live':'offline',retrievedAt:generatedAt}]};
  if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:60});}catch{/* optional cache */}}
  return out;
