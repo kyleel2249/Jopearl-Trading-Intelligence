@@ -1191,7 +1191,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         let configuredCalendar = [];
         try { const parsed = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); if (Array.isArray(parsed)) configuredCalendar = parsed.filter(x => x && x.verified === true && x.title && (x.time || x.scheduledAt) && x.source && /^https:\/\//i.test(String(x.sourceUrl || x.url || ''))).map((x,index) => ({ id:x.id || 'calendar-'+index, title:String(x.title).slice(0,240), time:x.time || x.scheduledAt, source:x.source, url:x.sourceUrl || x.url, importance:x.importance || 'medium', category:x.category || 'macro', actual:x.actual ?? null, forecast:x.forecast ?? null })); } catch { configuredCalendar = []; }
         context.body.eventCalendar = eventCalendar;
-        context.body.eventImpact = predictEventImpact({ events:[...newsEvents,...configuredCalendar,...(eventCalendar.events||[])], now:Date.parse(generatedAt), horizonMinutes:360 });
+        context.body.eventImpact = predictEventImpact({ events:[...newsEvents,...configuredCalendar,...(eventCalendar.events||[])], now:Date.parse(generatedAt), horizonMinutes:10080 });
         let walletRegistry = [];
         try { const parsed = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); walletRegistry = Array.isArray(parsed) ? parsed : []; } catch { walletRegistry = []; }
         const manualWalletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
