@@ -17,3 +17,13 @@ test('organization API keeps the three department routes and private authorizati
   assert.match(source, /JPTI_JOURNAL_TOKEN/);
   assert.match(source, /env\.AI\.run/);
 });
+
+
+test('scheduled department worker uses the persistent organization pulse', async () => {
+  const worker = await readFile(new URL('../workers/department-intelligence-scheduler.js', import.meta.url), 'utf8');
+  const config = await readFile(new URL('../workers/department-intelligence-scheduler.wrangler.toml', import.meta.url), 'utf8');
+  assert.match(worker, /runOrganizationPulse/);
+  assert.match(config, /crons = \["0 \*\/6 \* \* \*"\]/);
+  assert.match(config, /binding = "JPTI_DB"/);
+  assert.match(config, /binding = "AI"/);
+});

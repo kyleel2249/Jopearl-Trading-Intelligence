@@ -179,9 +179,10 @@ async function autonomyPulse(db, env, fetchImpl) {
   const date = dayKey(), leaseId = 'daily-pulse:' + date;
   const inserted = await db.prepare('INSERT OR IGNORE INTO jpti_org_pulse_runs (pulse_id, status, created_at) VALUES (?, ?, ?)').bind(leaseId, 'running', stamp()).run();
   if (!Number(inserted?.meta?.changes || 0)) {
-    const prior = await db.prepare('SELECT status FROM jpti_org_pulse_runs WHERE pulse_id = ?').bind(leaseId).first();
-    if (prior?.status === 'completed' || prior?.status === 'running') return { alreadyRan: true, date, status: prior.status };
-    await db.prepare("UPDATE jpti_org_pulse_runs SET status = 'running', result_json = NULL WHERE pulse_id = ?").bind(leaseId).run();
+    const prior = await db.prepare('SELECT status, created_at FROM jpti_org_pulse_runs WHERE pulse_id = ?').bind(leaseId).first();
+    const staleRunning = prior?.status === 'running' && Date.now() - Date.parse(prior.created_at || '') > 30 * 60 * 1000;
+    if (prior?.status === 'completed' || (prior?.status === 'running' && !staleRunning)) return { alreadyRan: true, date, status: prior.status };
+    await db.prepare("UPDATE jpti_org_pulse_runs SET status = 'running', result_json = NULL, created_at = ? WHERE pulse_id = ?").bind(stamp(), leaseId).run();
   }
   const defaults = [
     ['research', 'Daily cross-industry intelligence scan', 'Research fresh public developments, emerging technology, business opportunities and material policy changes. Verify source quality, separate facts from interpretation, and identify useful handoffs for all JPTI departments.'],
@@ -267,4 +268,11 @@ export async function handleOrganizationApi({ request, env = {}, fetchImpl = fet
   } catch (error) {
     return reply(error.status || 500, { error: clean(error.message, 600), missionId: error.missionId || null });
   }
+}
+
+
+export async function runOrganizationPulse({ env = {}, fetchImpl = fetch } = {}) {
+  if (!env.JPTI_DB) throw new Error('JPTI_DB binding is unavailable for the scheduled department pulse.');
+  await ensureRegistry(env.JPTI_DB);
+  return autonomyPulse(env.JPTI_DB, env, fetchImpl);
 }

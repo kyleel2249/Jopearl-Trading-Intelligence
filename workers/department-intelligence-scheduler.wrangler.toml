@@ -1,0 +1,16 @@
+name = "jpti-department-intelligence-scheduler"
+main = "department-intelligence-scheduler.js"
+compatibility_date = "2026-11-23"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["0 */6 * * *"]
+
+[[d1_databases]]
+binding = "JPTI_DB"
+database_name = "jopearl-trading-intelligence-db"
+database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
+migrations_dir = "../migrations/d1"
+
+[ai]
+binding = "AI"
