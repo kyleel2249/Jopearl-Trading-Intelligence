@@ -87,6 +87,8 @@ async function sendDepartmentMessage(db, { from, to, subject, body, priority = '
   const id = crypto.randomUUID(), createdAt = stamp();
   await db.prepare('INSERT INTO jpti_org_messages (message_id, from_department, to_department, subject, body, priority, status, mission_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, from, to, clean(subject, 180), clean(body, 5000), ['low','normal','high','urgent'].includes(priority) ? priority : 'normal', 'unread', missionId, createdAt).run();
+  await db.prepare('INSERT OR IGNORE INTO jpti_agent_messages(message_id,from_department,to_department,subject,body,message_type,priority,status,related_task_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .bind(id, from, to, clean(subject, 180), clean(body, 5000), 'handoff', ['low','normal','high','urgent'].includes(priority) ? priority : 'normal', 'unread', missionId, createdAt).run();
   return { id, from, to, subject: clean(subject, 180), body: clean(body, 5000), priority, status: 'unread', missionId, createdAt };
 }
 async function runMission(db, env, mission, fetchImpl) {
