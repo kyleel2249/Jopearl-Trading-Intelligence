@@ -508,12 +508,7 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
     <div className="td-body">
       <SessionsStrip profile={profile} quote={quote} symbol={symbol}/>
       <div className="td-main">
-        <div className="td-col td-left">
-          <MarketIntelligence context={context} loading={contextState.loading} error={contextState.error} profile={profile} price={price} ticker={ticker}/>
-          <MacroPanel context={context} calendar={calendarEvents} onNavigate={onNavigate}/>
-          <CalendarPanel events={calendarEvents} symbol={symbol} sources={calendarSources} error={calendarState.error}/>
-        </div>
-        <section className="td-panel td-chart-panel" aria-label="Market chart">
+        <section className="td-panel td-chart-panel td-expanded-chart" aria-label="Market chart">
           <div className="td-toolbar">
             <form className="td-symbol" onSubmit={(e) => { e.preventDefault(); if (!setSymbol(symbolDraft)) setSymbolDraft(symbol); }}>
               <input list="td-symbols" value={symbolDraft} onChange={(e) => setSymbolDraft(e.target.value)} onBlur={() => { if (!setSymbol(symbolDraft)) setSymbolDraft(symbol); }} aria-label="Market symbol" spellCheck="false"/>
@@ -544,11 +539,12 @@ export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymb
               loading={candlesState.loading} error={candlesState.error} svgRef={svgRef} overlays={overlays} onOverlayChange={toggleOverlay} liquidityIntelligence={liquidityIntelligence}/>
           </div>
         </section>
-        <div className="td-col td-right">
+        <div className="td-col td-right" aria-label="Session and risk tools">
           <SessionAnalytics rows={analytics} profile={profile} ready={Boolean(historyState.data)}/>
           <SessionLiquidityIntelligence exchange={exchange} symbol={symbol} marketType={marketType} timeframe={timeframe} candles={candles} tickerSnapshot={ticker} fetchTicker={false} liquidityIntelligence={liquidityIntelligence}/>
           <VolatilityRisk view={vol} profile={profile}/>
           <TradingControls symbol={symbol} profile={profile} ticker={ticker} atrPips={vol.atrPips} health={health}/>
+          <CalendarPanel events={calendarEvents} symbol={symbol} sources={calendarSources} error={calendarState.error}/>
         </div>
       </div>
       <div className="td-bottom">

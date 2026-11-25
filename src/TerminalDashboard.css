@@ -80,7 +80,7 @@
 .td-quote-change{font-size:11.5px;font-weight:600;font-variant-numeric:tabular-nums;min-height:16px}.td-quote-change.up{color:var(--green)}.td-quote-change.down{color:var(--red)}
 
 /* ---- main grid ------------------------------------------------------------- */
-.td-main{display:grid;grid-template-columns:minmax(225px,.92fr) minmax(0,3.05fr) minmax(235px,.95fr);gap:10px;align-items:stretch}
+.td-main{display:grid;grid-template-columns:minmax(0,1fr) minmax(235px,285px);gap:12px;align-items:stretch;width:100%;min-width:0}.td-expanded-chart{width:100%;min-width:0;max-width:none}
 .td-col{display:flex;flex-direction:column;gap:10px;min-width:0}
 .td-subtabs{display:flex;gap:2px;margin:-1px 0 8px;border-bottom:1px solid var(--line)}
 .td-subtabs button{padding:6px 9px;border:0;border-bottom:2px solid transparent;background:none;color:#8da0bb;font-size:11px}
@@ -202,19 +202,19 @@
 /* ---- responsive ------------------------------------------------------------ */
 @media(max-width:1380px){.td-bottom{grid-template-columns:repeat(3,minmax(0,1fr))}.td-sessions-row{grid-template-columns:minmax(0,3.4fr) minmax(150px,1fr) minmax(150px,1fr) minmax(170px,1fr)}}
 @media(max-width:1180px){
-  .td-main{grid-template-columns:minmax(220px,.9fr) minmax(0,2.4fr)}
-  .td-right{grid-column:1/-1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr))}
+  .td-main{grid-template-columns:minmax(0,1fr) minmax(220px,260px)}
+  .td-right{grid-column:auto;display:flex;min-width:0}
   .td-sessions-row{grid-template-columns:minmax(0,1fr) minmax(0,1fr) minmax(0,1fr)}.td-sessions{grid-column:1/-1}
   .td-header{flex-wrap:wrap}.td-tabs{order:3;flex:1 0 100%;margin:0}
 }
 @media(max-width:860px){
-  .td-main{grid-template-columns:1fr}.td-chart-panel{order:-1;min-height:480px}.td-right{grid-template-columns:1fr 1fr}
+  .td-main{grid-template-columns:minmax(0,1fr)}.td-chart-panel{order:0;min-height:520px}.td-right{display:grid;grid-template-columns:repeat(2,minmax(0,1fr))}
   .td-session-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.td-sessions-row{grid-template-columns:1fr 1fr}.td-quote{grid-column:1/-1}
   .td-bottom{grid-template-columns:1fr 1fr}.td-status{grid-column:1/-1}
   .td-brand small{display:none}.td-clock small{display:none}
 }
 @media(max-width:560px){
-  .td-body{padding:8px}.td-right,.td-bottom,.td-sessions-row{grid-template-columns:1fr}.td-chart-area{min-height:340px}.td-chart-panel{min-height:420px}
+  .td-body{padding:8px}.td-right,.td-bottom,.td-sessions-row{grid-template-columns:1fr}.td-chart-area{min-height:clamp(360px,62vh,720px)}.td-chart-panel{min-height:460px}
   .td-toolbar{gap:6px}.td-toolbar-right{margin-left:0}.td-header{padding:8px 10px;gap:10px}.td-header-right{gap:6px}
   .td-ticket-grid,.td-ticket-sum{grid-template-columns:1fr 1fr}.td-live{padding:5px 8px}
 }
@@ -248,3 +248,13 @@
 
 /* Preserve the terminal chart's expanded timeline and vertical canvas scrolling. */
 .tc-wrap{position:absolute;inset:0;overflow-x:auto;overflow-y:auto;overflow:auto;overscroll-behavior:contain}
+
+/* Active Overview terminal: chart owns the freed left-rail width. */
+.td-root,.td-body,.td-main{min-width:0;width:100%}
+.td-body{max-width:1920px}
+.td-expanded-chart{min-height:clamp(620px,78vh,1100px);padding:10px 12px 12px}
+.td-expanded-chart .td-chart-area{min-height:clamp(500px,68vh,920px);width:100%;}
+.td-right{min-width:0;grid-column:auto;}
+@media(max-width:1180px){.td-expanded-chart{min-height:clamp(560px,72vh,900px)}.td-expanded-chart .td-chart-area{min-height:clamp(440px,60vh,760px)}}
+@media(max-width:860px){.td-expanded-chart{min-height:520px}.td-expanded-chart .td-chart-area{min-height:clamp(420px,58vh,700px)}}
+@media(max-width:560px){.td-expanded-chart{min-height:460px;padding:7px}.td-expanded-chart .td-chart-area{min-height:clamp(360px,55vh,620px)}}
