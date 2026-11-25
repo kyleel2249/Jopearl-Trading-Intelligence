@@ -36,12 +36,13 @@ export function parseBisSdmxObservations(payload,{dataflowId=null}={}){
 }
 // Backward-compatible single-dataset normalizer used by legacy analysis callers and tests.
 export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=null}={}){
- const observations=parseBisSdmxObservations(payload,{dataflowId:payload?.structure?.name||"BIS"});
- const latest=[...observations].sort((a,b)=>(periodTimestamp(b.period)||0)-(periodTimestamp(a.period)||0))[0]||null;
+ let observations=parseBisSdmxObservations(payload,{dataflowId:payload?.structure?.name||payload?.dataset||"BIS"});
+ if(!observations.length&&Array.isArray(payload?.data)){observations=payload.data.map((x,index)=>({dataflowId:payload.dataset||"BIS",seriesKey:[x.reporter||"",x.counterparty||"",x.measure||"",x.unit||""].join("|")||"legacy:"+index,period:String(x.period||""),value:num(x.value),reporter:x.reporter||null,counterparty:x.counterparty||null,measure:x.measure||null,unit:x.unit||null,frequency:x.frequency||null,currency:x.currency||null})).filter(x=>x.period&&x.value!==null);}
+ const ordered=[...observations].sort((a,b)=>(periodTimestamp(a.period)||0)-(periodTimestamp(b.period)||0));const latest=ordered.at(-1)||null,previous=ordered.length>1?ordered.at(-2):null;
  if(!latest)return{status:"unavailable",source:"BIS SDMX",latest:null,observations:[],seriesCount:0,reason:"No numeric BIS observations were present in the supplied SDMX JSON."};
  const quarterly=/^\d{4}-Q[1-4]$/i.test(String(latest.period)),monthly=/^\d{4}-\d{2}$/.test(String(latest.period)),annual=/^\d{4}$/.test(String(latest.period));
  const limit=maxAgeMs??(quarterly?240:monthly?75:annual?550:14)*24*60*60*1000,ageMs=observationAge(latest.period,now);
- return{status:ageMs!==null&&ageMs>limit?"stale":"ready",source:"Bank for International Settlements SDMX",latest,observations,seriesCount:new Set(observations.map(x=>x.seriesKey)).size,ageMs,maxAgeMs:limit,generatedAt:new Date(now).toISOString(),methodology:"Single BIS SDMX dataset compatibility adapter. Latest observation is selected using its period end and freshness threshold appropriate to the reporting frequency."};
+ return{status:ageMs!==null&&ageMs>limit?"stale":"ready",source:"Bank for International Settlements SDMX",latest,change:previous&&previous.seriesKey===latest.seriesKey?Number((latest.value-previous.value).toFixed(8)):null,observations,seriesCount:new Set(observations.map(x=>x.seriesKey)).size,ageMs,maxAgeMs:limit,generatedAt:new Date(now).toISOString(),methodology:"Single BIS SDMX dataset compatibility adapter. Latest observation is selected using its period end and freshness threshold appropriate to the reporting frequency."};
 }
 export function normalizeBisMonitor({catalogue=[],datasets=[],now=Date.now(),totalDataflows=null,cursor=0,nextCursor=0}={}){
  const observations=datasets.flatMap(x=>x.observations||[]).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
