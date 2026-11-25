@@ -43,7 +43,7 @@ export async function fetchBisFlows({url,fetchImpl=fetch,now=Date.now(),maxAgeMs
   if(env.JPTI_KV){try{const cached=await env.JPTI_KV.get(cacheKey,"json");if(cached?.body&&now-Number(cached.cachedAt||0)<3600000)return cached.body;}catch{/* live request remains available */}}
   let parsed;try{parsed=new URL(url);}catch{return{status:"invalid-config",reason:"BIS URL is invalid."};}
   if(parsed.protocol!=="https:"||parsed.hostname!==BIS_HOST)return{status:"blocked",reason:"Only HTTPS endpoints on stats.bis.org are accepted."};
-  try{const response=await fetchImpl(parsed.toString(),{headers:{accept:"application/vnd.sdmx.data+json, application/json"}});if(!response.ok)throw new Error("BIS HTTP "+response.status);
+  try{const response=await fetchImpl(parsed.toString(),{headers:{accept:"application/vnd.sdmx.data+json;version=1.0.0, application/json"}});if(!response.ok)throw new Error("BIS HTTP "+response.status);
     const data=await response.json(),body=normalizeBisFlows(data,{now,maxAgeMs});
     if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:now,body}),{expirationTtl:3600});}catch{/* optional cache */}}
     return body;}
