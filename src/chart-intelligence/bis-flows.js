@@ -33,6 +33,15 @@ export function parseBisSdmxObservations(payload,{dataflowId=null}={}){
  if(compact?.observations&&dims){const od=dims.observation||[],pi=Math.max(0,od.findIndex(d=>/TIME_PERIOD|TIME|PERIOD/i.test(String(d.id||d.name||""))));for(const[k,raw]of Object.entries(compact.observations)){const oi=k.split(":").map(Number),ix=oi[pi]??oi[0]??0,period=od[pi]?.values?.[ix]?.id||od[pi]?.values?.[ix]?.name||String(ix),value=num(Array.isArray(raw)?raw[0]:raw);if(value!==null)rows.push({dataflowId,seriesKey:"compact:"+k,period,value});}}
  return rows;
 }
+// Backward-compatible single-dataset normalizer used by legacy analysis callers and tests.
+export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=null}={}){
+ const observations=parseBisSdmxObservations(payload,{dataflowId:payload?.structure?.name||"BIS"});
+ const latest=[...observations].sort((a,b)=>(periodTimestamp(b.period)||0)-(periodTimestamp(a.period)||0))[0]||null;
+ if(!latest)return{status:"unavailable",source:"BIS SDMX",latest:null,observations:[],seriesCount:0,reason:"No numeric BIS observations were present in the supplied SDMX JSON."};
+ const quarterly=/^\d{4}-Q[1-4]$/i.test(String(latest.period)),monthly=/^\d{4}-\d{2}$/.test(String(latest.period)),annual=/^\d{4}$/.test(String(latest.period));
+ const limit=maxAgeMs??(quarterly?240:monthly?75:annual?550:14)*24*60*60*1000,ageMs=observationAge(latest.period,now);
+ return{status:ageMs!==null&&ageMs>limit?"stale":"ready",source:"Bank for International Settlements SDMX",latest,observations,seriesCount:new Set(observations.map(x=>x.seriesKey)).size,ageMs,maxAgeMs:limit,generatedAt:new Date(now).toISOString(),methodology:"Single BIS SDMX dataset compatibility adapter. Latest observation is selected using its period end and freshness threshold appropriate to the reporting frequency."};
+}
 export function normalizeBisMonitor({catalogue=[],datasets=[],now=Date.now(),totalDataflows=null,cursor=0,nextCursor=0}={}){
  const observations=datasets.flatMap(x=>x.observations||[]).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
  const latest=[...observations].sort((a,b)=>(periodTimestamp(b.period)||0)-(periodTimestamp(a.period)||0))[0]||null;
