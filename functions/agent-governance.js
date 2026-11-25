@@ -108,7 +108,7 @@ export async function handleAgentGovernanceApi({request,env,db,path}){
    return reply(201,{event:{id,agentId,...e,observedAt:t},incident,persisted:true});
   }
   if(path==='/api/intelligence-foundation/governance/incidents'&&request.method==='GET'){
-   const u=new URL(request.url),status=u.searchParams.get('status'),where=status&&['open','investigating','contained','resolved','false-positive'].includes(status)?' WHERE status=?':'',q=await db.prepare('SELECT * FROM jpti_governance_incidents'+where+' ORDER BY CASE severity WHEN \'critical\' THEN 0 WHEN \'high\' THEN 1 WHEN \'medium\' THEN 2 ELSE 3 END,detected_at DESC LIMIT 200')[where?'bind':'all'](...(where?[status]:[])).all().catch(async()=>db.prepare('SELECT * FROM jpti_governance_incidents ORDER BY detected_at DESC LIMIT 200').all());
+   const u=new URL(request.url),status=u.searchParams.get('status'),where=status&&['open','investigating','contained','resolved','false-positive'].includes(status)?' WHERE status=?':'',stmt=db.prepare('SELECT * FROM jpti_governance_incidents'+where+' ORDER BY CASE severity WHEN \'critical\' THEN 0 WHEN \'high\' THEN 1 WHEN \'medium\' THEN 2 ELSE 3 END,detected_at DESC LIMIT 200'),q=where?await stmt.bind(status).all():await stmt.all();
    return reply(200,{incidents:(q.results||[]).map(x=>({...x,evidence:parse(x.evidence_json,[])}))});
   }
   if(path==='/api/intelligence-foundation/governance/incidents'&&request.method==='POST'){
