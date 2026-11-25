@@ -33,6 +33,6 @@ test('live chart price axis consumes provider instrument precision metadata', ()
   assert.match(chart, /marketPrecisionMetadata\[symbol\]/);
   // The pip axis is built from the provider's pip/tick metadata (chart-live.js), and axis tags use the instrument formatter.
   assert.match(chart, /resolvePipSize\(\{ symbol, price: liveClose, precision: resolvePrecision\(precisionMeta\) \}\)/);
-  assert.match(chart, /buildPriceAxis\(\{ min: low, max: high, heightPx: bottom - top, pip: pipInfo\.pip/);
+  assert.match(chart, /buildScaleAxis\(\{ mode: scale\.mode, lo: range\.lo, hi: range\.hi, top, bottom, pip: pipInfo\.pip/);
   assert.match(chart, /formatInstrumentPrice\(lastRow\[4\], precisionMeta/);
 });

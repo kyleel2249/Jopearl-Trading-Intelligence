@@ -1,0 +1,42 @@
+/* Shared chart tools: toolbar, popovers, toasts, derivatives strip. Used by LiveCandlestickChart and TerminalChart. */
+.ct-bar{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:6px 8px;background:rgba(9,18,33,.94);border:1px solid #243247;border-radius:7px;color:#b8c7dc;font-size:10.5px}
+.ct-group{display:flex;align-items:center;gap:3px;flex-wrap:wrap;padding-right:8px;border-right:1px solid #1d2b42}
+.ct-group:last-of-type{border-right:0}
+.ct-btn{display:inline-flex;align-items:center;gap:4px;min-width:26px;height:24px;justify-content:center;padding:0 7px;border:1px solid #2c3a50;border-radius:4px;background:transparent;color:#9cabc0;font-size:10.5px;cursor:pointer}
+.ct-btn:hover:not(:disabled){background:#1b2b40;color:#fff}
+.ct-btn:disabled{opacity:.4;cursor:not-allowed}
+.ct-btn.on{background:#24354b;color:#e2bd78;border-color:#4a6385}
+.ct-btn:focus-visible,.ct-bar select:focus-visible,.ct-bar input:focus-visible,.ct-pop summary:focus-visible{outline:2px solid #6aa3ff;outline-offset:1px}
+.ct-sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+.ct-field{display:flex;align-items:center;gap:4px;color:#8796aa}
+.ct-bar select,.ct-bar input[type=number]{background:#142033;border:1px solid #304057;border-radius:4px;color:#e8edf6;font-size:10.5px;padding:3px 5px;height:24px}
+.ct-bar input[type=number]{width:84px}
+.ct-seek{width:120px;accent-color:#d7b16b}
+.ct-dot{display:inline-block;width:7px;height:7px;border-radius:50%;background:#6f819b}
+.ct-dot.live{background:#22c58b;box-shadow:0 0 6px #22c58b}
+.ct-pop{position:relative}
+.ct-pop summary{list-style:none;cursor:pointer;padding:3px 8px;border:1px solid #2c3a50;border-radius:4px;color:#9cabc0}
+.ct-pop summary::-webkit-details-marker{display:none}
+.ct-pop[open] summary{background:#24354b;color:#e2bd78}
+.ct-pop-body{position:absolute;z-index:6;top:30px;left:0;min-width:210px;display:flex;flex-direction:column;gap:7px;padding:10px;background:#0d1a2e;border:1px solid #304057;border-radius:6px;box-shadow:0 8px 24px rgba(0,0,0,.45)}
+.ct-pop-body label{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.ct-pop-body small,.ct-note{color:#7f91aa;font-size:10px}
+.ct-check{justify-content:flex-start!important}
+.ct-alert-row{display:flex;align-items:center;gap:8px;justify-content:space-between}
+.ct-alert-row.done span{text-decoration:line-through;color:#6f819b}
+.ct-alert-row button{border:0;background:transparent;color:#ef5361;font-size:14px;cursor:pointer}
+.ct-derivs{display:flex;flex-wrap:wrap;gap:4px 14px;width:100%;padding-top:5px;border-top:1px solid #1d2b42;color:#8fa2bd}
+.ct-derivs b{color:#dfe8f6;font-variant-numeric:tabular-nums}.ct-derivs b.up{color:#22c58b}.ct-derivs b.down{color:#ef5361}.ct-derivs em{font-style:normal;color:#6f819b}
+.ct-toasts{position:fixed;z-index:60;right:16px;bottom:16px;display:flex;flex-direction:column;gap:6px;max-width:min(340px,calc(100vw - 32px))}
+.ct-toast{padding:9px 12px;border-radius:6px;background:#0d1d36;border:1px solid #4a79c9;color:#dbe8ff;font-size:11.5px;box-shadow:0 6px 20px rgba(0,0,0,.5)}
+.ct-toast.alert{border-color:#e5b85c;color:#ffe9b8}.ct-toast.warn{border-color:#ef5361;color:#ffd0d5}
+/* Terminal chart: the plot is an absolute fill, so the tools sit in a collapsible floating panel above the time axis. */
+.tc-tools{position:absolute;z-index:4;left:8px;bottom:26px;max-width:calc(100% - 110px)}
+.tc-tools>summary{display:inline-block;list-style:none;cursor:pointer;padding:3px 9px;border:1px solid #2c3a50;border-radius:5px;background:rgba(9,18,33,.85);color:#9cabc0;font-size:10.5px}
+.tc-tools>summary::-webkit-details-marker{display:none}
+.tc-tools[open]>summary{color:#e2bd78;border-color:#4a6385}
+.tc-tools[open] .ct-bar{margin-top:5px}
+.tc-replay{color:#ffd0d5;background:#3b1d24;border:1px solid #ef5361;border-radius:4px;padding:0 6px;font-weight:700;letter-spacing:.5px}
+.live-tools .ct-bar{margin:0 0 8px}
+@media(max-width:600px){.ct-group{border-right:0;padding-right:0}.ct-seek{width:90px}.ct-pop-body{left:auto;right:0}}
+@media(prefers-reduced-motion:reduce){.ct-dot.live{box-shadow:none}}

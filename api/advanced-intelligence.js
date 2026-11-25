@@ -173,7 +173,8 @@ advancedRouter.get('/advanced/orderbook/:exchange/:symbol', async (req, res) => 
     const key = exchangeId + ':' + symbol;
     const result = analyzeOrderBook(book, snapshots.get(key));
     snapshots.set(key, { walls: result.liquidityWalls, sampledAt: result.sampledAt });
-    res.json({ exchange: exchangeId, symbol, ...result, note: 'Visible depth only; hidden liquidity and queue position are unknown.' });
+    const ladder = (side) => (Array.isArray(book[side]) ? book[side] : []).slice(0, limit).map((level) => [Number(level[0]), Number(level[1])]).filter(([price, size]) => price > 0 && size > 0);
+    res.json({ exchange: exchangeId, symbol, ...result, bids: ladder('bids'), asks: ladder('asks'), note: 'Visible depth only; hidden liquidity and queue position are unknown.' });
   } catch (e) { res.status(e.status || 502).json({ error: e.message }); }
 });
 
@@ -188,6 +189,7 @@ advancedRouter.get('/advanced/derivatives/:exchange/:symbol', async (req, res) =
       if (market.contract && ex.has?.fetchFundingRate) tasks.funding = ex.fetchFundingRate(symbol).catch((e) => ({ unavailable: e.message }));
       if (market.contract && ex.has?.fetchOpenInterest) tasks.openInterest = ex.fetchOpenInterest(symbol).catch((e) => ({ unavailable: e.message }));
       if (market.contract && ex.has?.fetchTicker) tasks.ticker = ex.fetchTicker(symbol).catch((e) => ({ unavailable: e.message }));
+      if (market.contract && ex.has?.fetchLiquidations) tasks.liquidations = ex.fetchLiquidations(symbol, undefined, 50).catch((e) => ({ unavailable: e.message }));
       const entries = await Promise.all(Object.entries(tasks).map(async ([k, p]) => [k, await p]));
       return Object.fromEntries(entries);
     });

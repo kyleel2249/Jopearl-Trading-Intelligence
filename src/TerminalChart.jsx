@@ -7,8 +7,11 @@ import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.
 import ChartIntelligenceOverlays from './chart-intelligence/TerminalChartOverlays.jsx';
 import LiquidityTargetOverlay from './LiquidityTargetOverlay.jsx';
 import { formatPrice, hhmm, inWindow, liquidityRanges, sessionUtcWindow, utcMinuteOfDay } from './terminal-dashboard-data.js';
-import { candleCountdown, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
+import { candleCountdown, resolvePipSize, pipDistance, axisWidthFor, applyPriceZoom, mergeLiveTick } from './chart-live.js';
 import { getExpandedCanvasWidth, getExpandedCanvasHeight } from './chart-canvas.js';
+import { makeScale, buildScaleAxis, resolveRange } from './chart-scale.js';
+import { useChartTools } from './useChartTools.js';
+import { ChartToolsBar, ChartToolsSvg, pointFromEvent } from './ChartTools.jsx';
 
 const UP = '#22c58b', DOWN = '#ef5361';
 const SESSION_TINT = { sydney: '#8b7cf6', tokyo: '#4a9bf5', london: '#3b82f6', 'new-york': '#f0a848' };
@@ -66,7 +69,14 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     return () => ro.disconnect();
   }, [wrapEl]);
 
-  const valid = useMemo(() => (candles || []).filter((c) => Array.isArray(c) && c.length >= 6 && c.slice(0, 6).every((v) => Number.isFinite(Number(v)))).map((c) => c.slice(0, 6).map(Number)), [candles]);
+  const allCandles = useMemo(() => (candles || []).filter((c) => Array.isArray(c) && c.length >= 6 && c.slice(0, 6).every((v) => Number.isFinite(Number(v)))).map((c) => c.slice(0, 6).map(Number)), [candles]);
+  const toolPip = useMemo(() => resolvePipSize({ symbol, price: allCandles.at(-1)?.[4], profilePip: profile.pip }).pip, [symbol, allCandles, profile.pip]);
+  const tools = useChartTools({ exchange, marketType, symbol, timeframe, candles: allCandles, livePrice: allCandles.at(-1)?.[4], pip: toolPip });
+  // Live tick from the exchange WebSocket (when fresh) goes into the forming candle; replay shows history up to the cursor instead.
+  const valid = useMemo(() => {
+    if (tools.replaying) return tools.applyReplay(allCandles);
+    return tools.streamFresh ? mergeLiveTick(allCandles, tools.stream.price, { timeframe }) : allCandles;
+  }, [allCandles, tools.replaying, tools.applyReplay, tools.streamFresh, tools.stream.price, timeframe]);
   const ga = useGainzAlpha({ exchange: exchange || (context && context.exchange) || 'bitget', symbol, timeframe, candles: valid });
   const chartIntel = useChartIntelligence({ exchange: exchange || 'bitget', marketType, symbol, timeframe, candles: valid, ga });
   const ci = chartIntel.result;
@@ -95,15 +105,17 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const pad = (hi - lo || hi * 0.002 || 1) * 0.06;
     const lastClose = rows[rows.length - 1][4];
     ({ low: lo, high: hi } = applyPriceZoom(lo - pad, hi + pad, priceZoom, priceZoom > 1 ? lastClose : undefined));
+    ({ lo, hi } = resolveRange({ lo, hi }, tools.lockedRange));
     const { pip } = resolvePipSize({ symbol, price: lastClose, profilePip: profile.pip });
-    const axis = buildPriceAxis({ min: lo, max: hi, heightPx: priceBottom - top, pip, minLabelPx: 14 });
+    const scale = makeScale({ mode: tools.prefs.scaleMode, lo, hi, top, bottom: priceBottom });
+    const axis = buildScaleAxis({ mode: scale.mode, lo, hi, top, bottom: priceBottom, pip, ref: lastClose, minLabelPx: 14 });
     const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatPrice(lastClose, profile)]);
     const right = Math.max(left + 80, canvasWidth - axisW);
     const slot = (right - left) / rows.length;
     const x = (i) => left + (i + 0.5) * slot;
-    const y = (p) => top + ((hi - p) / (hi - lo)) * (priceBottom - top);
-    return { left, right, top, bottom, priceBottom, slot, x, y, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, width: canvasWidth, height: canvasHeight, decimals: axis.decimals };
-  }, [rows, size, canvasWidth, canvasHeight, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol]);
+    const y = scale.y;
+    return { left, right, top, bottom, priceBottom, slot, x, y, priceAt: scale.price, rows, scaleMode: scale.mode, lo, hi, axis, ticks: axis.ticks, minor: axis.minor, pip, axisW, width: canvasWidth, height: canvasHeight, decimals: axis.decimals };
+  }, [rows, size, canvasWidth, canvasHeight, ranges, overlays.liquidity, bands, profile, ci?.volumeProfile, priceZoom, symbol, tools.lockedRange, tools.prefs.scaleMode]);
 
   const focus = useMemo(() => {
     const active = strip?.snapshot?.activeSessionIds || [];
@@ -179,6 +191,13 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
     const i = Math.round((px - geo.left) / geo.slot - 0.5);
     setHover(i >= 0 && i < rows.length ? i : null);
     setHoverY(event.clientY - box.top);
+    const point = pointFromEvent(event, geo, timeframe);
+    if (point.inPlot) { tools.handlePointer('move', point); tools.broadcastCrosshair(point); } else tools.broadcastCrosshair(null);
+  };
+  const onToolClick = (event) => {
+    if (tools.tool === 'cursor') return;
+    const point = pointFromEvent(event, geo, timeframe);
+    if (point.inPlot || (tools.tool === 'alert' && point.inAxis)) tools.handlePointer('click', point);
   };
 
   return <div className="tc-wrap" ref={setWrapEl}>
@@ -191,7 +210,8 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         {change !== null && <span className={change >= 0 ? 'tc-up' : 'tc-down'}>{(change >= 0 ? '+' : '') + formatPrice(change, profile)} ({(changePct >= 0 ? '+' : '') + changePct.toFixed(2)}%)</span>}
         <span title="High to low of this candle">Range<b>{pipDistance(active[3], active[2], geo.pip) ?? '—'}</b>{profile.unit || 'pips'}</span>
       </>}
-      {countdown && !countdown.expired && <span className="tc-count" title="Time until the forming candle closes">Closes in<b>{countdown.label}</b></span>}
+      {tools.replaying && <span className="tc-replay">REPLAY</span>}
+      {!tools.replaying && countdown && !countdown.expired && <span className="tc-count" title="Time until the forming candle closes">Closes in<b>{countdown.label}</b></span>}
     </div>
     <div className="tc-zoom-controls" role="group" aria-label="Horizontal chart zoom">
       <button type="button" onClick={() => setCount((value) => Math.max(40, value - 12))} title="Zoom in to fewer candles">＋</button>
@@ -206,6 +226,10 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         <button key={key} type="button" aria-pressed={overlays[key]} className={overlays[key] ? 'on' : ''} onClick={() => onOverlayChange(key)}><i/>{label}</button>)}
       <button type="button" aria-pressed={ga.settings.enabled} className={ga.settings.enabled ? 'on' : ''} onClick={() => ga.update({ enabled: !ga.settings.enabled })}><i/>GainzAlpha</button>
     </div>
+    <details className="tc-tools">
+      <summary title="Draw, measure, set alerts, replay history, change the price scale">Chart tools{tools.tool !== 'cursor' ? ' · ' + tools.tool : ''}{tools.alerts.some((a) => !a.triggeredAt) ? ' · 🔔' : ''}{tools.replaying ? ' · replay' : ''}</summary>
+      <ChartToolsBar tools={tools} geoRange={{ lo: geo.lo, hi: geo.hi }} fmt={(v) => formatPrice(v, profile)} unit={profile.unit || 'pips'} timeframe={timeframe} />
+    </details>
     <details className="ci-terminal-panel" aria-label="Smart Money Concepts chart intelligence">
       <summary className="ci-terminal-summary">
         <span className="ci-terminal-kicker">LIVE CHART INTELLIGENCE</span>
@@ -229,7 +253,7 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
       </div>}
     </details>
     <svg ref={svgRef} width={geo.width} height={geo.height} viewBox={'0 0 ' + geo.width + ' ' + geo.height} role="img" aria-label={'Candlestick chart for ' + symbol + ' ' + timeframe}
-      onMouseMove={onMove} onMouseLeave={() => { setHover(null); setHoverY(null); }} onDoubleClick={(event) => { if (event.clientX - event.currentTarget.getBoundingClientRect().left > geo.right) setPriceZoom(1); }} xmlns="http://www.w3.org/2000/svg">
+      onMouseMove={onMove} onClick={onToolClick} style={tools.tool !== 'cursor' ? { cursor: 'crosshair' } : undefined} onMouseLeave={() => { setHover(null); setHoverY(null); tools.broadcastCrosshair(null); }} onDoubleClick={(event) => { if (event.clientX - event.currentTarget.getBoundingClientRect().left > geo.right) setPriceZoom(1); }} xmlns="http://www.w3.org/2000/svg">
       <rect x="0" y="0" width={geo.width} height={geo.height} fill="#091221"/>
       {geo.minor.map((p) => <line key={'m' + p} x1={geo.left} x2={rightEdge} y1={y(p)} y2={y(p)} stroke="#0f1b2e" strokeWidth="1"/>)}
       {geo.ticks.map((t) => <g key={t.price}><line x1={geo.left} x2={rightEdge} y1={y(t.price)} y2={y(t.price)} stroke="#16243a" strokeWidth="1"/><text x={rightEdge + 8} y={y(t.price) + 3} fill={t.major ? '#93a4bc' : '#7f91aa'} fontSize="10" fontFamily="DM Sans, sans-serif">{t.label}</text></g>)}
@@ -278,9 +302,10 @@ export default function TerminalChart({ exchange = 'bitget', marketType = 'spot'
         return <g pointerEvents="none"><g transform={'translate(' + (rightEdge + 2) + ' ' + (tagY - 9) + ')'}><rect width={tagW} height="18" rx="3" fill={lastUp ? UP : DOWN}/><text x={tagW / 2} y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700" fontFamily="DM Sans, sans-serif">{formatPrice(last[4], profile)}</text></g>
           {countdown && !countdown.expired && <g transform={'translate(' + (rightEdge + 2) + ' ' + (tagY + 10) + ')'}><rect width={tagW} height="15" rx="3" fill="#152238" stroke="#2c3f5c"/><text x={tagW / 2} y="11" textAnchor="middle" fill="#b8c7dc" fontSize="9.5" fontFamily="DM Sans, sans-serif">{countdown.label}</text></g>}</g>; })()}
 
+      <ChartToolsSvg tools={tools} geo={geo} timeframe={timeframe} symbol={symbol} fmt={(v) => formatPrice(v, profile)} unit={profile.unit || 'pips'} width={size.w} height={size.h} />
       {hover !== null && rows[hover] && (() => {
         const insideY = hoverY !== null && hoverY >= geo.top && hoverY <= geo.priceBottom, tagW = geo.axisW - 4;
-        const hoverPrice = insideY ? geo.hi - (hoverY - geo.top) / (geo.priceBottom - geo.top) * (geo.hi - geo.lo) : null;
+        const hoverPrice = insideY ? geo.priceAt(hoverY) : null;
         const pips = hoverPrice === null ? null : pipDistance(last[4], hoverPrice, geo.pip);
         return <g pointerEvents="none"><line x1={x(hover)} x2={x(hover)} y1={geo.top} y2={geo.bottom - 4} stroke="#6f819b" strokeDasharray="3 3"/>
           {insideY && <><line x1={geo.left} x2={rightEdge} y1={hoverY} y2={hoverY} stroke="#6f819b" strokeDasharray="3 3"/>

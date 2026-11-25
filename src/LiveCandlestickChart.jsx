@@ -12,7 +12,10 @@ import ChartIntelligenceOverlays from './chart-intelligence/ChartIntelligenceOve
 import ChartIntelligenceLegend from './chart-intelligence/ChartIntelligenceLegend.jsx';
 import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
 import { resolvePrecision, formatInstrumentPrice } from './chart-intelligence/precision.js';
-import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, buildPriceAxis, axisWidthFor, applyPriceZoom } from './chart-live.js';
+import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, axisWidthFor, applyPriceZoom } from './chart-live.js';
+import { makeScale, buildScaleAxis, resolveRange } from './chart-scale.js';
+import { useChartTools } from './useChartTools.js';
+import { ChartToolsBar, ChartToolsSvg, pointFromEvent } from './ChartTools.jsx';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';
 import { getExpandedCanvasWidth, getExpandedCanvasHeight } from './chart-canvas.js';
 
@@ -96,8 +99,6 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const [marketSearch, setMarketSearch] = useState('');
   const [catalogError, setCatalogError] = useState('');
   const [marketCounts, setMarketCounts] = useState(null);
-  const [drawMode, setDrawMode] = useState('off');
-  const [drawings, setDrawings] = useState([]);
   const [showVwap, setShowVwap] = useState(false);
   const [showObv, setShowObv] = useState(false);
   const [showStochRsi, setShowStochRsi] = useState(false);
@@ -356,9 +357,17 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     return () => clearTimeout(timer);
   }, [candles, timeframe]);
   const livePrice = ticker && ticker.__key === tickerKey ? Number(ticker.last) : null;
+  const precisionMeta = useMemo(() => marketPrecisionMetadata[symbol] || { symbol, marketType }, [marketPrecisionMetadata, symbol, marketType]);
+  const toolPip = useMemo(() => resolvePipSize({ symbol, price: candles.length ? candles[candles.length - 1][4] : livePrice, precision: resolvePrecision(precisionMeta) }).pip, [symbol, candles, livePrice, precisionMeta]);
+  const tools = useChartTools({ exchange, marketType, symbol, timeframe, candles, livePrice, instrumentId: marketInstrumentId, pip: toolPip });
+  const streamPrice = tools.streamFresh ? tools.stream.price : null;
   const formingNow = useMemo(() => { if (!candles.length) return false; const close = candleCloseAt(candles[candles.length - 1][0], timeframe); return close != null && close > sessionClock; }, [candles, timeframe, sessionClock]);
   // sessionClock is intentionally not a dependency: formingNow already flips when the forming candle closes.
-  const liveCandles = useMemo(() => (formingNow && marketType !== 'cfd' ? mergeLiveTick(candles, livePrice, { timeframe, now: Date.now() }) : candles), [candles, livePrice, formingNow, timeframe, marketType]);
+  // Replay shows history up to the cursor (no live ticks). Otherwise the exchange WebSocket price, when fresh, beats the 4s poll.
+  const liveCandles = useMemo(() => {
+    if (tools.replaying) return tools.applyReplay(candles);
+    return formingNow && marketType !== 'cfd' ? mergeLiveTick(candles, streamPrice ?? livePrice, { timeframe, now: Date.now() }) : candles;
+  }, [candles, livePrice, streamPrice, formingNow, timeframe, marketType, tools.replaying, tools.applyReplay]);
   const countdown = candles.length ? candleCountdown(candles[candles.length - 1][0], timeframe, sessionClock) : null;
 
   const metrics = useMemo(() => {
@@ -382,7 +391,6 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
 
   const smartMoney = useMemo(() => detectSmartMoney(candles.slice(0, -1), swingLength), [candles, swingLength]);
 
-  const precisionMeta = useMemo(() => marketPrecisionMetadata[symbol] || { symbol, marketType }, [marketPrecisionMetadata, symbol, marketType]);
   const liveClose = liveCandles.length ? liveCandles[liveCandles.length - 1][4] : null;
   const pipInfo = useMemo(() => resolvePipSize({ symbol, price: liveClose, precision: resolvePrecision(precisionMeta) }), [symbol, liveClose, precisionMeta]);
 
@@ -402,14 +410,16 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     const lastClose = rows[rows.length - 1][4];
     const { low, high } = applyPriceZoom(min - padding, max + padding, priceZoom, priceZoom > 1 ? lastClose : undefined);
     const left = 4, top = 10, bottom = Math.max(top + 60, canvasHeight - 22);
-    const axis = buildPriceAxis({ min: low, max: high, heightPx: bottom - top, pip: pipInfo.pip, minLabelPx: 14 });
+    const range = resolveRange({ lo: low, hi: high }, tools.lockedRange);
+    const scale = makeScale({ mode: tools.prefs.scaleMode, lo: range.lo, hi: range.hi, top, bottom });
+    const axis = buildScaleAxis({ mode: scale.mode, lo: range.lo, hi: range.hi, top, bottom, pip: pipInfo.pip, ref: lastClose, minLabelPx: 14 });
     const axisW = axisWidthFor([...axis.ticks.map((t) => t.label), formatInstrumentPrice(lastClose, precisionMeta, { maximumFractionDigits: 12 })]);
     const right = Math.max(left + 80, canvasWidth - axisW);
     const x = (i) => left + (i + 0.5) * ((right - left) / rows.length);
-    const y = (price) => top + ((high - price) / (high - low)) * (bottom - top);
+    const y = scale.y;
     const points = (values) => values.slice(liveCandles.length - count).map((value, i) => Number.isFinite(value) ? x(i) + ',' + y(value) : null).filter(Boolean).join(' ');
-    return { rows, count, min: low, max: high, left, right, top, priceBottom: bottom, bottom, width: canvasWidth, viewportWidth: plotSize.w, height: canvasHeight, viewportHeight: plotSize.h, axisW, axis, pip: pipInfo.pip, x, y, points };
-  }, [liveCandles, zoom, candleSpacing, alphaLevels, ciPlanPrices, priceZoom, plotSize, pipInfo, precisionMeta]);
+    return { rows, count, min: range.lo, max: range.hi, lo: range.lo, hi: range.hi, left, right, top, priceBottom: bottom, bottom, width: canvasWidth, viewportWidth: plotSize.w, height: canvasHeight, viewportHeight: plotSize.h, axisW, axis, pip: pipInfo.pip, x, y, priceAt: scale.price, slot: (right - left) / rows.length, scaleMode: scale.mode, points };
+  }, [liveCandles, zoom, candleSpacing, alphaLevels, ciPlanPrices, priceZoom, plotSize, pipInfo, precisionMeta, tools.lockedRange, tools.prefs.scaleMode]);
 
   const activeCandle = (crosshair !== null && geometry ? geometry.rows[crosshair.i] : null) || metrics.last;
   const candleSlot = geometry ? (geometry.right - geometry.left) / geometry.count : 6;
@@ -557,7 +567,6 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       <label className="smc-toggle"><input type="checkbox" checked={showStructure} onChange={(e) => setShowStructure(e.target.checked)}/> BOS / CHoCH</label>
       <label className="smc-toggle"><input type="checkbox" checked={showOrderBlocks} onChange={(e) => setShowOrderBlocks(e.target.checked)}/> Order blocks</label>
       <label className="smc-sensitivity">Swing <select aria-label="SMC swing sensitivity" value={swingLength} onChange={(e) => setSwingLength(Number(e.target.value))}><option value={2}>Fast (2)</option><option value={3}>Normal (3)</option><option value={5}>Strict (5)</option><option value={8}>Wide (8)</option></select></label>
-      <label>Draw <select value={drawMode} onChange={(e) => setDrawMode(e.target.value)}><option value="off">Off</option><option value="horizontal">S/R level</option><option value="trend">Trend line (2 clicks)</option></select></label>
       <span>RSI(14): <b className={metrics.rsi > 70 ? 'down' : metrics.rsi < 30 ? 'up' : ''}>{metrics.rsi == null ? '—' : metrics.rsi.toFixed(1)}</b></span>
       <span>ATR(14): <b>{metrics.atr == null ? '—' : fmt(metrics.atr)}</b></span>
       <span>MACD: <b className={metrics.macd?.histogram >= 0 ? 'up' : 'down'}>{metrics.macd ? metrics.macd.histogram.toFixed(5) : '—'}</b></span>
@@ -576,20 +585,24 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       <span>V <strong>{activeCandle ? fmt(activeCandle[5]) : '—'}</strong></span>
       {geometry && <span>Showing <strong>{geometry.count}/{liveCandles.length}</strong> candles</span>}
       {activeCandle && geometry && <span>Range <strong>{pipDistance(activeCandle[3], activeCandle[2], geometry.pip) ?? '—'}</strong> pips</span>}
-      {countdown && !countdown.expired && <span className="chart-countdown" title="Time until the forming candle closes">Closes in <strong>{countdown.label}</strong></span>}
+      {tools.replaying && <span className="chart-countdown"><strong>REPLAY</strong></span>}
+      {!tools.replaying && countdown && !countdown.expired && <span className="chart-countdown" title="Time until the forming candle closes">Closes in <strong>{countdown.label}</strong></span>}
       {ticker?.last != null && <strong className="chart-last-price">{fmt(ticker.last)}</strong>}
     </div>
+    <div className="live-tools"><ChartToolsBar tools={tools} geoRange={geometry ? { lo: geometry.lo, hi: geometry.hi } : null} fmt={fmt} unit="pips" timeframe={timeframe} /></div>
     {error ? <div className="chart-error">{error}</div> : !geometry ? <div className="chart-wait">{loading ? 'Loading live OHLC candles…' : 'Waiting for exchange candle data…'}</div> :
       <div className={'candlestick-svg-wrap' + (expanded ? ' chart-expanded' : '')} ref={setWrapEl}>
-        <svg width={geometry.width} height={geometry.height} viewBox={'0 0 ' + geometry.width + ' ' + geometry.height} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (drawMode === 'off' || !geometry) return; const rect=event.currentTarget.getBoundingClientRect(); const px=event.clientX-rect.left; const py=event.clientY-rect.top; if (px > geometry.right) return; const price=geometry.max-(py-geometry.top)/(geometry.priceBottom-geometry.top)*(geometry.max-geometry.min); if(drawMode==='horizontal') setDrawings(v=>[...v,{kind:'level',price}]); else setDrawings(v=>v.length%2===0?[...v,{kind:'start',xr:px/rect.width,price}]:[...v,{kind:'end',xr:px/rect.width,price}]); }} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => { setCrosshair(null); onCrosshairChange?.(null); }} onMouseMove={(event) => {
+        <svg width={geometry.width} height={geometry.height} viewBox={'0 0 ' + geometry.width + ' ' + geometry.height} role="img" aria-label={symbol + ' live candlestick chart'} onClick={(event) => { if (tools.tool === 'cursor' || !geometry) return; const point = pointFromEvent(event, geometry, timeframe); if (point.inPlot || (tools.tool === 'alert' && point.inAxis)) tools.handlePointer('click', point); }} style={tools.tool !== 'cursor' ? { cursor: 'crosshair' } : undefined} onDoubleClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); if (geometry && event.clientX - rect.left > geometry.right) setPriceZoom(1); }} onMouseLeave={() => { setCrosshair(null); onCrosshairChange?.(null); tools.broadcastCrosshair(null); }} onMouseMove={(event) => {
           const rect = event.currentTarget.getBoundingClientRect();
           const px = event.clientX - rect.left, py = event.clientY - rect.top;
-          if (px > geometry.right || px < geometry.left) { setCrosshair(null); onCrosshairChange?.(null); return; }
+          if (px > geometry.right || px < geometry.left) { setCrosshair(null); onCrosshairChange?.(null); tools.broadcastCrosshair(null); return; }
           const index = Math.max(0, Math.min(geometry.count - 1, Math.floor((px - geometry.left) / (geometry.right - geometry.left) * geometry.count)));
           setCrosshair({ i: index, py });
           const candle = geometry.rows[index];
-          const price = geometry.max - (py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min);
+          const price = geometry.priceAt(py);
           onCrosshairChange?.({ timestamp: candle?.[0] ?? null, price: Number.isFinite(price) ? price : null, symbol });
+          const point = pointFromEvent(event, geometry, timeframe);
+          if (point.inPlot) { tools.handlePointer('move', point); tools.broadcastCrosshair(point); }
         }}>
           {geometry.axis.minor.map((price) => <line key={'minor-' + price} x1={geometry.left} y1={geometry.y(price)} x2={geometry.right} y2={geometry.y(price)} stroke="#18243a" strokeWidth="0.6"/>)}
           {geometry.axis.ticks.map((tick) => {
@@ -616,9 +629,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           {showStructure && !ciReady && smartMoney.structureBreaks.filter(e => e.index >= candles.length - geometry.count).map((e,i) => { const x=geometry.x(e.index-(candles.length-geometry.count)), y=geometry.y(e.level); return <g key={'struct'+i}><line x1={geometry.left} y1={y} x2={x} y2={y} stroke={e.direction==='bullish'?'#20c997':'#f07883'} strokeWidth="1.2" strokeDasharray="5 3"/><text x={Math.max(geometry.left,x-42)} y={y+(e.direction==='bullish'?-5:12)} fill={e.direction==='bullish'?'#20c997':'#f07883'} fontSize="10">{e.kind} {e.direction==='bullish'?'↑':'↓'}</text></g>; })}
           {showSweeps && !ciReady && smartMoney.liquiditySweeps.filter(e => e.index >= candles.length - geometry.count).map((e,i) => { const x=geometry.x(e.index-(candles.length-geometry.count)), y=geometry.y(e.level); return <g key={'sweep'+i}><circle cx={x} cy={y} r="3.5" fill="#e5b85c"/><text x={x+4} y={y-6} fill="#e5b85c" fontSize="9">{e.direction==='buy-side'?'BSL sweep':'SSL sweep'}</text></g>; })}
           {showVwap && !ciReady && metrics.vwap && <line x1={geometry.left} y1={geometry.y(metrics.vwap)} x2={geometry.right} y2={geometry.y(metrics.vwap)} stroke="#38bdf8" strokeWidth="1.6" strokeDasharray="6 3"/>}
-          {drawings.filter(d=>d.kind==='level').map((d,i)=><g key={'level'+i}><line x1={geometry.left} y1={geometry.y(d.price)} x2={geometry.right} y2={geometry.y(d.price)} stroke="#e5b85c" strokeDasharray="5 4"/><text x={geometry.left+5} y={geometry.y(d.price)-4} fill="#e5b85c" fontSize="10">S/R {fmt(d.price)}</text></g>)}
           {(alphaLevels || []).filter(level => Number.isFinite(Number(level.price))).map((level,i) => { const y=geometry.y(Number(level.price)); return <g key={'alpha-'+level.label+'-'+i}><line x1={geometry.left} y1={y} x2={geometry.right} y2={y} stroke={level.color || '#e5b85c'} strokeWidth="1.5" strokeDasharray="6 4"/><text x={geometry.left+6} y={y-5} fill={level.color || '#e5b85c'} fontSize="10">ALPHA {level.label}: {fmt(level.price)}</text></g>; })}
-          {drawings.filter(d=>d.kind==='start').map((d,i)=>{const end=drawings.filter(x=>x.kind==='end')[i];return end?<line key={'trend'+i} x1={d.xr*geometry.width} y1={geometry.y(d.price)} x2={end.xr*geometry.width} y2={geometry.y(end.price)} stroke="#a78bfa" strokeWidth="2"/>:null;})}
           {showEma20 && <polyline points={geometry.points(metrics.ema20)} fill="none" stroke="#e5b85c" strokeWidth="1.7" vectorEffect="non-scaling-stroke"/>}
           {showEma50 && <polyline points={geometry.points(metrics.ema50)} fill="none" stroke="#9b8cf5" strokeWidth="1.7" vectorEffect="non-scaling-stroke"/>}
           {showBollinger && <><polyline points={geometry.points(metrics.bollinger.upper)} fill="none" stroke="#58a6ff" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke"/><polyline points={geometry.points(metrics.bollinger.lower)} fill="none" stroke="#58a6ff" strokeWidth="1" strokeDasharray="4 3" vectorEffect="non-scaling-stroke"/></> }
@@ -629,12 +640,13 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
             const tagY = Math.max(geometry.top + 9, Math.min(geometry.bottom - 9, yLast)), tagW = geometry.axisW - 2;
             return <g pointerEvents="none"><line x1={geometry.left} y1={yLast} x2={geometry.right} y2={yLast} stroke={tint} strokeDasharray="2 3" strokeOpacity=".85"/><g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY - 9) + ')'}><rect width={tagW} height="18" rx="3" fill={tint}/><text x={tagW / 2} y="12.5" textAnchor="middle" fill="#06101d" fontSize="10.5" fontWeight="700">{formatInstrumentPrice(lastRow[4], precisionMeta, { maximumFractionDigits: 12 })}</text></g>{countdown && !countdown.expired && <g transform={'translate(' + (geometry.right + 1) + ' ' + (tagY + 10) + ')'}><rect width={tagW} height="15" rx="3" fill="#152238" stroke="#2c3f5c"/><text x={tagW / 2} y="11" textAnchor="middle" fill="#b8c7dc" fontSize="9.5">{countdown.label}</text></g>}</g>;
           })()}
+          <ChartToolsSvg tools={tools} geo={geometry} timeframe={timeframe} symbol={symbol} fmt={fmt} unit="pips" width={geometry.width} height={geometry.height} suppressGhost={synchronizedCrosshair?.timestamp != null} />
           {(synchronizedCrosshair?.timestamp != null || crosshair !== null) && (() => {
             const sharedIndex = synchronizedCrosshair?.timestamp != null
               ? geometry.rows.reduce((best, candle, index, rows) => Math.abs(candle[0] - synchronizedCrosshair.timestamp) < Math.abs(rows[best][0] - synchronizedCrosshair.timestamp) ? index : best, 0)
               : crosshair.i;
             const sameInstrument = !synchronizedCrosshair || synchronizedCrosshair.symbol === symbol;
-            const hoverPrice = sameInstrument ? (synchronizedCrosshair?.price != null ? synchronizedCrosshair.price : geometry.max - (crosshair.py - geometry.top) / (geometry.priceBottom - geometry.top) * (geometry.max - geometry.min)) : null;
+            const hoverPrice = sameInstrument ? (synchronizedCrosshair?.price != null ? synchronizedCrosshair.price : geometry.priceAt(crosshair.py)) : null;
             const yPrice = hoverPrice == null ? null : geometry.y(hoverPrice);
             const inside = sameInstrument && yPrice >= geometry.top && yPrice <= geometry.priceBottom, tagW = geometry.axisW - 2;
             const pips = hoverPrice == null ? null : pipDistance(geometry.rows[geometry.rows.length - 1][4], hoverPrice, geometry.pip);
@@ -664,7 +676,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     <div className="smc-method-note">SMC analysis uses closed candles and confirmed swing points. Zones are rule-based technical estimates, not verified institutional orders or trade recommendations.</div>
     <div className="chart-footer">
       <span>{candles.length} candles · {timeframe} · Auto-refresh 20s · SMC uses closed candles · BOS/CHoCH {smartMoney.structureBreaks.length} · FVG {smartMoney.fairValueGaps.length}</span>
-      <button type="button" onClick={() => setDrawings([])}>Clear drawings</button>
+      <button type="button" onClick={tools.clearAll}>Clear drawings</button>
       <span>EMA 20 <i className="ema20-key"/> EMA 50 <i className="ema50-key"/> Bullish <i className="bull-key"/> Bearish <i className="bear-key"/></span>
     </div>
   </section>;
