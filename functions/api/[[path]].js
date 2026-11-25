@@ -154,6 +154,73 @@ async function persistDexTransactions(env,symbol,trades){
  catch(error){return{persisted:false,count,reason:String(error?.message||error).slice(0,180)};}
 }
 
+async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generatedAt=new Date().toISOString()){
+ const base=String(symbol||'').split(/[/-]/)[0].toUpperCase(),cacheKey='jpti:institutional-context:v1:'+base;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(cacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<900000)return hit.body;}catch{/* source requests remain available without KV */}}
+ const out={status:'partial',generatedAt,macro:{status:'unavailable',riskBias:null},cftc:{status:'unavailable',netBias:null},treasury:{status:'unavailable',records:[]},ecb:{status:'unavailable'},news:[],sources:[],limitations:[]};
+ const source=(name,status,url,extra={})=>out.sources.push({name,status,url,retrievedAt:generatedAt,...extra});
+ const safeJson=async(url,headers={accept:'application/json'})=>{const r=await fetchImpl(url,{headers});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
+ // CFTC Traders in Financial Futures, futures-only weekly positioning. It is a lagged report, not live order flow.
+ if(['BTC','ETH'].includes(base)){
+  try{
+   const term=base==='BTC'?'BITCOIN':'ETHER';
+   const query=new URLSearchParams({$select:'market_and_exchange_names,report_date_as_yyyy_mm_dd,open_interest_all,lev_money_positions_long_all,lev_money_positions_short_all', $where:"upper(market_and_exchange_names) like '%"+term+"%'", $order:'report_date_as_yyyy_mm_dd DESC',$limit:'10'});
+   const rows=await safeJson('https://publicreporting.cftc.gov/resource/gpe5-46if.json?'+query.toString());
+   const row=(Array.isArray(rows)?rows:[]).find(x=>Number(x.open_interest_all)>0);
+   if(row){
+    const long=Number(row.lev_money_positions_long_all||0),short=Number(row.lev_money_positions_short_all||0),oi=Number(row.open_interest_all||0),net=long-short,reportDate=String(row.report_date_as_yyyy_mm_dd||'').slice(0,10);
+    out.cftc={status:'live',reportName:'Traders in Financial Futures · Futures Only',market:row.market_and_exchange_names,reportDate,openInterest:oi,leveragedMoneyLong:long,leveragedMoneyShort:short,netPosition:net,netBias:Math.max(-1,Math.min(1,net/oi/.25)),longShortRatio:short?long/short:null,ageDays:reportDate?Math.max(0,(Date.parse(generatedAt)-Date.parse(reportDate))/86400000):null};
+    source('CFTC weekly leveraged-money positioning','live','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
+   }else{out.cftc.status='no-match';source('CFTC weekly leveraged-money positioning','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
+  }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly leveraged-money positioning','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
+ }else{out.cftc.status='unsupported';source('CFTC weekly leveraged-money positioning','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
+ // FRED: Treasury yields, broad dollar and policy rate. A user-provided key remains server-side only.
+ const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL'];
+ if(env.FRED_API_KEY){
+  const observations=await Promise.all(fredSeries.map(async id=>{try{const u='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+encodeURIComponent(env.FRED_API_KEY)+'&file_type=json&sort_order=desc&limit=5';const p=await safeJson(u);const rows=(p.observations||[]).filter(x=>x.value!=='.'&&Number.isFinite(Number(x.value)));return[id,{status:'live',latest:rows[0]?{date:rows[0].date,value:Number(rows[0].value)}:null,previous:rows[1]?{date:rows[1].date,value:Number(rows[1].value)}:null}];}catch(error){return[id,{status:'offline',error:String(error?.message||error).slice(0,140)}];}}));
+  out.macro.fred=Object.fromEntries(observations);
+  const dgs=out.macro.fred.DGS10,dollar=out.macro.fred.DTWEXBGS;
+  const risk=[];
+  if(dgs?.latest&&dgs?.previous)risk.push(Math.max(-1,Math.min(1,-(dgs.latest.value-dgs.previous.value)/.15)));
+  if(dollar?.latest&&dollar?.previous&&dollar.previous.value!==0)risk.push(Math.max(-1,Math.min(1,-((dollar.latest.value-dollar.previous.value)/dollar.previous.value*100)/.15)));
+  out.macro.riskBias=risk.length?Number((risk.reduce((a,b)=>a+b,0)/risk.length).toFixed(3)):null;
+  out.macro.status=risk.length?'live':'partial';
+  source('Federal Reserve FRED observations',observations.some(x=>x[1].status==='live')?'live':'offline','https://fred.stlouisfed.org/docs/api/fred/series_observations.html',{series:fredSeries});
+ }else{out.macro.fredStatus='not-configured';source('Federal Reserve FRED observations','not-configured','https://fred.stlouisfed.org/docs/api/fred/series_observations.html');out.limitations.push('FRED policy rates, Treasury yields and bank-balance-sheet series require the server-side FRED_API_KEY secret.');}
+ // U.S. Treasury Fiscal Data is public and does not require an API key.
+ try{
+  const u='https://api.fiscaldata.treasury.gov/services/api/fiscal_service/v2/accounting/od/avg_interest_rates?sort=-record_date&page[size]=5';
+  const p=await safeJson(u),rows=Array.isArray(p.data)?p.data:[];
+  out.treasury={status:rows.length?'live':'empty',records:rows.slice(0,5).map(x=>({recordDate:x.record_date,securityDescription:x.security_desc||x.security_type_desc||null,averageInterestRate:Number(x.avg_interest_rate_amt??x.average_interest_rate??NaN)})).filter(x=>Number.isFinite(x.averageInterestRate))};
+  source('U.S. Treasury average interest rates','live','https://fiscaldata.treasury.gov/api-documentation/',{recordDate:rows[0]?.record_date||null});
+ }catch(error){out.treasury.status='offline';source('U.S. Treasury average interest rates','offline','https://fiscaldata.treasury.gov/api-documentation/',{error:String(error?.message||error).slice(0,140)});}
+ // ECB reference exchange rates are a daily central-bank observation, not a tick feed.
+ try{
+  const u='https://data-api.ecb.europa.eu/service/data/EXR/D.USD.EUR.SP00.A?lastNObservations=3&format=csvdata';
+  const r=await fetchImpl(u,{headers:{accept:'text/csv'}});if(!r.ok)throw new Error('HTTP '+r.status);
+  const lines=(await r.text()).trim().split(/\r?\n/),headers=(lines[0]||'').split(','),ti=headers.indexOf('TIME_PERIOD'),vi=headers.indexOf('OBS_VALUE');
+  const vals=lines.slice(1).map(line=>line.split(',')).map(row=>({date:row[ti],value:Number(row[vi])})).filter(x=>x.date&&Number.isFinite(x.value)).sort((a,b)=>a.date.localeCompare(b.date));
+  out.ecb={status:vals.length?'live':'empty',series:'EUR/USD reference (USD per EUR)',latest:vals.at(-1)||null,previous:vals.at(-2)||null};
+  if(vals.length>1&&vals.at(-2).value)out.macro.ecbUsdPerEurChangePct=(vals.at(-1).value/vals.at(-2).value-1)*100;
+  if(out.macro.riskBias==null&&Number.isFinite(out.macro.ecbUsdPerEurChangePct))out.macro.riskBias=Math.max(-1,Math.min(1,out.macro.ecbUsdPerEurChangePct/.15));
+  if(out.macro.status!=='live'&&Number.isFinite(out.macro.riskBias))out.macro.status='live';
+  source('European Central Bank daily reference exchange rates','live','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
+ }catch(error){out.ecb.status='offline';source('European Central Bank daily reference exchange rates','offline','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{error:String(error?.message||error).slice(0,140)});}
+ // Official Federal Reserve press releases are contextual event evidence only; headlines never receive an automatic directional score.
+ try{
+  const url='https://www.federalreserve.gov/feeds/press_all.xml',r=await fetchImpl(url,{headers:{accept:'application/rss+xml, application/xml, text/xml'}});if(!r.ok)throw new Error('HTTP '+r.status);
+  const xml=await r.text(),items=[];
+  for(const match of xml.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)){const block=match[1],field=name=>decodeXml(block.match(new RegExp('<'+name+'(?:\\s[^>]*)?>([\\s\\S]*?)<\\/'+name+'>','i'))?.[1]||'').replace(/<[^>]+>/g,'').trim(),title=field('title'),link=field('link'),date=field('pubDate');if(title&&link)items.push({title:title.slice(0,260),url:link,publishedAt:date||null,source:'Federal Reserve'});if(items.length>=8)break;}
+  out.news=items;source('Federal Reserve official press releases','live',url);
+ }catch(error){source('Federal Reserve official press releases','offline','https://www.federalreserve.gov/feeds/press_all.xml',{error:String(error?.message||error).slice(0,140)});}
+ out.status=out.sources.some(x=>x.status==='live')?'partial':'unavailable';
+ out.limitations.push('CFTC positioning is weekly and lagged; it represents reported futures positions, not live bank orders or spot-wallet flows.');
+ out.limitations.push('Treasury, ECB and FRED observations are macro context with their own publication schedules, not intraday trade triggers.');
+ out.limitations.push('Private bank, prime-broker, dealer client-flow and paid institutional datasets are not connected without licensed provider access.');
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:900});}catch{/* optional cache */}}
+ return out;
+}
+
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
   const rows = (Array.isArray(candles) ? candles : [])
     .filter((row) => Array.isArray(row) && row.length >= 6 && row.slice(0, 6).every((value) => Number.isFinite(Number(value))))
@@ -909,6 +976,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
       if (context.status === 200) {
         const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt, env);
+        const institutionalSources = await fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt);
+        context.body.institutionalSources = institutionalSources;
+        context.body.sources = [...(context.body.sources || []), ...(institutionalSources.sources || [])];
+        context.body.limitations = [...(context.body.limitations || []), ...(institutionalSources.limitations || [])];
         const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol.replace('-', '/'), chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
         const history = await readDexTransactions(env, symbol.replace('-', '/'), 80);
         context.body.chainDex = { ...chainDex, persistence: persisted, history };
