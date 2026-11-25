@@ -10,6 +10,12 @@ test('opportunity score is explainable and never labels a heuristic as probabili
  assert.equal(result.direction,'LONG');assert.ok(result.score>=0&&result.score<=100);
  assert.match(result.confidenceType,/not a probability/);assert.ok(result.reasons.length>=3);
 });
+test('missing context remains a visible data gap and never creates a depth penalty',()=>{
+ const result=scoreOpportunity(snapshot(),null);
+ assert.equal(result.contextAvailable,false);
+ assert.ok(result.riskFlags.includes('NO_LIVE_CONTEXT'));
+ assert.ok(Number.isFinite(result.score));
+});
 test('insufficient candle analysis cannot receive a ranked score',()=>{
  const result=scoreOpportunity({status:'insufficient'});
  assert.equal(result.status,'INSUFFICIENT_DATA');assert.equal(result.score,null);
