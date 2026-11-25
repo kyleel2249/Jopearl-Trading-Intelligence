@@ -105,6 +105,8 @@ test('filled fair-value gaps remain in historical chart output and sweeps expose
  assert.ok(later,'the FVG remains represented after later candles mitigate it');
  assert.equal(later.price,formed.price);
  assert.ok(['active','filled','partial'].includes(later.status));
+ const hardened=analyzeSmc(walk(215,12));
+ for(const pool of hardened.liquidity.pools){assert.ok(['external','internal','equal-level'].includes(pool.role));assert.ok(Number.isFinite(pool.quality)&&pool.quality>=0&&pool.quality<=1);assert.ok(Number.isFinite(pool.distanceAtr));}
  const sweeps=analyzeSmc(walk(215,12)).items.filter(x=>x.kind==='LIQUIDITY_SWEEP');
  assert.ok(sweeps.length>0);
  for(const x of sweeps){assert.ok(Number.isFinite(x.quality)&&x.quality>=0&&x.quality<=1);assert.ok(Number.isFinite(x.penetrationAtr));}
