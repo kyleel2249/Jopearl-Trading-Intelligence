@@ -209,9 +209,9 @@ async function autonomyPulse(db, env, fetchImpl) {
   return { alreadyRan: false, date, status, results, reviews, errors };
 }
 export async function handleOrganizationApi({ request, env = {}, fetchImpl = fetch }) {
-  if (!env.JPTI_DB) return reply(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
+  if (!env.JPTI_DB) return response(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
   const auth = await authorised(request, env);
-  if (!auth.ok) return reply(auth.status, { error: auth.error }, request);
+  if (!auth.ok) return response(auth.status, { error: auth.error }, request);
   const reply = (status, body) => response(status, body, request);
   const path = new URL(request.url).pathname.replace(/\/+$/, '');
   try {
