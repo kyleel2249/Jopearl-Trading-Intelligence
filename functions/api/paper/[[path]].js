@@ -168,9 +168,10 @@ export async function runCycle(db,symbol){
   if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
    const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
-   const riskUsd=sizing.riskAmount;
+   const targetRiskUsd=sizing.riskAmount;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
-   const quantity=Math.min(sizing.quantity||0,riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
+   const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
+   const riskUsd=quantity*stopDistance;
    if(quantity>0&&Number.isFinite(quantity)){
     const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:openNow,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:1.5,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
     if(!riskDecision.allowed){
