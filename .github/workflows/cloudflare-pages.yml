@@ -41,6 +41,8 @@ jobs:
           VITE_API_BASE_URL: ""
       - name: Validate autonomous department scheduler bundle
         run: npx --no-install wrangler deploy --dry-run --config workers/department-intelligence-scheduler.wrangler.toml
+      - name: Validate edge intelligence scheduler
+        run: npx --no-install wrangler deploy --dry-run --config workers/edge-intelligence-scheduler.wrangler.toml
 
       - name: Validate Cloudflare deployment credentials
         env:

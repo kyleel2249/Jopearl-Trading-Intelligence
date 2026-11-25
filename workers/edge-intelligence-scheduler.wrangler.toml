@@ -1,0 +1,21 @@
+name = "jpti-edge-intelligence-scheduler"
+main = "edge-intelligence-scheduler.js"
+compatibility_date = "2026-11-24"
+compatibility_flags = ["nodejs_compat"]
+
+[triggers]
+crons = ["*/15 * * * *"]
+
+[[d1_databases]]
+binding = "JPTI_DB"
+database_name = "jopearl-trading-intelligence-db"
+database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
+migrations_dir = "../migrations/d1"
+
+# Optional alert delivery. Set these as Worker secrets (never in this file):
+#   wrangler secret put JPTI_ALERT_WEBHOOK_URL --config workers/edge-intelligence-scheduler.wrangler.toml
+#   wrangler secret put JPTI_ALERT_WEBHOOK_SECRET   (optional, adds an x-jpti-signature HMAC header)
+#   wrangler secret put JPTI_TELEGRAM_BOT_TOKEN
+#   wrangler secret put JPTI_TELEGRAM_CHAT_ID
+# Optional thresholds (plain variables): JPTI_ALERT_MIN_SEVERITY, JPTI_ALERT_MAX_CONSECUTIVE_LOSSES,
+# JPTI_ALERT_DAILY_LOSS_R, JPTI_ALERT_DRAWDOWN_R.

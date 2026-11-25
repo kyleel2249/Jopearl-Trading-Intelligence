@@ -188,6 +188,19 @@ add(
   interval('JPTI_MONITOR_PERSIST_INTERVAL_SECONDS', 'Monitor snapshot persistence interval (seconds).', 1, 86400, 60)
 );
 
+// ---------------------------------------------------------------- Edge intelligence alerts (scheduler Worker)
+add(
+  secret('JPTI_ALERT_WEBHOOK_URL', 'Notifications and Messaging', 'Edge alerts', 'HTTPS webhook that receives JSON alerts from the edge intelligence scheduler (Worker secret).'),
+  secret('JPTI_ALERT_WEBHOOK_SECRET', 'Notifications and Messaging', 'Edge alerts', 'Optional HMAC-SHA256 key; adds an x-jpti-signature header to webhook deliveries (Worker secret).', { dependencies: ['JPTI_ALERT_WEBHOOK_URL'] }),
+  secret('JPTI_TELEGRAM_BOT_TOKEN', 'Notifications and Messaging', 'Edge alerts', 'Telegram bot token used to deliver alert digests (Worker secret).', { dependencies: ['JPTI_TELEGRAM_CHAT_ID'] }),
+  E('JPTI_TELEGRAM_CHAT_ID', 'Notifications and Messaging', 'Edge alerts', 'Telegram chat that receives alert digests.', { dependencies: ['JPTI_TELEGRAM_BOT_TOKEN'] }),
+  E('JPTI_ALERT_MIN_SEVERITY', 'Notifications and Messaging', 'Edge alerts', 'Lowest severity delivered: info, warning or critical.', { defaultValue: 'warning', restart: false }),
+  E('JPTI_ALERT_ON_WATCH', 'Notifications and Messaging', 'Edge alerts', 'Also alert when an edge moves to "watch" status.', { format: 'boolean', defaultValue: 'false', restart: false }),
+  E('JPTI_ALERT_MAX_CONSECUTIVE_LOSSES', 'Notifications and Messaging', 'Edge alerts', 'Consecutive losing trades that raise a loss-streak alert.', { format: 'integer', min: 2, defaultValue: '5', restart: false }),
+  E('JPTI_ALERT_DAILY_LOSS_R', 'Notifications and Messaging', 'Edge alerts', 'Daily loss (in R) that raises a daily-loss-limit alert.', { format: 'number', min: 0, defaultValue: '6', restart: false }),
+  E('JPTI_ALERT_DRAWDOWN_R', 'Notifications and Messaging', 'Edge alerts', 'Rolling drawdown (in R) that raises a drawdown-limit alert.', { format: 'number', min: 0, defaultValue: '10', restart: false })
+);
+
 // ---------------------------------------------------------------- WebSocket / Analytics (frontend)
 add(
   E('VITE_WS_URL', 'WebSocket Connections', 'Frontend build', 'Optional WebSocket endpoint (WSS required except localhost). Live streams otherwise use server-sent events.', { scope: 'frontend', format: 'ws-url', test: 'websocket' }),

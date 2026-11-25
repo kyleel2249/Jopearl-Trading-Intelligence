@@ -6,6 +6,7 @@
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
+import { calibrationReport } from '../../src/gainz-alpha/calibration.js';
 import { runAgentFleet, buildAgentCatalog } from '../../src/agent-fleet-engine.js';
 import { summarizeAgentPerformance } from '../../src/agent-performance-engine.js';
 import { evaluateResearchCouncil } from '../../src/research-council-engine.js';
@@ -419,6 +420,32 @@ function cleanGainzOutcome(input){
  const id=btxt(input.id,200,[symbol,timeframe,input.preset,candleTs,input.setupId].join('|'));
  return{id,setupId:btxt(input.setupId,200,id),symbol,exchange:btxt(input.exchange,30),timeframe,preset:btxt(input.preset,20,'balanced').toLowerCase(),setupType:btxt(input.setupType,40,'confluence'),direction,session:btxt(input.session,30),regime:btxt(input.regime,20),volRegime:btxt(input.volRegime,12),candleTs,outcome,returnR,mfeR:bnum(input.mfeR,-50,50),maeR:bnum(input.maeR,-50,50),bars:bnum(input.bars,0,10000),falseSignal:input.falseSignal===true,confidence:bnum(input.confidence,0,100),score:bnum(input.score,-1,1),factors,confirmations:Array.isArray(input.confirmations)?input.confirmations.slice(0,12).map(v=>btxt(v,24)):[],modelVersion:btxt(input.modelVersion,40),tfMs:bnum(input.tfMs,0,3e9)};
 }
+// Calibration and edge-decay report computed live from stored outcomes, plus the last scheduled run.
+async function handleCalibrationRoute(request,env,url,nowMs){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  const symbol=url.searchParams.get('symbol')?.toUpperCase()||null,timeframe=url.searchParams.get('timeframe')||null;
+  const requested=Number(url.searchParams.get('limit')||MAX_GAINZ_OUTCOMES),limit=Number.isFinite(requested)?Math.min(MAX_GAINZ_OUTCOMES,Math.max(1,Math.floor(requested))):MAX_GAINZ_OUTCOMES;
+  const records=(await loadD1OutcomeRecords(env,'gainz-alpha-outcome',limit)).filter(r=>(!symbol||r.symbol===symbol)&&(!timeframe||r.timeframe===timeframe));
+  const state=await loadD1OutcomeById(env,'edge-intelligence:state');
+  const lastPulse=state&&typeof state==='object'?{lastRunAt:state.lastRunAt||null,outcomes:state.outcomes??null,flagged:state.flagged??null,newAlerts:state.newAlerts??null,overall:state.overall||null,delivery:state.delivery||null,pending:Array.isArray(state.pending)?state.pending.length:0}:null;
+  return json(200,{report:calibrationReport(records,{now:nowMs}),lastPulse,count:records.length,scheduler:{configured:Boolean(lastPulse)},storage:'cloudflare-d1'},request);
+ }catch(error){return json(500,{error:'Calibration report failed: '+String(error?.message||error).slice(0,200)},request);}
+}
+// Newest-first feed of alerts raised by the scheduled edge intelligence Worker.
+async function handleAlertsRoute(request,env,url){
+ if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
+ const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
+ try{
+  const rank={info:1,warning:2,critical:3},min=String(url.searchParams.get('severity')||'').toLowerCase(),rule=url.searchParams.get('rule')||null;
+  if(min&&!rank[min])return json(400,{error:'severity must be info, warning or critical.'},request);
+  const requested=Number(url.searchParams.get('limit')||50),limit=Number.isFinite(requested)?Math.min(200,Math.max(1,Math.floor(requested))):50;
+  const stored=(await loadD1OutcomeRecords(env,'alert',1000)).reverse();
+  const alerts=stored.filter(a=>(!min||(rank[a.severity]||0)>=rank[min])&&(!rule||a.rule===rule)).slice(0,limit);
+  return json(200,{alerts,count:alerts.length,storage:'cloudflare-d1'},request);
+ }catch(error){return json(500,{error:'Alert feed failed: '+String(error?.message||error).slice(0,200)},request);}
+}
 async function handleGainzOutcomesRoute(request,env,url){
  if(!env.JPTI_DB)return json(503,{error:'Cloudflare D1 binding JPTI_DB is unavailable.'},request);
  const auth=await verifyJournalToken(request,env);if(!auth.ok)return json(auth.status,{error:auth.error},request);
@@ -616,6 +643,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       if (!['GET', 'POST'].includes(request.method)) return json(405, { error: 'GainzAlpha outcomes support GET and POST only.' }, request, { allow: 'GET, POST, OPTIONS' });
       return handleGainzOutcomesRoute(request, env, url);
     }
+    const edgeIntelligencePath = url.pathname.replace(/\/+$/, '');
+    if (edgeIntelligencePath === '/api/alpha/gainz/calibration' || edgeIntelligencePath === '/api/alerts') {
+      if (request.method !== 'GET') return json(405, { error: 'This route supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      return edgeIntelligencePath === '/api/alerts' ? handleAlertsRoute(request, env, url) : handleCalibrationRoute(request, env, url, now().getTime());
+    }
     if (url.pathname === '/api/mentor/analyze') {
       if (request.method !== 'POST') return json(405, { error: 'Mentor analysis supports POST only.' }, request, { allow: 'POST, OPTIONS' });
       return handleMentorRoute(request, env, fetchImpl);
@@ -695,6 +727,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           reflectiveJournal: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           sessionOutcomeMemory: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          calibrationReport: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          alertFeed: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           workersAiMentor: Boolean(env.AI && env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           agentFleet: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           agentPerformanceReporting: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
@@ -939,6 +973,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           '/api/session/memory',
           '/api/session/memory/batch',
           '/api/alpha/gainz/outcomes',
+          '/api/alpha/gainz/calibration',
+          '/api/alerts',
           '/api/mentor/analyze'
         ],
         note: 'Public chart data, private reflective journal, session outcome memory and GainzAlpha outcome persistence run on Cloudflare Pages Functions and D1. Private account access and order execution remain disabled.'

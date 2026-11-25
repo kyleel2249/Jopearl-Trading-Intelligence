@@ -33,5 +33,7 @@ jobs:
         run: npx --no-install wrangler deploy --dry-run --config workers/wrangler.toml
       - name: Bundle-check autonomous department scheduler
         run: npx --no-install wrangler deploy --dry-run --config workers/department-intelligence-scheduler.wrangler.toml
+      - name: Bundle-check edge intelligence scheduler
+        run: npx --no-install wrangler deploy --dry-run --config workers/edge-intelligence-scheduler.wrangler.toml
       - run: npm run build
       - run: npm run smoke
