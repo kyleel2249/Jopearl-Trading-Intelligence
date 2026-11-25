@@ -1,4 +1,5 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
+import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -91,15 +92,42 @@ async function saveAgent(db,agentId,metrics,kpi,tier){
 export async function runCycle(db,symbol){
  await ensureAgents(db);
  const market=await marketSnapshot(symbol);
- const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
+ const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
+ let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
+ try{const row=await db.prepare("SELECT policy_json FROM jpti_risk_policies WHERE policy_id='default'").first();if(row?.policy_json)independentPolicy={...independentPolicy,...JSON.parse(row.policy_json)};}catch{/* The existing paper gates remain active until migration 0010 is applied. */}
+ report.riskVetoes=[];
  for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
  for(const agent of await loadAgents(db)){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
   if(open){
+   const initialRiskDistance=num(open.risk_usd)/Math.max(1e-12,num(open.quantity));
+   const stopUpdate=updateDynamicStop({direction:open.direction,entryPrice:num(open.entry_price),currentPrice:market.ticker.last,stopPrice:num(open.stop_price),initialRiskDistance});
+   if(stopUpdate.updated){
+    const updatedPayload={...JSON.parse(open.payload||'{}'),dynamicStop:stopUpdate};
+    await db.prepare('UPDATE jpti_paper_trades SET stop_price=?,payload=? WHERE trade_id=? AND status=\'open\'').bind(stopUpdate.stopPrice,JSON.stringify(updatedPayload),open.trade_id).run();
+    open.stop_price=stopUpdate.stopPrice;
+   }
+   let openPayload={};try{openPayload=JSON.parse(open.payload||'{}')}catch{}
+   const initialQuantity=num(openPayload.initialQuantity)||num(open.quantity),initialRisk=num(openPayload.originalRiskUsd)||num(open.risk_usd),initialEntryFee=num(openPayload.originalEntryFeeUsd)||num(open.entry_fee_usd),initialDistance=initialRisk/Math.max(1e-12,initialQuantity),moveR=initialDistance>0?(market.ticker.last-num(open.entry_price))*(open.direction==='LONG'?1:-1)/initialDistance:0;
+   const plan=openPayload.partialExitPlan?.exits||[],nextIndex=Number(openPayload.nextPartialExitIndex)||0,partialFills=[],partialState={...openPayload,initialQuantity,originalRiskUsd:initialRisk,originalEntryFeeUsd:initialEntryFee,partialRealizedPnlUsd:num(openPayload.partialRealizedPnlUsd),partialGrossPnlUsd:num(openPayload.partialGrossPnlUsd),partialExitFeesUsd:num(openPayload.partialExitFeesUsd),partialExits:Array.isArray(openPayload.partialExits)?openPayload.partialExits:[],nextPartialExitIndex:nextIndex};
+   let remainingQuantity=num(open.quantity),remainingRisk=num(open.risk_usd),remainingEntryFee=num(open.entry_fee_usd),nextPartial=nextIndex;
+   while(nextPartial<plan.length&&moveR>=Number(plan[nextPartial].r)&&remainingQuantity>1e-12){
+    const level=plan[nextPartial],closeQuantity=Math.min(remainingQuantity,initialQuantity*Number(level.portion)),allocation=closeQuantity/initialQuantity;
+    const partial=settlePaperTrade({...open,entryPrice:num(open.entry_price),quantity:closeQuantity,entryFeeUsd:initialEntryFee*allocation,riskUsd:initialRisk*allocation},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    const fillRecord={r:Number(level.r),portion:allocation,quantity:closeQuantity,...partial,filledAt:iso()};
+    partialFills.push(fillRecord);partialState.partialExits.push(fillRecord);partialState.partialRealizedPnlUsd+=partial.netPnlUsd;partialState.partialGrossPnlUsd+=partial.grossPnlUsd;partialState.partialExitFeesUsd+=partial.exitFeeUsd;
+    remainingQuantity=Math.max(0,remainingQuantity-closeQuantity);remainingRisk=initialRisk*(remainingQuantity/initialQuantity);remainingEntryFee=initialEntryFee*(remainingQuantity/initialQuantity);nextPartial++;
+   }
+   if(nextPartial!==nextIndex){
+    partialState.nextPartialExitIndex=nextPartial;
+    await db.prepare("UPDATE jpti_paper_trades SET quantity=?,risk_usd=?,entry_fee_usd=?,payload=? WHERE trade_id=? AND status='open'").bind(remainingQuantity,remainingRisk,remainingEntryFee,JSON.stringify(partialState),open.trade_id).run();
+    open.quantity=remainingQuantity;open.risk_usd=remainingRisk;open.riskUsd=remainingRisk;open.entry_fee_usd=remainingEntryFee;open.entryFeeUsd=remainingEntryFee;open.payload=JSON.stringify(partialState);
+    report.partialExits.push({agentId:agent.id,tradeId:open.trade_id,fills:partialFills,remainingQuantity,realizedPartialPnlUsd:partialState.partialRealizedPnlUsd});
+   }
    const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
    const unrealizedToday=trades.filter(t=>t.status==='open').reduce((s,t)=>{const move=(market.ticker.last-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);return s+move-num(t.entryFeeUsd)-market.ticker.last*num(t.quantity)*PAPER_POLICY.feeRate;},0);
    const dailyCircuit=realizedToday+unrealizedToday<=-(PAPER_POLICY.initialEquityUsd*PAPER_POLICY.maxDailyLossPct/100);
@@ -108,10 +136,20 @@ export async function runCycle(db,symbol){
    const timed=Date.now()-Date.parse(open.opened_at)>60*60*1000;
    if(hitStop||hitTarget||timed||dailyCircuit){
     const reason=dailyCircuit?'daily-loss-circuit-breaker':hitStop?'stop-loss':hitTarget?'take-profit':'time-exit';
-    const settled=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    const settledRaw=settlePaperTrade({...open,direction:open.direction,entryPrice:num(open.entry_price),quantity:num(open.quantity),entryFeeUsd:num(open.entry_fee_usd),riskUsd:num(open.risk_usd)},market.ticker.last,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);
+    let partialTotals={};try{partialTotals=JSON.parse(open.payload||'{}')}catch{}
+    const originalRisk=num(partialTotals.originalRiskUsd)||num(open.risk_usd);
+    const settled={...settledRaw,grossPnlUsd:num(partialTotals.partialGrossPnlUsd)+settledRaw.grossPnlUsd,netPnlUsd:num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd,exitFeeUsd:num(partialTotals.partialExitFeesUsd)+settledRaw.exitFeeUsd,rMultiple:(num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd)/Math.max(1e-12,originalRisk),partialExits:partialTotals.partialExits||[]};
     const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
+    try{
+     const outcome={exitReason:reason,exitPrice:settled.exitPrice,grossPnlUsd:settled.grossPnlUsd,netPnlUsd:settled.netPnlUsd,rMultiple:settled.rMultiple,partialExits:settled.partialExits||[],closedAt:payload.closedAt};
+     await db.prepare("UPDATE jpti_trade_intelligence SET status='closed',closed_at=?,execution_json=?,outcome_json=?,updated_at=? WHERE trade_id=?").bind(payload.closedAt,JSON.stringify({exitFeeUsd:settled.exitFeeUsd,source:'simulated-last-price'}),JSON.stringify(outcome),payload.closedAt,open.trade_id).run();
+     await db.prepare('INSERT INTO jpti_intelligence_memory(memory_id,scope,memory_type,title,content,source,evidence_status,confidence,importance,tags_json,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .bind(crypto.randomUUID(),'global','paper-trade-lesson','Paper trade closed: '+market.symbol,JSON.stringify({tradeId:open.trade_id,agentId:agent.id,symbol:market.symbol,direction:open.direction,outcome}),'JPTI paper trade '+open.trade_id,'inferred',.65,.75,JSON.stringify(['paper-trade','trade-outcome',market.symbol]),JSON.stringify({regime:open.regime}),payload.closedAt,payload.closedAt).run();
+     await db.prepare('INSERT INTO jpti_agent_scorecards(agent_id,metric_date,decisions,correct_decisions,evidence_contributions,risk_violations,useful_handoffs,metrics_json,updated_at) VALUES(?,?,1,?,0,0,0,?,?) ON CONFLICT(agent_id,metric_date) DO UPDATE SET decisions=decisions+1,correct_decisions=correct_decisions+excluded.correct_decisions,updated_at=excluded.updated_at').bind(agent.id,payload.closedAt.slice(0,10),settled.netPnlUsd>0?1:0,JSON.stringify({brierScore:.5,evidenceQuality:.7,researchContribution:.5}),payload.closedAt).run();
+    }catch(error){console.error('[JPTI trade intelligence] Outcome mirror unavailable:',error?.message||error);}
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});exposure.total=Math.max(0,exposure.total-1);exposure.bySymbol.set(open.symbol,Math.max(0,(exposure.bySymbol.get(open.symbol)||0)-1));exposure.byDirection.set(open.direction,Math.max(0,(exposure.byDirection.get(open.direction)||0)-1));
    }
   }
@@ -126,23 +164,39 @@ export async function runCycle(db,symbol){
   const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
+  const sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
-   const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
+  if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+   const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
+   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
+   const targetRiskUsd=sizing.riskAmount;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
-   const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
+   const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
+   const riskUsd=quantity*stopDistance;
    if(quantity>0&&Number.isFinite(quantity)){
+    const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:exposure.total,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:3,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
+    if(!riskDecision.allowed){
+     reason='Independent risk veto: '+riskDecision.violations.map(x=>x.code).join(', ');
+     report.riskVetoes.push({agentId:agent.id,decision:riskDecision});
+     try{await db.prepare('INSERT INTO jpti_risk_events(event_id,event_type,severity,decision,reason,context_json,created_at) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),'paper-entry-veto','warning','REJECT',reason,JSON.stringify({agentId:agent.id,symbol:market.symbol,riskDecision}),iso()).run();}catch{/* Risk event persistence is available after migration 0010. */}
+    }else{
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
-    const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
+    const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*3:-stopDistance*3);
     const tradeId=crypto.randomUUID(),openedAt=iso();
-    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
+    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,initialQuantity:quantity,originalRiskUsd:riskUsd,originalEntryFeeUsd:fill.entryFeeUsd,partialRealizedPnlUsd:0,partialGrossPnlUsd:0,partialExitFeesUsd:0,partialExits:[],nextPartialExitIndex:0,regime:signal.features.regime,session:sessionName,partialExitPlan:buildPartialExitPlan({entryPrice:fill.entryPrice,stopPrice:stop,direction:signal.direction}),sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
     try{
      await db.prepare("INSERT INTO jpti_paper_trades(trade_id,agent_id,symbol,direction,status,opened_at,entry_price,quantity,stop_price,target_price,risk_usd,entry_fee_usd,regime,source_candle_at,payload) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)")
       .bind(tradeId,agent.id,market.symbol,signal.direction,openedAt,fill.entryPrice,quantity,stop,target,riskUsd,fill.entryFeeUsd,signal.features.regime,signal.features.closedCandleAt,JSON.stringify(trade)).run();
+     try{
+      const fingerprint=[market.symbol,signal.direction,signal.features.regime,sessionName,'1m',agent.strategyId||agent.id].join('|');
+      await db.prepare('INSERT INTO jpti_trade_intelligence(trade_id,agent_id,strategy_id,symbol,market_type,direction,status,setup_fingerprint,entry_price,stop_price,target_price,risk_amount,reward_risk,regime,session_name,confidence,evidence_json,agent_assessments_json,execution_json,outcome_json,lessons_json,opened_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+       .bind(tradeId,agent.id,agent.strategyId||null,market.symbol,'paper',signal.direction,'open',fingerprint,fill.entryPrice,stop,target,riskUsd,3,signal.features.regime,sessionName,Number(signal.confidence)||.65,JSON.stringify({signal,closedCandleAt:signal.features.closedCandleAt}),JSON.stringify([{agentId:agent.id,assessment:'PAPER_ENTRY_APPROVED'}]),JSON.stringify({fill,mode:'PAPER_ONLY'}),'{}','[]',openedAt,openedAt,openedAt).run();
+     }catch(error){console.error('[JPTI trade intelligence] Entry mirror unavailable:',error?.message||error);}
      report.opened.push(trade);exposure.total+=1;exposure.bySymbol.set(market.symbol,(exposure.bySymbol.get(market.symbol)||0)+1);exposure.byDirection.set(signal.direction,(exposure.byDirection.get(signal.direction)||0)+1);action='PAPER_ORDER_OPENED';reason='Simulated entry accepted after market freshness, per-agent and fleet exposure gates.';
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
-  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration or direction-concentration gate.';
+    }
+  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;

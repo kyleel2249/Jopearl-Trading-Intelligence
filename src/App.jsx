@@ -24,11 +24,12 @@ const CalendarSessions = lazy(() => import('./CalendarSessions.jsx'));
 const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarketIntelligence.jsx'));
 const AgentCommandCenter = lazy(() => import('./AgentCommandCenter.jsx'));
 const AutonomousDepartments = lazy(() => import('./AutonomousDepartments.jsx'));
+const IntelligenceFoundation = lazy(() => import('./IntelligenceFoundation.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
-  ChevronRight, CircleHelp, Command, Cpu, Database, Gauge, Globe2, TrendingUp,
+  ChevronRight, CircleHelp, Command, Cpu, Database, Gauge, Globe2, TrendingUp, FlaskConical,
   LayoutDashboard, Menu, Network, Newspaper, Radio, RefreshCw, Search,
   Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Wallet, X, Zap, Download, PackageCheck, ExternalLink
 } from 'lucide-react';
@@ -89,6 +90,11 @@ const navigation = [
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
   { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
+  { label: 'Shared Intelligence Memory', icon: Database, group: 'INTELLIGENCE' },
+  { label: 'Agent Organisation', icon: Network, group: 'INTELLIGENCE' },
+  { label: 'Strategy Research Laboratory', icon: FlaskConical, group: 'RESEARCH' },
+  { label: 'Independent Risk Command Centre', icon: ShieldCheck, group: 'OPERATIONS' },
+  { label: 'Trade Intelligence Records', icon: BookOpen, group: 'OPERATIONS' },
   { label: 'Universal Engine', icon: Network, group: 'RESEARCH' },
   { label: 'Backtesting Lab', icon: BarChart3, group: 'RESEARCH' },
   { label: 'Forecast & Strategy', icon: Gauge, group: 'RESEARCH' },
@@ -449,6 +455,11 @@ function App() {
     'AI Intelligence': 'Signal evidence, market context and explainable analysis.',
     'AI Agent Command Center': 'Ten explainable specialist agents, multi-agent debate, risk vetoes and persistent research memory.',
     'Autonomous Departments': 'Research, trading social and general marketing workforces with shared memory, autonomous missions, interdepartmental exchange and daily KPI reviews.',
+    'Shared Intelligence Memory': 'Persistent institutional memory with evidence provenance, confidence, freshness and linked knowledge.',
+    'Agent Organisation': 'Autonomous agent tasking, department handoffs, shared knowledge and accountability.',
+    'Strategy Research Laboratory': 'Reproducible backtesting, walk-forward validation, Monte Carlo analysis and strategy lifecycle research.',
+    'Independent Risk Command Centre': 'Server-enforced risk policy, independent pre-trade vetoes, circuit breakers and audit history.',
+    'Trade Intelligence Records': 'Setup fingerprints, agent assessments, execution context, post-trade reviews and reusable lessons.',
     'Institutional Market Intelligence': 'Shared chart-linked market evidence, regime, structure, liquidity, flow and scenarios.',
     'Opportunity Radar': 'Rank a liquid multi-asset watchlist using explainable evidence and synchronized cross-market return correlations.',
     'Market Scanner': 'Configure market watchlists for scheduled live ticker monitoring.',
@@ -546,6 +557,7 @@ function App() {
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
     if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
+    if (['Shared Intelligence Memory','Agent Organisation','Strategy Research Laboratory','Independent Risk Command Centre','Trade Intelligence Records'].includes(page)) return <IntelligenceFoundation page={page} symbol={symbol}/>;
     if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
     if (page === 'Universal Engine') return <UniversalEngine localPrivateAccess={health?.localPrivateAccess === true}/>;

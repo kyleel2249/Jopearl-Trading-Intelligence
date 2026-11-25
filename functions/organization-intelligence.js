@@ -79,20 +79,29 @@ async function storeMemory(db, { departmentId, kind, title, content, source, con
   const record = { id, departmentId, kind, title: clean(title, 180), content: clean(content, 18000), source: clean(source, 1000), confidence: Math.max(0, Math.min(1, Number(confidence) || 0)), tags: Array.isArray(tags) ? tags.slice(0, 20).map(v => clean(v, 40)) : [], createdAt, visibility: 'shared' };
   await db.prepare('INSERT INTO jpti_org_memory (memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, departmentId, record.kind, record.title, record.content, record.source, record.confidence, JSON.stringify(record.tags), createdAt).run();
+  await db.prepare('INSERT OR IGNORE INTO jpti_intelligence_memory(memory_id,scope,department_id,memory_type,title,content,source,evidence_status,confidence,importance,tags_json,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(id,'global',departmentId,record.kind,record.title,record.content,record.source,record.source?'partially-verified':'unverified',record.confidence,.65,JSON.stringify(record.tags),JSON.stringify({origin:'autonomous-department-memory'}),createdAt,createdAt).run();
   return record;
 }
 async function sendDepartmentMessage(db, { from, to, subject, body, priority = 'normal', missionId = null }) {
   const id = crypto.randomUUID(), createdAt = stamp();
   await db.prepare('INSERT INTO jpti_org_messages (message_id, from_department, to_department, subject, body, priority, status, mission_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, from, to, clean(subject, 180), clean(body, 5000), ['low','normal','high','urgent'].includes(priority) ? priority : 'normal', 'unread', missionId, createdAt).run();
+  await db.prepare('INSERT OR IGNORE INTO jpti_agent_messages(message_id,from_department,to_department,subject,body,message_type,priority,status,related_task_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+    .bind(id, from, to, clean(subject, 180), clean(body, 5000), 'handoff', ['low','normal','high','urgent'].includes(priority) ? priority : 'normal', 'unread', missionId, createdAt).run();
   return { id, from, to, subject: clean(subject, 180), body: clean(body, 5000), priority, status: 'unread', missionId, createdAt };
 }
 async function runMission(db, env, mission, fetchImpl) {
   if (!env.AI || typeof env.AI.run !== 'function') throw Object.assign(new Error('Cloudflare Workers AI binding AI is unavailable. The mission remains queued; verify the AI binding and retry.'), { status: 503 });
   const context = await researchContext(mission.objective, fetchImpl);
   const department = DEPARTMENTS.find(item => item.id === mission.departmentId);
-  const memoryRows = await db.prepare('SELECT department_id, kind, title, content, source, confidence, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 16').all();
-  const sharedMemory = (memoryRows.results || []).map(row => ({ departmentId: row.department_id, kind: row.kind, title: row.title, content: String(row.content || '').slice(0, 1400), source: row.source, confidence: row.confidence, createdAt: row.created_at }));
+  const [memoryRows, foundationRows] = await Promise.all([
+    db.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 16').all(),
+    db.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, created_at FROM jpti_intelligence_memory WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 24').bind(stamp()).all()
+  ]);
+  const sharedMap = new Map();
+  for (const row of [...(memoryRows.results || []), ...(foundationRows.results || [])]) sharedMap.set(row.memory_id, { departmentId: row.department_id, kind: row.kind, title: row.title, content: String(row.content || '').slice(0, 1400), source: row.source, confidence: row.confidence, createdAt: row.created_at });
+  const sharedMemory = [...sharedMap.values()].slice(0, 24);
   const specialists = mission.departmentId === 'research'
     ? ['research-global-research-agent','research-business-research-agent','research-fact-verification-agent']
     : mission.departmentId === 'trading-social'
@@ -149,10 +158,11 @@ async function createMission(db, env, body, fetchImpl) {
   }
 }
 async function getOverview(db) {
-  const [agents, missions, memory, messages, reviews, goals] = await Promise.all([
+  const [agents, missions, memory, foundationMemory, messages, reviews, goals] = await Promise.all([
     db.prepare('SELECT a.agent_id, a.department_id, a.name, a.role, a.status, a.goal, a.kpi_json, a.updated_at, COALESCE(m.completed_missions, 0) AS completed_missions, COALESCE(m.contributions, 0) AS contributions, COALESCE(m.evidence_linked, 0) AS evidence_linked FROM jpti_org_agents a LEFT JOIN jpti_org_agent_metrics m ON m.agent_id = a.agent_id AND m.metric_date = ? ORDER BY a.department_id, a.name').bind(dayKey()).all(),
     db.prepare('SELECT mission_id, department_id, title, objective, priority, assigned_agents_json, status, result_json, created_at, completed_at FROM jpti_org_missions ORDER BY created_at DESC LIMIT 60').all(),
     db.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 80').all(),
+    db.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, tags_json, created_at FROM jpti_intelligence_memory WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 80').bind(stamp()).all(),
     db.prepare('SELECT message_id, from_department, to_department, subject, body, priority, status, mission_id, created_at FROM jpti_org_messages ORDER BY created_at DESC LIMIT 80').all(),
     db.prepare('SELECT review_date, department_id, score, summary, metrics_json, created_at FROM jpti_org_reviews ORDER BY review_date DESC, department_id').all(),
     db.prepare('SELECT department_id, goals_json FROM jpti_org_departments').all()
@@ -162,7 +172,7 @@ async function getOverview(db) {
     generatedAt: stamp(), departments: DEPARTMENTS,
     agents: mapRows(agents, row => ({ id: row.agent_id, departmentId: row.department_id, name: row.name, role: row.role, status: row.status, goal: row.goal, kpis: parse(row.kpi_json, {}), todayMetrics: { completedMissions: row.completed_missions, contributions: row.contributions, evidenceLinked: row.evidence_linked }, updatedAt: row.updated_at })),
     missions: mapRows(missions, row => ({ id: row.mission_id, departmentId: row.department_id, title: row.title, objective: row.objective, priority: row.priority, assignedAgents: parse(row.assigned_agents_json, []), status: row.status, result: parse(row.result_json), createdAt: row.created_at, completedAt: row.completed_at })),
-    memory: mapRows(memory, row => ({ id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at })),
+    memory: [...new Map([...(memory.results || []), ...(foundationMemory.results || [])].map(row => [row.memory_id, { id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at }])).values()].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))),
     messages: mapRows(messages, row => ({ id: row.message_id, from: row.from_department, to: row.to_department, subject: row.subject, body: row.body, priority: row.priority, status: row.status, missionId: row.mission_id, createdAt: row.created_at })),
     reviews: mapRows(reviews, row => ({ date: row.review_date, departmentId: row.department_id, score: row.score, summary: row.summary, metrics: parse(row.metrics_json, {}), createdAt: row.created_at })),
     goals: mapRows(goals, row => ({ departmentId: row.department_id, goals: parse(row.goals_json, []) }))
@@ -173,7 +183,7 @@ async function dailyReview(db, departmentId) {
   const date = dayKey();
   const [missions, memories, messages] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n FROM jpti_org_missions WHERE department_id = ? AND status = 'completed' AND substr(completed_at, 1, 10) = ?").bind(departmentId, date).first(),
-    db.prepare("SELECT COUNT(*) AS n FROM jpti_org_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ?").bind(departmentId, date).first(),
+    db.prepare('SELECT COUNT(*) AS n FROM (SELECT memory_id FROM jpti_org_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ? UNION SELECT memory_id FROM jpti_intelligence_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ?)').bind(departmentId, date, departmentId, date).first(),
     db.prepare("SELECT COUNT(*) AS n FROM jpti_org_messages WHERE from_department = ? AND substr(created_at, 1, 10) = ?").bind(departmentId, date).first()
   ]);
   const department = DEPARTMENTS.find(item => item.id === departmentId);
@@ -231,8 +241,13 @@ export async function handleOrganizationApi({ request, env = {}, fetchImpl = fet
     if (request.method === 'GET' && path === '/api/org/overview') return reply(200, await getOverview(env.JPTI_DB));
     if (request.method === 'GET' && path === '/api/org/memory') {
       const url = new URL(request.url), q = clean(url.searchParams.get('q'), 120).toLowerCase();
-      const result = await env.JPTI_DB.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 200').all();
-      const rows = (result.results || []).map(row => ({ id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at }));
+      const [legacy, foundation] = await Promise.all([
+        env.JPTI_DB.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 200').all(),
+        env.JPTI_DB.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, tags_json, created_at FROM jpti_intelligence_memory WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 300').bind(stamp()).all()
+      ]);
+      const unique = new Map();
+      for (const row of [...(legacy.results || []), ...(foundation.results || [])]) unique.set(row.memory_id, { id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at });
+      const rows = [...unique.values()].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
       return reply(200, { records: q ? rows.filter(row => (row.title + ' ' + row.content + ' ' + row.tags.join(' ')).toLowerCase().includes(q)) : rows });
     }
     if (request.method === 'GET' && path === '/api/org/messages') {

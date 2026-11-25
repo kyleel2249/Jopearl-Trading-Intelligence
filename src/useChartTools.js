@@ -117,6 +117,7 @@ export function useChartTools({ exchange, marketType = 'spot', symbol, timeframe
     }
   }, [tool, pending, pip, atr, alerts, refPrice, addDrawing, pushToast]);
 
+  const replayActiveRef = useRef(false);
   /* ---- replay ---- */
   const [replay, setReplay] = useState(null);
   const total = candles ? candles.length : 0;
@@ -184,7 +185,6 @@ export function useChartTools({ exchange, marketType = 'spot', symbol, timeframe
   const alertsRef = useRef(alerts);
   alertsRef.current = alerts;
   useEffect(() => { prevPrice.current = null; }, [marketKey]);
-  const replayActiveRef = useRef(false);
   const effectivePrice = streamFresh ? stream.price : livePrice;
   useEffect(() => {
     const price = Number(effectivePrice);
