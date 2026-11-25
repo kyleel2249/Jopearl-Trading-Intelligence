@@ -1,3 +1,4 @@
+import {runAgentDebate} from './multi-agent-debate-engine.js';
 const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,v));
 const finite=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
 const round=(v,d=3)=>Number.isFinite(v)?Number(v.toFixed(d)):null;
@@ -43,7 +44,7 @@ export function correlationFromCandles(left=[],right=[]){
 }
 
 export function buildOpportunityRadar(markets=[]){
-  const ranked=markets.map(m=>({...m,ranking:scoreOpportunity(m.snapshot,m.context)}))
+  const ranked=markets.map(m=>{const ranking=scoreOpportunity(m.snapshot,m.context);return {...m,ranking:{...ranking,debate:runAgentDebate(m.snapshot,m.context,ranking)}};})
     .sort((a,b)=>(b.ranking.score??-1)-(a.ranking.score??-1));
   const correlations=[];
   for(let i=0;i<ranked.length;i++)for(let j=i+1;j<ranked.length;j++){
