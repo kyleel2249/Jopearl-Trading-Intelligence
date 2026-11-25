@@ -7,6 +7,7 @@ import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-di
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
 import { runAgentFleet } from '../../src/agent-fleet-engine.js';
+import { handleOrganizationApi } from '../organization-intelligence.js';
 
 const provider = createDirectProvider();
 const JSON_HEADERS = {
@@ -523,6 +524,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       return new Response(null, { status: 204, headers });
     }
+    if (url.pathname.replace(/\/+$/, '').startsWith('/api/org/')) return handleOrganizationApi({ request, env, fetchImpl });
     const agentPath = url.pathname.replace(/\/+$/, '');
     if (agentPath.startsWith('/api/agents/')) {
       if (!['GET','POST'].includes(request.method)) return json(405,{error:'Agent routes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});

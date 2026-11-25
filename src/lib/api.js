@@ -26,7 +26,7 @@ const sessionStorageSafe = () => {
 };
 function isPrivateJournalRoute(path) {
   const value = String(path || '').split('?')[0];
-  return value === '/api/journal/entries' || value === '/api/mentor/analyze' || value === '/api/session/memory' || value === '/api/session/memory/batch' || value === '/api/alpha/gainz/outcomes' || value.startsWith('/api/paper/');
+  return value === '/api/journal/entries' || value === '/api/mentor/analyze' || value === '/api/session/memory' || value === '/api/session/memory/batch' || value === '/api/alpha/gainz/outcomes' || value.startsWith('/api/paper/') || value.startsWith('/api/org/');
 }
 
 export function getApiToken() {

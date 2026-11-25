@@ -29,5 +29,7 @@ jobs:
       - run: npm test
       - name: Bundle-check scheduled paper trading Worker
         run: npx --no-install wrangler deploy --dry-run --config workers/wrangler.toml
+      - name: Bundle-check autonomous department scheduler
+        run: npx --no-install wrangler deploy --dry-run --config workers/department-intelligence-scheduler.wrangler.toml
       - run: npm run build
       - run: npm run smoke
