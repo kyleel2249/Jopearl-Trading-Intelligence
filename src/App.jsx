@@ -2,6 +2,7 @@ import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from
 const ExchangeConnectivity = lazy(() => import('./ExchangeConnectivity.jsx'));
 const MultiChartWorkstation = lazy(() => import('./MultiChartWorkstation.jsx'));
 import Dashboard from './Dashboard.jsx';
+import AgentDashboardOverview from './AgentDashboardOverview.jsx';
 import TerminalDashboard from './TerminalDashboard.jsx';
 const FinancialIntelligence = lazy(() => import('./FinancialIntelligence.jsx'));
 const ReflectiveJournal = lazy(() => import('./ReflectiveJournal.jsx'));
@@ -483,16 +484,19 @@ function App() {
     </div>
   );
 
-  const renderOverview = () => <TerminalDashboard
-    page={page}
-    onNavigate={activeNav}
-    onOpenMenu={() => setMobileOpen(true)}
-    onSymbolChange={setSymbol}
-    health={health}
-    operations={operations}
-    loadError={loadError}
-    lastRefresh={lastRefresh}
-  >{renderClassicOverview()}</TerminalDashboard>;
+  const renderOverview = () => <>
+    <AgentDashboardOverview activeNav={activeNav}/>
+    <TerminalDashboard
+      page={page}
+      onNavigate={activeNav}
+      onOpenMenu={() => setMobileOpen(true)}
+      onSymbolChange={setSymbol}
+      health={health}
+      operations={operations}
+      loadError={loadError}
+      lastRefresh={lastRefresh}
+    >{renderClassicOverview()}</TerminalDashboard>
+  </>;
 
   const renderClassicOverview = () => <Dashboard
     symbol={symbol}
