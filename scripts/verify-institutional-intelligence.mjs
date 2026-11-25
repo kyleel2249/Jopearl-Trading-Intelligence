@@ -19,10 +19,12 @@ assert.equal(offline.status, 'unavailable', 'named sources that are all offline 
 const sparse = scoreInstitutionalContext({ generatedAt: new Date(now).toISOString(), score: { score: -35 }, sources: [] }, { now });
 assert.equal(sparse.status, 'ready');
 assert.ok(sparse.score < 0);
-const broad = scoreInstitutionalContext({ ...fresh, institutionalSources: { cftc: { status: 'live', dealer: { bias: 0.2 }, assetManager: { bias: 0.5 }, leveragedMoney: { bias: 0.7 } }, macro: { status: 'live', riskBias: -0.4 }, retailSentiment: { status: 'live', riskBias: 0.5 } } }, { now });
+const broad = scoreInstitutionalContext({ ...fresh, institutionalSources: { cftc: { status: 'live', dealer: { bias: 0.2 }, assetManager: { bias: 0.5 }, leveragedMoney: { bias: 0.7 }, otherReportables: { bias: 0.3 }, nonReportables: { bias: -0.2 } }, macro: { status: 'live', riskBias: -0.4 }, retailSentiment: { status: 'live', riskBias: 0.5 } } }, { now });
 assert.ok(broad.evidence.some((x) => x.factor === 'cftc-bank-and-dealer-positioning'));
 assert.ok(broad.evidence.some((x) => x.factor === 'cftc-asset-manager-positioning'));
 assert.ok(broad.evidence.some((x) => x.factor === 'cftc-leveraged-fund-positioning'));
+assert.ok(broad.evidence.some((x) => x.factor === 'cftc-other-reportable-positioning'));
+assert.ok(broad.evidence.some((x) => x.factor === 'cftc-nonreportable-positioning'));
 assert.ok(broad.evidence.some((x) => x.factor === 'government-and-central-bank-macro-risk'));
 assert.ok(broad.evidence.some((x) => x.factor === 'retail-risk-sentiment'));
 const namedMtf = scoreInstitutionalContext({ ...fresh, multiTimeframe: [{ timeframe: '1h', bias: 'bullish' }, { timeframe: '4h', bias: 'bullish' }, { timeframe: '1d', bias: 'bearish' }] }, { now });
