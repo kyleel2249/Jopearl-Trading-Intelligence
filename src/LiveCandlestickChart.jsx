@@ -687,6 +687,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>CFTC dealer net: <b>{marketContext?.institutionalSources?.cftc?.dealer?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.dealer.net).toLocaleString()}</b></span>
         <span>CFTC asset-manager net: <b>{marketContext?.institutionalSources?.cftc?.assetManager?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.assetManager.net).toLocaleString()}</b></span>
         <span>CFTC leveraged-fund net: <b>{marketContext?.institutionalSources?.cftc?.leveragedMoney?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.leveragedMoney.net).toLocaleString()}</b></span>
+        <span>CFTC other-reportable net: <b>{marketContext?.institutionalSources?.cftc?.otherReportables?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.otherReportables.net).toLocaleString()}</b></span>
+        <span>CFTC non-reportable net: <b>{marketContext?.institutionalSources?.cftc?.nonReportables?.net == null ? '—' : Number(marketContext.institutionalSources.cftc.nonReportables.net).toLocaleString()}</b></span>
         <span>COT report date: <b>{marketContext?.institutionalSources?.cftc?.reportDate || '—'}</b></span>
         <span>10Y Treasury: <b>{marketContext?.institutionalSources?.macro?.fred?.DGS10?.latest?.value ?? '—'}%</b></span>
         <span>Fed funds: <b>{marketContext?.institutionalSources?.macro?.fred?.DFF?.latest?.value ?? '—'}%</b></span>
