@@ -1,5 +1,5 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
-import { evaluateRiskGate } from '../../../src/intelligence-foundation-engine.js';
+import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -104,6 +104,13 @@ export async function runCycle(db,symbol){
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
   if(open){
+   const initialRiskDistance=num(open.risk_usd)/Math.max(1e-12,num(open.quantity));
+   const stopUpdate=updateDynamicStop({direction:open.direction,entryPrice:num(open.entry_price),currentPrice:market.ticker.last,stopPrice:num(open.stop_price),initialRiskDistance});
+   if(stopUpdate.updated){
+    const updatedPayload={...JSON.parse(open.payload||'{}'),dynamicStop:stopUpdate};
+    await db.prepare('UPDATE jpti_paper_trades SET stop_price=?,payload=? WHERE trade_id=? AND status=\'open\'').bind(stopUpdate.stopPrice,JSON.stringify(updatedPayload),open.trade_id).run();
+    open.stop_price=stopUpdate.stopPrice;
+   }
    const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
    const unrealizedToday=trades.filter(t=>t.status==='open').reduce((s,t)=>{const move=(market.ticker.last-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);return s+move-num(t.entryFeeUsd)-market.ticker.last*num(t.quantity)*PAPER_POLICY.feeRate;},0);
    const dailyCircuit=realizedToday+unrealizedToday<=-(PAPER_POLICY.initialEquityUsd*PAPER_POLICY.maxDailyLossPct/100);
@@ -137,12 +144,13 @@ export async function runCycle(db,symbol){
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
-   const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),riskUsd=metrics.equityUsd*PAPER_POLICY.riskPerTradePct/100;
+  if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+   const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2),sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
+   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
+   const riskUsd=sizing.riskAmount;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
-   const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
+   const quantity=Math.min(sizing.quantity||0,riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    if(quantity>0&&Number.isFinite(quantity)){
-    const sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
     const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:openNow,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:1.5,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
     if(!riskDecision.allowed){
      reason='Independent risk veto: '+riskDecision.violations.map(x=>x.code).join(', ');
@@ -152,7 +160,7 @@ export async function runCycle(db,symbol){
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
     const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
     const tradeId=crypto.randomUUID(),openedAt=iso();
-    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
+    const trade={tradeId,agentId:agent.id,symbol:market.symbol,direction:signal.direction,status:'open',openedAt,entryPrice:fill.entryPrice,quantity,stopPrice:stop,targetPrice:target,riskUsd,entryFeeUsd:fill.entryFeeUsd,regime:signal.features.regime,session:sessionName,partialExitPlan:buildPartialExitPlan({entryPrice:fill.entryPrice,stopPrice:stop,direction:signal.direction}),sourceCandleAt:signal.features.closedCandleAt,signal,fill,mode:'PAPER_ONLY',validationPhase:current.filter(t=>t.status==='closed').length>=150?'FORWARD_VALIDATION':'DEVELOPMENT',outOfSample:current.filter(t=>t.status==='closed').length>=150};
     try{
      await db.prepare("INSERT INTO jpti_paper_trades(trade_id,agent_id,symbol,direction,status,opened_at,entry_price,quantity,stop_price,target_price,risk_usd,entry_fee_usd,regime,source_candle_at,payload) VALUES(?,?,?,?,'open',?,?,?,?,?,?,?,?,?,?)")
       .bind(tradeId,agent.id,market.symbol,signal.direction,openedAt,fill.entryPrice,quantity,stop,target,riskUsd,fill.entryFeeUsd,signal.features.regime,signal.features.closedCandleAt,JSON.stringify(trade)).run();
