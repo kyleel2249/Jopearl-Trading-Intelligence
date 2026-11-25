@@ -9,6 +9,8 @@ assert.ok(result.score > 0.5, 'positive cross-domain evidence should score bulli
 assert.ok(result.confidence > 0.7, 'fresh and corroborated evidence should carry strong confidence');
 assert.ok(result.evidence.some((x) => x.factor === 'funding-crowding'));
 assert.ok(result.evidence.some((x) => x.factor === 'order-book-pressure'), 'provided order-book imbalance is scored');
+const epoch = scoreInstitutionalContext({ ...fresh, generatedAt: now - 30_000 }, { now });
+assert.equal(epoch.status, 'ready', 'millisecond epoch timestamps must be accepted');
 const stale = scoreInstitutionalContext({ ...fresh, generatedAt: new Date(now - 60 * 60 * 1000).toISOString() }, { now });
 assert.equal(stale.status, 'stale');
 assert.equal(stale.score, 0);
