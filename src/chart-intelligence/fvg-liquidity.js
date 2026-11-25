@@ -82,7 +82,7 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
     const ageQuality=clamp(1-fvgAgeBars/Math.max(1,maxSweepAgeBars));
     const mid=(fvg.top+fvg.bottom)/2;
     const ote=items.find(x=>x.direction===direction&&((direction==="bullish"&&x.kind==="OTE_BULLISH")||(direction==="bearish"&&x.kind==="OTE_BEARISH"))&&finite(x.top)&&finite(x.bottom))||null;
-    const orderBlock=items.filter(x=>x.layer==="orderBlocks"&&x.direction===direction&&x.top!=null&&x.bottom!=null&&!["breaker","invalidated"].includes(x.status)).sort((a,b)=>Math.abs((a.top+a.bottom)/2-mid)-Math.abs((b.top+b.bottom)/2-mid))[0]||null;
+    const orderBlock=items.filter(x=>x.layer==="orderBlocks"&&x.direction===direction&&x.top!=null&&x.bottom!=null&&x.kind!=="BREAKER"&&x.status!=="invalidated").sort((a,b)=>Math.abs((a.top+a.bottom)/2-mid)-Math.abs((b.top+b.bottom)/2-mid))[0]||null;
     const oteOverlap=!!(ote&&Math.max(fvg.bottom,ote.bottom)<=Math.min(fvg.top,ote.top));
     const orderBlockOverlap=!!(orderBlock&&Math.max(fvg.bottom,orderBlock.bottom)<=Math.min(fvg.top,orderBlock.top));
     const dealing=smc?.dealingRange||null;
