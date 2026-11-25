@@ -1,11 +1,15 @@
 import { runOrganizationPulse } from '../functions/organization-intelligence.js';
+import { runFoundationPulse } from '../functions/intelligence-foundation.js';
 
 export default {
   async scheduled(controller, env, context) {
-    context.waitUntil(runOrganizationPulse({ env }).catch(error => {
-      console.error('[JPTI department scheduler] Daily intelligence pulse failed:', error?.message || error);
-      throw error;
-    }));
+    context.waitUntil((async () => {
+      const results = await Promise.allSettled([runOrganizationPulse({ env }), runFoundationPulse({ env })]);
+      results.forEach((result, index) => {
+        if (result.status === 'rejected') console.error('[JPTI intelligence scheduler] Pulse ' + index + ' failed:', result.reason?.message || result.reason);
+      });
+      if (results.every(result => result.status === 'rejected')) throw new Error('Both JPTI scheduled intelligence pulses failed.');
+    })());
   },
   async fetch(request, env) {
     const url = new URL(request.url);
