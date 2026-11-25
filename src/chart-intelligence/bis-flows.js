@@ -2,9 +2,9 @@
 const BIS_HOST="stats.bis.org";
 function periodTimestamp(period){
   const p=String(period||"");
-  if(/^\d{4}-\d{2}$/.test(p))return Date.parse(p+"-01T00:00:00Z");
-  if(/^\d{4}-Q[1-4]$/i.test(p)){const m=p.match(/^(\d{4})-Q([1-4])$/i);return Date.UTC(Number(m[1]),(Number(m[2])-1)*3,1);}
-  if(/^\d{4}$/.test(p))return Date.UTC(Number(p),0,1);
+  if(/^\d{4}-\d{2}$/.test(p)){const [y,m]=p.split("-").map(Number);return Date.UTC(y,m,0,23,59,59);}
+  if(/^\d{4}-Q[1-4]$/i.test(p)){const m=p.match(/^(\d{4})-Q([1-4])$/i);return Date.UTC(Number(m[1]),Number(m[2])*3,0,23,59,59);}
+  if(/^\d{4}$/.test(p))return Date.UTC(Number(p),11,31,23,59,59);
   const t=Date.parse(p);return Number.isFinite(t)?t:null;
 }
 function sdmxJsonRows(payload){
@@ -31,7 +31,7 @@ export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=null}={}){
     reporter:x.reporter||x.REF_AREA||null,counterparty:x.counterparty||x.COUNTERPART_AREA||null,measure:x.measure||x.MEASURE||null}))
     .filter(x=>x.period&&Number.isFinite(x.value)).sort((a,b)=>a.period.localeCompare(b.period));
   const latest=observations.at(-1)||null,previous=observations.at(-2)||null;
-  const periodTs=latest?periodTimestamp(latest.period):null,ageMs=periodTs==null?null:Math.max(0,now-periodTs),periodLimit=maxAgeMs??(/^\\d{4}-Q[1-4]$/i.test(latest?.period||"")?240: /^\\d{4}-\\d{2}$/.test(latest?.period||"")?75: /^\\d{4}$/.test(latest?.period||"")?550:14)*24*60*60*1000;
+  const periodTs=latest?periodTimestamp(latest.period):null,ageMs=periodTs==null?null:Math.max(0,now-periodTs),periodLimit=maxAgeMs??(/^\d{4}-Q[1-4]$/i.test(latest?.period||"")?240:/^\d{4}-\d{2}$/.test(latest?.period||"")?75:/^\d{4}$/.test(latest?.period||"")?550:14)*24*60*60*1000;
   return{status:latest?"ready":"unavailable",source:"Bank for International Settlements SDMX",dataset:payload?.dataset||payload?.structure?.name||null,
     observationCount:observations.length,latest,previous,change:latest&&previous?latest.value-previous.value:null,
     freshness:ageMs==null?"unknown":ageMs>periodLimit?"stale":"fresh",ageMs,observations:observations.slice(-120),
