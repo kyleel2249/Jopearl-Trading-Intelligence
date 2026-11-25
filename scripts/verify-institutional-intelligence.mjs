@@ -29,6 +29,8 @@ assert.ok(broad.evidence.some((x) => x.factor === 'government-and-central-bank-m
 assert.ok(broad.evidence.some((x) => x.factor === 'retail-risk-sentiment'));
 const namedMtf = scoreInstitutionalContext({ ...fresh, multiTimeframe: [{ timeframe: '1h', bias: 'bullish' }, { timeframe: '4h', bias: 'bullish' }, { timeframe: '1d', bias: 'bearish' }] }, { now });
 assert.ok(namedMtf.evidence.some((x) => x.factor === 'institutional-context-mtf' && x.value > 0), 'named timeframe directions must be converted into numeric evidence');
+const eventConflict = detectConflicts({ signalDir: 1, score: 0.5, minScore: 0.3, mtf: [], flow: null, dealing: null, institutional: null, eventRisk: { active: true, severity: 2 } });
+assert.ok(eventConflict.conflicts.some((x) => x.id === 'macro-event-risk' && x.severity === 2), 'high-impact event risk must enter chart conflict assessment');
 assert.ok(!sparse.evidence.some((x) => x.factor === 'order-book-pressure'), 'missing order-book data must not be treated as neutral evidence');
 const base = { price: 100, atr: 2, smc: { items: [], trend: 0, dealingRange: null }, levels: [], sr: [], flow: { status: 'unavailable', items: [] }, liq: { status: 'unavailable', clusters: [] }, mtf: [], regimeCfg: { weights: {} } };
 const withInstitutional = scoreComponents({ ...base, institutional: result });
