@@ -94,6 +94,8 @@ The chart's canonical closed-candle engine now consumes independently sourced in
 - **U.S. Treasury:** public Fiscal Data average-interest-rate observations.
 - **European Central Bank:** daily EUR/USD reference exchange-rate observations through the ECB SDMX API.
 - **Federal Reserve releases:** official press-release RSS headlines are surfaced as event context only; headline text is not automatically assigned a bullish/bearish score.
+- **Geopolitical and financial news:** GDELT DOC 2.0 headlines are monitored for recent high-impact event terms. Event risk raises chart conflicts and reduces entry quality; it does not guess a directional trade.
+- **Energy inventory context:** FRED-hosted EIA weekly crude, gasoline and distillate inventory series are available when FRED is configured. Crude inventory bias is applied only to recognised energy symbols, not indiscriminately to crypto charts.
 - **DEX / on-chain swaps:** DexScreener multi-chain pool discovery and 24-hour liquidity/volume/transaction aggregates, with GeckoTerminal confirmed swap samples from up to two highest-liquidity supported chains per token refresh.
 
 ### Chart integration and controls
