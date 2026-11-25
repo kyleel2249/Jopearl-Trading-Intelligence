@@ -1,5 +1,5 @@
 const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,v));
-const finite=v=>Number.isFinite(Number(v));
+const finite=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
 const round=(v,d=3)=>Number.isFinite(v)?Number(v.toFixed(d)):null;
 
 export function scoreOpportunity(snapshot,context=null){
@@ -20,9 +20,10 @@ export function scoreOpportunity(snapshot,context=null){
   const conflicts=(snapshot.conflicts||[]).length;
   const conflictPenalty=Math.min(24,conflicts*8);
   const contextAvailable=!!context&&typeof context==='object';
-  const depth=Number(context?.liquidity?.visibleDepth?.imbalancePct??context?.orderBookAnalysis?.imbalancePct);
+  const rawDepth=context?.liquidity?.visibleDepth?.imbalancePct??context?.orderBookAnalysis?.imbalancePct;
+  const depth=finite(rawDepth)?Number(rawDepth):NaN;
   const depthAgreement=Number.isFinite(depth)&&direction!=='NEUTRAL'?(direction==='LONG'?(depth>0?8:-8):(depth<0?8:-8)):0;
-  const score=clamp(directional*.45+confluence*.30+participation*.15+scores.confidence*.10+depthAgreement-regimePenalty-conflictPenalty);
+  const score=clamp(directional*.45+confluence*.30+participation*.15+(finite(scores.confidence)?Number(scores.confidence):40)*.10+depthAgreement-regimePenalty-conflictPenalty);
   const riskFlags=[];
   if(/high-volatility/i.test(regime))riskFlags.push('HIGH_VOLATILITY');
   if(conflicts)riskFlags.push('EVIDENCE_CONFLICT');
