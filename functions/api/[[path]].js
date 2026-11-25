@@ -972,6 +972,11 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           agentFleet: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           agentPerformanceReporting: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           researchCouncil: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          fvgLiquidityIntelligence: true,
+          crossExchangeFlowAggregation: true,
+          bisInternationalBanking: Boolean(env.BIS_LBS_DATA_URL),
+          verifiedWalletAttribution: Boolean(env.JPTI_VERIFIED_WALLET_REGISTRY),
+          eventImpactPrediction: true,
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
@@ -980,7 +985,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         warnings: [
           ...(!env.JPTI_DB ? ['JPTI_DB is not bound; private journal and learning history are unavailable.'] : []),
           ...(!(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
-          ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : [])
+          ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : []),
+          ...(!env.BIS_LBS_DATA_URL ? ['BIS_LBS_DATA_URL is not configured; international banking context will remain unavailable.'] : []),
+          ...(!env.JPTI_VERIFIED_WALLET_REGISTRY ? ['JPTI_VERIFIED_WALLET_REGISTRY is not configured; no wallet flow will be attributed.'] : [])
         ],
         exchanges: DIRECT_EXCHANGES,
         timestamp: now().toISOString()
