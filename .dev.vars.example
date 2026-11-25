@@ -25,19 +25,16 @@ BIS_LBS_DATA_URL=
 # Optional Bitquery multi-chain wallet-label enrichment. Provider labels are not cryptographic proof.
 BITQUERY_ACCESS_TOKEN=
 
-# Optional global economic calendar (Trading Economics) and company earnings/IPO calendar (Finnhub).
-TRADING_ECONOMICS_API_KEY=
-# Optional crypto ecosystem event and token unlock providers.
-COINMARKETCAL_API_KEY=
-TOKENOMIST_API_KEY=
 
 # Optional verified wallet registry JSON. Keep this server-side; use evidence-backed records only.
 # Example shape: [{"chain":"ethereum","address":"0x...","claims":[{"type":"official-entity-registry","verified":true,"registryRecordId":"record-id","entityName":"Entity","entityType":"exchange","source":"Official registry","sourceUrl":"https://..."}]}]
 JPTI_VERIFIED_WALLET_REGISTRY=[]
 
-# Optional Trading Economics global macro calendar and Finnhub earnings/IPO calendar.
+# Optional global macro, earnings, IPO, crypto ecosystem and token unlock calendars.
 TRADING_ECONOMICS_API_KEY=
 FINNHUB_API_KEY=
+COINMARKETCAL_API_KEY=
+TOKENOMIST_API_KEY=
 
 # Additional verified event calendar JSON. Official FOMC, ECB, BoE, BoJ, EIA and Treasury calendars are fetched automatically.
 # Entries are direction-neutral unless an actual/forecast mapping is explicitly provided.
