@@ -1,5 +1,4 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
-const ExchangeConnectivity = lazy(() => import('./ExchangeConnectivity.jsx'));
 const MultiChartWorkstation = lazy(() => import('./MultiChartWorkstation.jsx'));
 import Dashboard from './Dashboard.jsx';
 import AgentDashboardOverview from './AgentDashboardOverview.jsx';

@@ -7,3 +7,13 @@ test('high volatility applies a veto even when trend votes agree',()=>{const d=r
 test('insufficient evidence withholds debate',()=>{const d=runAgentDebate({status:'insufficient'});assert.equal(d.status,'INSUFFICIENT_DATA');assert.equal(d.decision,'NO_EDGE');});
 test('conflicting specialists cannot produce a paper-review candidate',()=>{const d=runAgentDebate(make({domains:{structure:{bias:'bearish',rangePositionPercent:90},regime:{label:'bullish trend'},flow:{relativeVolume:1.5}},scores:{directionalBias:'bullish'}}));assert.notEqual(d.decision,'PAPER_REVIEW_CANDIDATE');});
 test('audit preserves data gaps and evidence notes',()=>{const a=auditDecision(make());assert.deepEqual(a.integrity.missingDomains,['macro','derivatives']);assert.ok(a.warnings.includes('Same candle source.'));});
+
+test('a missing range position is unavailable evidence, not a 0% (long) vote', async () => {
+  const { runAgentDebate } = await import('./multi-agent-debate-engine.js');
+  const snapshot = { status: 'ready', domains: { structure: { bias: 'neutral', rangePositionPercent: null }, liquidity: {}, regime: { label: 'trend' }, flow: { relativeVolume: 1.2 } }, scores: {}, evidence: [], conflicts: [] };
+  const hawk = runAgentDebate(snapshot).votes.find(vote => vote.agent.startsWith('Hawk'));
+  assert.equal(hawk.available, false);
+  assert.equal(hawk.direction, 'NEUTRAL');
+  const low = { ...snapshot, domains: { ...snapshot.domains, structure: { bias: 'neutral', rangePositionPercent: 5 } } };
+  assert.equal(runAgentDebate(low).votes.find(vote => vote.agent.startsWith('Hawk')).direction, 'LONG');
+});

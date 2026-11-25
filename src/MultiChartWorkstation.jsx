@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, Columns2, Grid2X2, Layout, Plus, Save, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Activity, Columns2, Grid2X2, Layout, Save, SlidersHorizontal, Trash2 } from 'lucide-react';
 import LiveCandlestickChart from './LiveCandlestickChart.jsx';
 
 const EXCHANGES = ['bitget', 'binance', 'bybit', 'okx'];

@@ -6,7 +6,9 @@
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
-import { runAgentFleet } from '../../src/agent-fleet-engine.js';
+import { runAgentFleet, buildAgentCatalog } from '../../src/agent-fleet-engine.js';
+import { summarizeAgentPerformance } from '../../src/agent-performance-engine.js';
+import { evaluateResearchCouncil } from '../../src/research-council-engine.js';
 import { handleOrganizationApi } from '../organization-intelligence.js';
 import { handleIntelligenceFoundationApi } from '../intelligence-foundation.js';
 
@@ -235,55 +237,116 @@ async function handleJournalRoute(request, env, url) {
 }
 
 
-async function handleAgentFleetRoute(request, env, url) {
-  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
-  const path = url.pathname.replace(/\/+$/, '');
-  if (path === '/api/agents/catalog' && request.method === 'GET') {
-    return json(200, { version:'1.0.0', mode:'research-and-paper-review', agents:[
-      ['trend','Trend & multi-timeframe analyst'],['participation','Volume participation analyst'],['microstructure','Order-book pressure analyst'],
-      ['derivatives','Funding & open-interest analyst'],['macro','Macro regime analyst'],['risk','Liquidity & volatility risk analyst'],
-      ['liquidity','Liquidity conditions analyst'],['momentum','Momentum & reversal analyst'],['correlation','Cross-asset context analyst'],
-      ['event','Event risk analyst']
-    ].map(([id,name])=>({id,name,executionPermission:'none'})),
-    capabilities:['specialist-voting','dissent-detection','explainable-rationales','freshness-gates','risk-veto','append-only-memory','outcome-feedback','strategy-review-gates'] }, request);
+const AGENT_PAYLOAD_LIMIT_BYTES = 128000;
+const FEEDBACK_OUTCOMES = ['win', 'loss', 'breakeven', 'invalidated', 'not_taken'];
+const MAX_REALIZED_R = 100;
+const parseStoredPayload = (payload) => { try { return typeof payload === 'string' ? JSON.parse(payload) : payload; } catch { return null; } };
+const boundedLimit = (raw, fallback = 25) => { const n = Number(raw ?? fallback); return Number.isFinite(n) ? Math.min(100, Math.max(1, Math.floor(n))) : fallback; };
+
+// Reads a JSON body with a hard byte limit. Content-Length can be absent (chunked) or wrong, so the
+// body itself is measured rather than trusting the header.
+async function readBoundedJson(request, limitBytes) {
+  const declared = Number(request.headers.get('content-length') || 0);
+  if (declared > limitBytes) return { ok: false, status: 413, error: 'Request payload is too large.' };
+  let text;
+  try { text = await request.text(); } catch { return { ok: false, status: 400, error: 'Request body could not be read.' }; }
+  if (new TextEncoder().encode(text).byteLength > limitBytes) return { ok: false, status: 413, error: 'Request payload is too large.' };
+  if (!text.trim()) return { ok: true, value: {} };
+  try { return { ok: true, value: JSON.parse(text) }; } catch { return { ok: false, status: 400, error: 'A valid JSON body is required.' }; }
+}
+
+// Shared persistence for deterministic agent evaluations: computing never depends on storage, and a
+// storage outage is reported as persisted:false instead of discarding a valid result.
+async function persistAgentEvent(env, kind, source, record, symbol) {
+  try {
+    await env.JPTI_DB.prepare("INSERT INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .bind(record.id, kind, source, record.id, symbol ?? null, record.generatedAt || record.recordedAt, JSON.stringify(record)).run();
+    return true;
+  } catch (error) {
+    console.error('[JPTI agents] D1 write failed:', String(error?.message || error).slice(0, 180));
+    return false;
   }
+}
+async function readEventPayloads(env, kind, limit) {
+  const rows = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind = ? ORDER BY occurred_at DESC, created_at DESC LIMIT ?").bind(kind, limit).all();
+  return (rows.results || []).map((row) => parseStoredPayload(row.payload)).filter(Boolean);
+}
+
+async function handleAgentFleetRoute(request, env, url) {
+  const path = url.pathname.replace(/\/+$/, '');
+  // The roster is static, public metadata and must not depend on storage being available.
+  if (path === '/api/agents/catalog' && request.method === 'GET') return json(200, buildAgentCatalog(), request);
+  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
   const auth = await verifyJournalToken(request, env);
-  if (!auth.ok) return json(auth.status, { error:auth.error }, request);
+  if (!auth.ok) return json(auth.status, { error: auth.error }, request);
   try {
     if (path === '/api/agents/evaluate' && request.method === 'POST') {
-      if (Number(request.headers.get('content-length') || 0) > 128000) return json(413,{error:'Agent evidence payload is too large.'},request);
-      const body = await request.json();
-      const result = runAgentFleet(body || {});
-      await env.JPTI_DB.prepare("INSERT INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?, 'agent-fleet-evaluation','jpti-agent-fleet',?,?,?,?)")
-        .bind(result.id,result.id,result.symbol,result.generatedAt,JSON.stringify(result)).run();
-      return json(200,{...result,persisted:true,storage:'cloudflare-d1'},request);
+      const body = await readBoundedJson(request, AGENT_PAYLOAD_LIMIT_BYTES);
+      if (!body.ok) return json(body.status, { error: body.error }, request);
+      const result = runAgentFleet(body.value || {});
+      const persisted = await persistAgentEvent(env, 'agent-fleet-evaluation', 'jpti-agent-fleet', result, result.symbol);
+      return json(200, { ...result, persisted, storage: 'cloudflare-d1',
+        ...(persisted ? {} : { warning: 'Evaluation computed but not saved to agent memory; outcome feedback is unavailable for it.' }) }, request);
     }
     if (path === '/api/agents/history' && request.method === 'GET') {
-      const requested = Number(url.searchParams.get('limit') || 25);
-      const limit = Number.isFinite(requested) ? Math.min(100,Math.max(1,Math.floor(requested))) : 25;
-      const rows = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='agent-fleet-evaluation' ORDER BY occurred_at DESC,created_at DESC LIMIT ?").bind(limit).all();
-      const evaluations = (rows.results || []).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);
-      return json(200,{count:evaluations.length,evaluations},request);
+      const evaluations = await readEventPayloads(env, 'agent-fleet-evaluation', boundedLimit(url.searchParams.get('limit')));
+      return json(200, { count: evaluations.length, evaluations }, request);
+    }
+    if (path === '/api/agents/performance' && request.method === 'GET') {
+      const [evaluations, feedback] = await Promise.all([
+        readEventPayloads(env, 'agent-fleet-evaluation', 5000), readEventPayloads(env, 'agent-fleet-feedback', 5000)]);
+      return json(200, summarizeAgentPerformance(evaluations, feedback), request);
     }
     if (path === '/api/agents/feedback' && request.method === 'POST') {
-      const body = await request.json();
-      const evaluationId = String(body?.evaluationId || '').trim();
-      const outcome = String(body?.outcome || '').trim().toLowerCase();
-      if (!evaluationId || !['win','loss','breakeven','invalidated','not_taken'].includes(outcome))
-        return json(400,{error:'Provide an evaluationId and a supported outcome.'},request);
-      const found = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='agent-fleet-evaluation' AND external_id=? ORDER BY occurred_at DESC LIMIT 1").bind(evaluationId).first();
-      if (!found?.payload) return json(404,{error:'Evaluation not found.'},request);
-      const evaluation = typeof found.payload==='string'?JSON.parse(found.payload):found.payload;
-      const feedback = {id:crypto.randomUUID(),evaluationId,symbol:evaluation.symbol||null,outcome,
-        realizedR:body?.realizedR==null?null:Number.isFinite(Number(body.realizedR))?Number(body.realizedR):null,
-        notes:String(body?.notes||'').slice(0,1000),recordedAt:new Date().toISOString(),learningMode:'observational_only',
-        permission:'Feedback informs reporting; it does not mutate strategies or authorize execution.'};
-      await env.JPTI_DB.prepare("INSERT INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?, 'agent-fleet-feedback','jpti-agent-fleet',?,?,?,?)")
-        .bind(feedback.id,feedback.id,feedback.symbol,feedback.recordedAt,JSON.stringify(feedback)).run();
-      return json(201,{...feedback,persisted:true,storage:'cloudflare-d1'},request);
+      const body = await readBoundedJson(request, AGENT_PAYLOAD_LIMIT_BYTES);
+      if (!body.ok) return json(body.status, { error: body.error }, request);
+      const evaluationId = String(body.value?.evaluationId || '').trim();
+      const outcome = String(body.value?.outcome || '').trim().toLowerCase();
+      if (!evaluationId || !FEEDBACK_OUTCOMES.includes(outcome))
+        return json(400, { error: 'Provide an evaluationId and a supported outcome.' }, request);
+      // id is the primary key and equals the evaluation id, so this is an index lookup, not a scan.
+      const found = await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE id = ? AND kind = 'agent-fleet-evaluation'").bind(evaluationId).first();
+      const evaluation = parseStoredPayload(found?.payload);
+      if (!evaluation) return json(404, { error: 'Evaluation not found.' }, request);
+      const rawR = body.value?.realizedR;
+      const realizedR = rawR == null || rawR === '' || !Number.isFinite(Number(rawR)) ? null : Math.max(-MAX_REALIZED_R, Math.min(MAX_REALIZED_R, Number(rawR)));
+      const feedback = { id: crypto.randomUUID(), evaluationId, symbol: evaluation.symbol || null, outcome, realizedR,
+        notes: String(body.value?.notes || '').slice(0, 1000), recordedAt: new Date().toISOString(), learningMode: 'observational_only',
+        permission: 'Feedback informs reporting; it does not mutate strategies or authorize execution.' };
+      const persisted = await persistAgentEvent(env, 'agent-fleet-feedback', 'jpti-agent-fleet', feedback, feedback.symbol);
+      if (!persisted) return json(503, { error: 'Agent memory storage is unavailable; feedback was not saved.' }, request);
+      return json(201, { ...feedback, persisted: true, storage: 'cloudflare-d1' }, request);
     }
-    return json(405,{error:'Unsupported agent-fleet method or route.'},request,{allow:'GET, POST, OPTIONS'});
-  } catch(error) { return json(400,{error:error.message||'Agent fleet operation failed.'},request); }
+    return json(405, { error: 'Unsupported agent-fleet method or route.' }, request, { allow: 'GET, POST, OPTIONS' });
+  } catch (error) {
+    console.error('[JPTI agents] route failure:', String(error?.message || error).slice(0, 180));
+    return json(500, { error: 'Agent fleet operation failed.' }, request);
+  }
+}
+
+// Research council: the same deterministic engine as the Node router, backed by D1 on Cloudflare Pages.
+async function handleResearchCouncilRoute(request, env, url) {
+  const path = url.pathname.replace(/\/+$/, '');
+  if (!env.JPTI_DB) return json(503, { error: 'Cloudflare D1 binding JPTI_DB is unavailable.' }, request);
+  const auth = await verifyJournalToken(request, env);
+  if (!auth.ok) return json(auth.status, { error: auth.error }, request);
+  try {
+    if (path === '/api/council/evaluate' && request.method === 'POST') {
+      const body = await readBoundedJson(request, AGENT_PAYLOAD_LIMIT_BYTES);
+      if (!body.ok) return json(body.status, { error: body.error }, request);
+      const result = evaluateResearchCouncil(body.value || {});
+      const persisted = await persistAgentEvent(env, 'research-council-evaluation', 'jpti-research-council', result, result.symbol);
+      return json(200, { ...result, persisted, storage: 'cloudflare-d1' }, request);
+    }
+    if (path === '/api/council/history' && request.method === 'GET') {
+      const evaluations = await readEventPayloads(env, 'research-council-evaluation', boundedLimit(url.searchParams.get('limit')));
+      return json(200, { generatedAt: new Date().toISOString(), count: evaluations.length, evaluations, mode: 'research-only' }, request);
+    }
+    return json(405, { error: 'Unsupported research-council method or route.' }, request, { allow: 'GET, POST, OPTIONS' });
+  } catch (error) {
+    console.error('[JPTI council] route failure:', String(error?.message || error).slice(0, 180));
+    return json(500, { error: 'Research council operation failed.' }, request);
+  }
 }
 
 const MAX_SESSION_OUTCOMES=20000,MAX_GAINZ_OUTCOMES=5000,MAX_GAINZ_BATCH=500;
@@ -331,6 +394,9 @@ async function handleSessionMemoryRoute(request,env,url){
   if(Number(request.headers.get('content-length')||0)>512000)return json(413,{error:'Session outcome request exceeds the 512 KB limit.'},request);
   let body;try{body=await request.json();}catch{return json(400,{error:'A valid JSON outcome record is required.'},request);}
   if(new TextEncoder().encode(JSON.stringify(body)).byteLength>512000)return json(413,{error:'Session outcome payload exceeds the 512 KB limit.'},request);
+  // Retention cap: refuse (never silently delete) once the append-only session memory is full, including batches that would overflow it.
+  {const stored=await countD1OutcomeRecords(env,'session-outcome'),incoming=Array.isArray(body?.records)?body.records.length:1;
+   if(stored>=MAX_SESSION_OUTCOMES||(url.pathname.replace(/\/+$/,'')==='/api/session/memory/batch'&&stored+incoming>MAX_SESSION_OUTCOMES))return json(409,{error:'Session outcome memory would exceed its '+MAX_SESSION_OUTCOMES+'-record retention cap. Export and archive records before adding more.',cap:MAX_SESSION_OUTCOMES,stored},request);}
   if(url.pathname.replace(/\/+$/,'')==='/api/session/memory/batch'){
    if(!Array.isArray(body?.records)||body.records.length>2000)return json(400,{error:'Send an array of up to 2,000 session outcome records.'},request);
    const cleaned=body.records.map(cleanSessionOutcome),known=new Set();let imported=0,duplicates=0;
@@ -528,6 +594,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/intelligence-foundation/')) return handleIntelligenceFoundationApi({ request, env });
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/org/')) return handleOrganizationApi({ request, env, fetchImpl });
     const agentPath = url.pathname.replace(/\/+$/, '');
+    if (agentPath.startsWith('/api/council/')) {
+      if (!['GET','POST'].includes(request.method)) return json(405,{error:'Council routes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
+      return handleResearchCouncilRoute(request,env,url);
+    }
     if (agentPath.startsWith('/api/agents/')) {
       if (!['GET','POST'].includes(request.method)) return json(405,{error:'Agent routes support GET and POST only.'},request,{allow:'GET, POST, OPTIONS'});
       return handleAgentFleetRoute(request,env,url);
@@ -626,6 +696,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           sessionOutcomeMemory: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           workersAiMentor: Boolean(env.AI && env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          agentFleet: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          agentPerformanceReporting: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          researchCouncil: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,

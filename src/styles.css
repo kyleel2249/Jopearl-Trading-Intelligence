@@ -332,3 +332,4 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
  .jpti-dedicated-terminal-foot{font-size:6px;padding:5px 7px}
  .jpti-dedicated-terminal-foot span:nth-child(2){display:none}
 }
+.ig-hero>input{min-width:0;flex:0 1 220px;padding:9px 11px;border:1px solid #6083ad;border-radius:7px;background:#0f2038;color:#eaf4ff;font-size:11px}.ig-hero>input::placeholder{color:#8aa6c9}@media(max-width:560px){.ig-hero>input{width:100%;flex-basis:auto}}

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, ArrowDownUp, CheckCircle2, CircleAlert, CircleHelp, Clock3, Database, Globe, RefreshCw, ShieldCheck, Wifi, WifiOff } from 'lucide-react';
+import { Activity, CircleAlert, CircleHelp, Database, Globe, RefreshCw, ShieldCheck, Wifi } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import './ApiControlCenter.css';
 

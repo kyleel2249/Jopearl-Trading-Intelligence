@@ -1,4 +1,3 @@
-const clamp=(v,min=0,max=100)=>Math.max(min,Math.min(max,v));
 const numeric=v=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
 const directionOf=v=>v>0?'LONG':v<0?'SHORT':'NEUTRAL';
 const vote=(agent,direction,weight,reason,available=true)=>({agent,direction,weight,reason,available});
@@ -10,8 +9,8 @@ export function runAgentDebate(snapshot,context=null,ranking=null){
  const trendVote=trend==='bullish'?'LONG':trend==='bearish'?'SHORT':'NEUTRAL';
  const momentum=numeric(find('Momentum'))?(find('Momentum')>=55?'LONG':find('Momentum')<=45?'SHORT':'NEUTRAL'):'NEUTRAL';
  const flow=numeric(find('Flow proxy'))?(find('Flow proxy')>=55?'LONG':find('Flow proxy')<=45?'SHORT':'NEUTRAL'):'NEUTRAL';
- const position=Number(domains.structure?.rangePositionPercent);
- const liquidity=domains.liquidity?.sweepLow?'LONG':domains.liquidity?.sweepHigh?'SHORT':numeric(position)?(position<=20?'LONG':position>=80?'SHORT':'NEUTRAL'):'NEUTRAL';
+ const rawPosition=domains.structure?.rangePositionPercent,position=numeric(rawPosition)?Number(rawPosition):null;
+ const liquidity=domains.liquidity?.sweepLow?'LONG':domains.liquidity?.sweepHigh?'SHORT':position!==null?(position<=20?'LONG':position>=80?'SHORT':'NEUTRAL'):'NEUTRAL';
  const regime=String(domains.regime?.label||'unknown');
  const regimeVote=/high-volatility/i.test(regime)?'NEUTRAL':trendVote;
  const rawDepth=context?.liquidity?.visibleDepth?.imbalancePct??context?.orderBookAnalysis?.imbalancePct;
@@ -21,7 +20,7 @@ export function runAgentDebate(snapshot,context=null,ranking=null){
   vote('Atlas · Structure',trendVote,1.25,trend?('EMA structure bias: '+trend):'Structure unavailable',!!trend&&trend!=='neutral'),
   vote('Pulse · Momentum',momentum,1.15,numeric(find('Momentum'))?'Momentum evidence '+find('Momentum')+'/100':'Momentum unavailable',numeric(find('Momentum'))),
   vote('Oracle · Participation',flow,1.1,numeric(find('Flow proxy'))?'Candle-volume participation proxy '+find('Flow proxy')+'/100':'Participation unavailable',numeric(find('Flow proxy'))),
-  vote('Hawk · Liquidity',liquidity,.9,domains.liquidity?.sweepLow?'Recent low sweep and reclaim':domains.liquidity?.sweepHigh?'Recent high sweep and rejection':numeric(position)?'Range position '+position+'%':'Liquidity unavailable',!!domains.liquidity?.sweepLow||!!domains.liquidity?.sweepHigh||numeric(position)),
+  vote('Hawk · Liquidity',liquidity,.9,domains.liquidity?.sweepLow?'Recent low sweep and reclaim':domains.liquidity?.sweepHigh?'Recent high sweep and rejection':position!==null?'Range position '+position+'%':'Liquidity unavailable',!!domains.liquidity?.sweepLow||!!domains.liquidity?.sweepHigh||position!==null),
   vote('Weaver · Regime',regimeVote,1,regime+' regime; high volatility suppresses directional vote',!!domains.regime?.label),
   vote('Fox · Visible depth',depthVote,.75,depth===null?'No confirmed order-book depth in context':'Visible depth imbalance '+depth+'%',depth!==null)
  ];
@@ -42,7 +41,7 @@ export function runAgentDebate(snapshot,context=null,ranking=null){
  const decision=consensus==='NO_CONSENSUS'?'NO_EDGE':riskVetoes.length?'WATCH_ONLY':directionMatches&&confidence>=65?'PAPER_REVIEW_CANDIDATE':'WATCH_ONLY';
  const dissent=consensus==='LONG'?short:consensus==='SHORT'?long:[...long,...short];
  const summary=consensus==='NO_CONSENSUS'?'Specialists do not have sufficient weighted agreement.':consensus+' weighted consensus; '+aligned.length+' supporting specialist(s), '+dissent.length+' dissenting specialist(s), '+neutral.length+' neutral specialist(s).';
- return{status:'COMPLETE',consensus,votes,support:aligned.length,oppose:dissent.length,neutral:neutral.length,available:available.length,confidence,netAgreement:Math.round(net*100),riskVetoes,decision,summary,methodology:'Deterministic role-based debate over shared OHLCV-derived evidence and optional visible-depth context. Specialists are explainable rule modules, not independent AI models or independent data sources.'};
+ return{status:'COMPLETE',consensus,votes,support:aligned.length,oppose:dissent.length,neutral:neutral.length,available:available.length,confidence,netAgreement:Math.round(net*100),majorityShare:Math.round(majority*100),riskVetoes,decision,summary,methodology:'Deterministic role-based debate over shared OHLCV-derived evidence and optional visible-depth context. Specialists are explainable rule modules, not independent AI models or independent data sources.'};
 }
 export function auditDecision(snapshot,context=null){
  const debate=runAgentDebate(snapshot,context);

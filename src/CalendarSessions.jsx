@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, Clock3, RefreshCw, Globe2, BarChart3, Radio } from 'lucide-react';
+import { Activity, Clock3, RefreshCw, Globe2, Radio } from 'lucide-react';
 import { apiFetch, getApiSource } from './lib/api.js';
 import { analyzeSessionCandles, formatDuration, getSessionSnapshot, TRADING_SESSIONS } from './session-intelligence.js';
 import SessionLiquidityIntelligence from './SessionLiquidityIntelligence.jsx';

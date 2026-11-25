@@ -1,5 +1,5 @@
 import express from 'express';
-import { acknowledgeOutboxMessage, appendStoredEvent, appendUniqueLedgerEvent, claimOutboxMessages, commitLedgerBatchAndCursor, getOutboxStatus, getSyncCursor, getStorageStatus, readStoredEvents, retryOutboxMessage, setSyncCursor } from './storage.js';
+import { acknowledgeOutboxMessage, appendStoredEvent, appendUniqueLedgerEvent, claimOutboxMessages, commitLedgerBatchAndCursor, getOutboxStatus, getSyncCursor, getStorageStatus, readStoredEvents, retryOutboxMessage } from './storage.js';
 import { acquireSchedulerLease, getSchedulerLeaseStatus, releaseSchedulerLease, schedulerLeaseConfig } from './scheduler-lease.js';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, ClipboardList, Download, FileText, Lightbulb, MessageSquareText, Plus, RefreshCw, ShieldAlert, Target, TrendingDown, TrendingUp, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, ClipboardList, Download, FileText, Lightbulb, MessageSquareText, Plus, RefreshCw, ShieldAlert, TrendingUp, XCircle } from 'lucide-react';
 import { apiFetch, setApiToken } from './lib/api.js';
 import { analyzeTimeframe, buildTradingDevelopmentAssessment, buildReflectiveReport } from './trading-development-engine.js';
 import './ReflectiveJournal.css';

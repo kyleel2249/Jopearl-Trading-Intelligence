@@ -2,16 +2,38 @@
 const finite=value=>value===null||value===undefined||value===''?null:Number.isFinite(Number(value))?Number(value):null;
 const clamp=(value,min=-1,max=1)=>Math.max(min,Math.min(max,finite(value)??0));
 const sign=value=>Math.sign(finite(value)??0);
+
+/** Single source of truth for the specialist roster (Node API, Cloudflare Pages Functions and UI). */
+export const AGENT_CATALOG=Object.freeze([
+  ['trend','Trend & multi-timeframe analyst'],['participation','Volume participation analyst'],['microstructure','Order-book pressure analyst'],
+  ['derivatives','Funding & open-interest analyst'],['macro','Macro regime analyst'],['risk','Liquidity & volatility risk analyst'],
+  ['liquidity','Liquidity conditions analyst'],['momentum','Momentum & reversal analyst'],['correlation','Cross-asset context analyst'],
+  ['event','Event risk analyst']
+]);
+export const AGENT_CAPABILITIES=Object.freeze(['specialist-voting','dissent-detection','explainable-rationales','freshness-gates','risk-veto','append-only-memory','outcome-feedback','outcome-performance-reporting','strategy-review-gates']);
+export function buildAgentCatalog(){
+  return { version:'1.1.0', mode:'research-and-paper-review',
+    agents:AGENT_CATALOG.map(([id,name])=>({id,name,executionPermission:'none'})), capabilities:[...AGENT_CAPABILITIES] };
+}
+/** Accepts ISO strings, epoch milliseconds or epoch seconds; returns epoch ms or NaN. */
+export function parseEvidenceTimestamp(value){
+  if(value instanceof Date)return value.getTime();
+  if(typeof value==='number'&&Number.isFinite(value))return value<1e11?value*1000:value;
+  const text=String(value??'').trim();
+  if(!text)return NaN;
+  if(/^\d{9,13}(\.\d+)?$/.test(text)){const n=Number(text);return n<1e11?n*1000:n;}
+  return Date.parse(text);
+}
 export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
   const e = input.evidence && typeof input.evidence === 'object' ? input.evidence : input;
   const maxAgeMs = Math.max(5000, Math.min(300000, Number(policy.maxAgeMs) || 60000));
-  const timestamp = Date.parse(String(e.timestamp || ''));
+  const timestamp = parseEvidenceTimestamp(e.timestamp);
   const ageMs = Number.isFinite(timestamp) ? now - timestamp : null;
   const stale = ageMs === null || ageMs < -5000 || ageMs > maxAgeMs;
   const symbol = String(input.symbol || e.symbol || '').trim().toUpperCase().slice(0, 40) || null;
   const agents = [];
-  const add = (id, domain, score, confidence, required, rationale, kind = 'directional') => {
-    const missing = required.filter(key => finite(e[key]) === null);
+  const add = (id, domain, score, confidence, required, rationale, kind = 'directional', forcedMissing = []) => {
+    const missing = [...required.filter(key => finite(e[key]) === null), ...forcedMissing];
     const status = stale ? 'blocked_stale_evidence' : missing.length ? 'insufficient_evidence' : 'evaluated';
     agents.push({ id, domain, kind, status, score: status === 'evaluated' ? Number(clamp(score).toFixed(4)) : null,
       confidence: status === 'evaluated' ? Number(clamp(confidence, 0, 1).toFixed(4)) : 0,
@@ -29,11 +51,12 @@ export function runAgentFleet(input = {}, now = Date.now(), policy = {}) {
     (oi === null || momentum === null ? 0 : sign(momentum) * sign(oi) * Math.min(.25, Math.abs(oi) / 40));
   add('derivatives', 'Funding & open-interest positioning', clamp(derivativesScore), .58, ['fundingRate'], 'Treats crowded funding as a contrarian risk and uses OI change as context.');
   const macroScore = e.macroBias === 'risk-on' ? .55 : e.macroBias === 'risk-off' ? -.55 : 0;
-  add('macro', 'Macro & cross-asset regime', macroScore, .45, [], 'Uses only the supplied macro regime label; no external event feed is inferred.');
+  const macroLabelValid = ['risk-on', 'risk-off', 'neutral'].includes(e.macroBias);
+  add('macro', 'Macro & cross-asset regime', macroScore, .45, [], 'Uses only the supplied macro regime label; no external event feed is inferred.', 'directional', macroLabelValid ? [] : ['macroBias']);
   const volatilityPenalty = volatility === null ? 0 : volatility > 12 ? .55 : volatility > 7 ? .25 : 0;
   const liquidityPenalty = liquidity === null ? .35 : liquidity < 10000 ? .65 : liquidity < 50000 ? .3 : 0;
   add('risk', 'Liquidity & volatility guard', -(volatilityPenalty + liquidityPenalty) / 1.2, .85, ['liquidityUsd'], 'Penalizes thin liquidity and elevated volatility; this is a risk vote, not direction.', 'risk');
-  add('liquidity', 'Liquidity conditions', liquidity === null ? 0 : liquidity < 10000 ? -.7 : liquidity < 50000 ? -.2 : .15, .66, ['liquidityUsd'], 'Classifies supplied quote liquidity; it cannot identify hidden liquidity.');
+  add('liquidity', 'Liquidity conditions', liquidity === null ? 0 : liquidity < 10000 ? -.7 : liquidity < 50000 ? -.2 : .15, .66, ['liquidityUsd'], 'Classifies supplied quote liquidity as a risk vote, not a direction; it cannot identify hidden liquidity.', 'risk');
   add('momentum', 'Momentum & reversal watch', momentum === null ? 0 : clamp(momentum / 3), .6, ['momentumPct'], 'Scores recent momentum and flags extension risk for downstream review.');
   add('correlation', 'Cross-asset / pair context', finite(e.correlationBias) ?? 0, .4, ['correlationBias'], 'Uses supplied normalized correlation bias; missing pair context is not guessed.');
   add('event', 'Event & news risk', e.highImpactEvent === true ? -.8 : e.highImpactEvent === false ? .1 : 0, .75, ['highImpactEvent'], 'Blocks enthusiasm around a supplied high-impact event flag.', 'risk');

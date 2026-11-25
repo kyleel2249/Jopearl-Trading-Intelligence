@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowDownRight, ArrowUpRight, AudioLines, Command, CornerDownLeft, Gauge, Radio, RefreshCw, ShieldCheck, TerminalSquare, TrendingUp, X } from 'lucide-react';
+import { Activity, AudioLines, Command, CornerDownLeft, Gauge, Radio, RefreshCw, ShieldCheck, TerminalSquare, TrendingUp, X } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import { parseTerminalCommand } from './terminalCommands.js';
 

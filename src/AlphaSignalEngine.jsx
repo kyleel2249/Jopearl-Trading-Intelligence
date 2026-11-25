@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Activity, AlertTriangle, ArrowDownRight, ArrowUpRight, CheckCircle2, Clock3, FlaskConical, Play, RefreshCw, ShieldCheck, Target, TrendingUp, XCircle } from 'lucide-react';
+import { Activity, AlertTriangle, CheckCircle2, FlaskConical, Play, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import LiveCandlestickChart from './LiveCandlestickChart.jsx';
 import { PRODUCT_OPTIONS, productSupport, resolveProductChoice, coerceProductForExchange } from './product-support.js';

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { Activity, AlertTriangle, ArrowDownUp, RefreshCw, Search, SlidersHorizontal } from 'lucide-react';
+import { Activity, AlertTriangle, ArrowDownUp, RefreshCw, SlidersHorizontal } from 'lucide-react';
 import './PairScanner.css';
 import { apiFetch } from './lib/api.js';
 

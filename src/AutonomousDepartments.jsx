@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Activity, ArrowDownLeft, ArrowUpRight, BrainCircuit, Building2, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, Play, RefreshCw, Search, Send, ShieldCheck, Sparkles, Target, Users } from 'lucide-react';
+import { Activity, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, Play, RefreshCw, Search, ShieldCheck, Sparkles, Target, Users } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import './AutonomousDepartments.css';
 

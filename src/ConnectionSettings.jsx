@@ -93,13 +93,6 @@ export default function ConnectionSettings() {
     setVaultMessage('Imported and auto-saved ' + Object.keys(parsed).length + ' variables on this device.');
     setVaultError('');
   };
-  const onFile = async (event) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    try { await importText(await file.text()); }
-    catch (error) { setVaultError(error.message); }
-    event.target.value = '';
-  };
   const addVariable = () => {
     const key = window.prompt('Variable name (for example JPTI_PROVIDER_API_KEY)');
     if (!key) return;

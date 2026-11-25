@@ -8,7 +8,7 @@ import express from 'express';
 import { resolve } from 'node:path';
 import helmet from 'helmet';
 import { z } from 'zod';
-import { classifyMarket, matchesProductType, createExchange, exchangeConnectionStatus, listExchangeCatalog, withExchange, closeExchangeClients } from './exchanges.js';
+import { classifyMarket, matchesProductType, exchangeConnectionStatus, listExchangeCatalog, withExchange, closeExchangeClients } from './exchanges.js';
 import { intelligenceRouter } from './intelligence.js';
 import { providerRouter } from './providers.js';
 import { operationsRouter, startOperationsScheduler, stopOperationsScheduler } from './operations.js';

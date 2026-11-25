@@ -36,3 +36,43 @@ test('high risk veto blocks an otherwise bullish setup', () => {
   assert.equal(result.risk.blocked, true);
   assert.equal(result.recommendedAction, 'NO_TRADE');
 });
+
+import { AGENT_CATALOG, buildAgentCatalog, parseEvidenceTimestamp } from '../src/agent-fleet-engine.js';
+
+test('missing macro regime is reported as missing evidence, not silently counted as a neutral vote', () => {
+  const result = runAgentFleet(complete, now);
+  const macro = result.agents.find(agent => agent.id === 'macro');
+  assert.equal(macro.status, 'insufficient_evidence');
+  assert.deepEqual(macro.missingEvidence, ['macroBias']);
+  const withMacro = runAgentFleet({ ...complete, evidence: { ...complete.evidence, macroBias: 'risk-on' } }, now);
+  assert.equal(withMacro.agents.find(agent => agent.id === 'macro').status, 'evaluated');
+});
+
+test('thin liquidity is a risk vote and never a bearish directional vote', () => {
+  const result = runAgentFleet({ ...complete, evidence: { ...complete.evidence, liquidityUsd: 20000 } }, now);
+  const liquidity = result.agents.find(agent => agent.id === 'liquidity');
+  assert.equal(liquidity.kind, 'risk');
+  assert.ok(liquidity.score < 0);
+  // Directional tallies must be identical to a deep-liquidity market: liquidity cannot move them.
+  const deep = runAgentFleet(complete, now);
+  assert.equal(result.debate.negativeVotes, deep.debate.negativeVotes);
+  assert.equal(result.debate.positiveVotes, deep.debate.positiveVotes);
+});
+
+test('evidence timestamps accept ISO strings, epoch milliseconds and epoch seconds', () => {
+  assert.equal(parseEvidenceTimestamp(now), now);
+  assert.equal(parseEvidenceTimestamp(String(now)), now);
+  assert.equal(parseEvidenceTimestamp(Math.floor(now / 1000)), Math.floor(now / 1000) * 1000);
+  assert.equal(parseEvidenceTimestamp(new Date(now).toISOString()), now);
+  assert.ok(Number.isNaN(parseEvidenceTimestamp('not a date')));
+  const numeric = runAgentFleet({ ...complete, evidence: { ...complete.evidence, timestamp: now } }, now);
+  assert.equal(numeric.evidence.freshness, 'fresh');
+});
+
+test('catalog is generated from the engine roster so Node and Cloudflare cannot drift', () => {
+  const catalog = buildAgentCatalog();
+  assert.deepEqual(catalog.agents.map(agent => agent.id), AGENT_CATALOG.map(([id]) => id));
+  assert.ok(catalog.agents.every(agent => agent.executionPermission === 'none'));
+  const evaluated = runAgentFleet(complete, now).agents.map(agent => agent.id);
+  assert.deepEqual(evaluated.sort(), catalog.agents.map(agent => agent.id).sort());
+});

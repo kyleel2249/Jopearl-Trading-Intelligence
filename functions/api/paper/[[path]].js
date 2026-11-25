@@ -38,7 +38,7 @@ async function marketSnapshot(symbol){
  if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp; paper entries are paused.');
  return {symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
 }
-async function ensureAgents(db){
+export async function ensureAgents(db){
  for(const agent of PAPER_AGENTS){
   await db.prepare("INSERT OR IGNORE INTO jpti_paper_agents(agent_id,tier,virtual_equity_usd,status,payload) VALUES (?,'RESEARCH',?,'active',?)")
    .bind(agent.id,PAPER_POLICY.initialEquityUsd,JSON.stringify({...agent,permissions:{paper:true,live:false}})).run();
@@ -89,8 +89,20 @@ async function saveAgent(db,agentId,metrics,kpi,tier){
  await db.prepare("UPDATE jpti_paper_agents SET tier=?,virtual_equity_usd=?,updated_at=?,payload=json_set(payload,'$.metrics',json(?),'$.kpi',json(?)) WHERE agent_id=?")
  .bind(tier,Math.max(0,PAPER_POLICY.initialEquityUsd+metrics.netPnlUsd),iso(),JSON.stringify(metrics),JSON.stringify(kpi),agentId).run();
 }
-export async function runCycle(db,symbol){
- await ensureAgents(db);
+/**
+ * Mark-to-market for the daily-loss circuit breaker. A position can only be marked with the price of
+ * its own symbol; positions on other symbols are carried at entry (entry fee only) instead of being
+ * valued with an unrelated market's price, which previously produced spurious circuit-breaker exits.
+ */
+export function unrealizedPnlForSymbol(openTrades,symbol,lastPrice,feeRate){
+ return (openTrades||[]).reduce((sum,t)=>{
+  if(t.symbol!==symbol)return sum-num(t.entryFeeUsd);
+  const move=(lastPrice-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);
+  return sum+move-num(t.entryFeeUsd)-lastPrice*num(t.quantity)*feeRate;
+ },0);
+}
+export async function runCycle(db,symbol,options={}){
+ if(!options.agentsEnsured)await ensureAgents(db);
  const market=await marketSnapshot(symbol);
  const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
@@ -129,7 +141,7 @@ export async function runCycle(db,symbol){
     report.partialExits.push({agentId:agent.id,tradeId:open.trade_id,fills:partialFills,remainingQuantity,realizedPartialPnlUsd:partialState.partialRealizedPnlUsd});
    }
    const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
-   const unrealizedToday=trades.filter(t=>t.status==='open').reduce((s,t)=>{const move=(market.ticker.last-num(t.entryPrice))*num(t.quantity)*(t.direction==='LONG'?1:-1);return s+move-num(t.entryFeeUsd)-market.ticker.last*num(t.quantity)*PAPER_POLICY.feeRate;},0);
+   const unrealizedToday=unrealizedPnlForSymbol(trades.filter(t=>t.status==='open'),market.symbol,market.ticker.last,PAPER_POLICY.feeRate);
    const dailyCircuit=realizedToday+unrealizedToday<=-(PAPER_POLICY.initialEquityUsd*PAPER_POLICY.maxDailyLossPct/100);
    const hitStop=open.direction==='LONG'?market.ticker.last<=open.stop_price:market.ticker.last>=open.stop_price;
    const hitTarget=open.direction==='LONG'?market.ticker.last>=open.target_price:market.ticker.last<=open.target_price;
@@ -140,7 +152,7 @@ export async function runCycle(db,symbol){
     let partialTotals={};try{partialTotals=JSON.parse(open.payload||'{}')}catch{}
     const originalRisk=num(partialTotals.originalRiskUsd)||num(open.risk_usd);
     const settled={...settledRaw,grossPnlUsd:num(partialTotals.partialGrossPnlUsd)+settledRaw.grossPnlUsd,netPnlUsd:num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd,exitFeeUsd:num(partialTotals.partialExitFeesUsd)+settledRaw.exitFeeUsd,rMultiple:(num(partialTotals.partialRealizedPnlUsd)+settledRaw.netPnlUsd)/Math.max(1e-12,originalRisk),partialExits:partialTotals.partialExits||[]};
-    const payload={...open,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
+    const {payload:_storedPayload,...openRecord}=open;const payload={...openRecord,...settled,exitReason:reason,closedAt:iso(),source:'simulated-last-price',riskBreach:settled.rMultiple < -1.1};
     await db.prepare("UPDATE jpti_paper_trades SET status='closed',closed_at=?,exit_price=?,exit_fee_usd=?,gross_pnl_usd=?,net_pnl_usd=?,r_multiple=?,payload=? WHERE trade_id=? AND status='open'")
      .bind(payload.closedAt,settled.exitPrice,settled.exitFeeUsd,settled.grossPnlUsd,settled.netPnlUsd,settled.rMultiple,JSON.stringify(payload),open.trade_id).run();
     try{
