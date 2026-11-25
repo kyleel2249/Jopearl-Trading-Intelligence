@@ -1020,6 +1020,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           bisInternationalBanking: Boolean(env.BIS_LBS_DATA_URL),
           verifiedWalletAttribution: (() => { try { const list = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); return Array.isArray(list) && list.length > 0; } catch { return false; } })(),
           eventImpactPrediction: true,
+          scheduledEventCalendar: (() => { try { const list = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); return Array.isArray(list) && list.some(x => x && x.verified === true); } catch { return false; } })(),
           privateAccounts: false,
           orderExecution: false,
           durablePortfolioLedger: false,
@@ -1164,8 +1165,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const crossExchangeFlows = aggregateCrossExchangeFlows(venueMicrostructure.map(({venue,data,flow}) => ({ venue, marketType:'perpetual', timestamp:generatedAt, orderBookImbalance: Number.isFinite(data.orderBookImbalancePct) ? data.orderBookImbalancePct / 100 : null, fundingRate:data.fundingRate, perpAggressiveBuyUsd:flow.perpAggressiveBuyUsd, perpAggressiveSellUsd:flow.perpAggressiveSellUsd, sourceQuality:'public-perpetual-trades-orderbook-and-funding-proxy' })), { now:Date.parse(generatedAt) });
         context.body.crossExchangeFlows = crossExchangeFlows;
         context.body.bisFlows = bisFlows;
-        const eventItems = (institutionalSources.news || []).map((item,index) => ({ id:'news-'+index, title:item.title, time:item.publishedAt, source:item.source || 'public-news', url:item.url, importance:/war|invasion|attack|emergency|default|bank failure|sanction|cyberattack/i.test(item.title||'')?'critical':/rate|inflation|central bank|tariff|regulation|bank/i.test(item.title||'')?'high':'medium' }));
-        context.body.eventImpact = predictEventImpact({ events:eventItems, now:Date.parse(generatedAt), horizonMinutes:360 });
+        const newsEvents = (institutionalSources.news || []).map((item,index) => ({ id:'news-'+index, title:item.title, time:item.publishedAt, source:item.source || 'public-news', url:item.url, importance:/war|invasion|attack|emergency|default|bank failure|sanction|cyberattack/i.test(item.title||'')?'critical':/rate|inflation|central bank|tariff|regulation|bank/i.test(item.title||'')?'high':'medium' }));
+        let configuredCalendar = [];
+        try { const parsed = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); if (Array.isArray(parsed)) configuredCalendar = parsed.filter(x => x && x.verified === true && x.title && (x.time || x.scheduledAt) && x.source && /^https:\/\//i.test(String(x.sourceUrl || x.url || ''))).map((x,index) => ({ id:x.id || 'calendar-'+index, title:String(x.title).slice(0,240), time:x.time || x.scheduledAt, source:x.source, url:x.sourceUrl || x.url, importance:x.importance || 'medium', category:x.category || 'macro', actual:x.actual ?? null, forecast:x.forecast ?? null })); } catch { configuredCalendar = []; }
+        context.body.eventImpact = predictEventImpact({ events:[...newsEvents,...configuredCalendar], now:Date.parse(generatedAt), horizonMinutes:360 });
         let walletRegistry = [];
         try { const parsed = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); walletRegistry = Array.isArray(parsed) ? parsed : []; } catch { walletRegistry = []; }
         const walletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
