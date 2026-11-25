@@ -165,7 +165,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
  if(['BTC','ETH'].includes(base)){
   try{
    const term=base==='BTC'?'BITCOIN':'ETHER';
-   const query=new URLSearchParams({$select:'market_and_exchange_names,report_date_as_yyyy_mm_dd,open_interest_all,dealer_positions_long_all,dealer_positions_short_all,asset_mgr_positions_long,asset_mgr_positions_short,lev_money_positions_long,lev_money_positions_short', $where:"upper(market_and_exchange_names) like '%"+term+"%'", $order:'report_date_as_yyyy_mm_dd DESC',$limit:'10'});
+   const query=new URLSearchParams({$select:'market_and_exchange_names,report_date_as_yyyy_mm_dd,open_interest_all,dealer_positions_long_all,dealer_positions_short_all,asset_mgr_positions_long,asset_mgr_positions_short,lev_money_positions_long,lev_money_positions_short', $where:"upper(market_and_exchange_names) like '%"+term+"%'", $order:'report_date_as_yyyy_mm_dd DESC',$limit:'50'});
    const rows=await safeJson('https://publicreporting.cftc.gov/resource/gpe5-46if.json?'+query.toString());
    const validRows=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.open_interest_all)>0),latestReport=validRows[0]?.report_date_as_yyyy_mm_dd,cohort=validRows.filter(x=>String(x.report_date_as_yyyy_mm_dd||'').slice(0,10)===String(latestReport||'').slice(0,10));
    const row=cohort[0];
