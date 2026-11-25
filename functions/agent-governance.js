@@ -142,7 +142,7 @@ export async function handleAgentGovernanceApi({request,env,db,path}){
    const prev=await db.prepare('SELECT MAX(policy_version) version FROM jpti_governance_policies WHERE policy_name=?').bind(name).first(),version=(Number(prev?.version)||0)+1,id=crypto.randomUUID(),t=new Date().toISOString(),actor=clean(x.createdBy||'operator',120);await db.prepare('INSERT INTO jpti_governance_policies(policy_id,policy_name,policy_version,enabled,severity,rules_json,created_by,created_at,updated_at) VALUES(?,?,?,0,?,?,?,?,?)').bind(id,name,version,['low','medium','high','critical'].includes(x.severity)?x.severity:'high',JSON.stringify(rules),actor,t,t).run();await audit(db,{actorId:actor,decisionType:'governance-policy-versioned',targetType:'policy',targetId:id,decision:'created',rationale:'Created immutable policy version '+version+' for '+name,evidence:[name]});return reply(201,{policy:{id,name,version,rules,enabled:false,status:'draft',createdAt:t},persisted:true});
   }
 
-  const policyActivation=path.match(/^\\/api\\/intelligence-foundation\\/governance\\/policies\\/([a-f0-9-]+)\\/activate$/i);
+  const policyActivation=path.match(/^\/api\/intelligence-foundation\/governance\/policies\/([a-f0-9-]+)\/activate$/i);
   if(policyActivation&&request.method==='POST'){
    const x=await request.json(),row=await db.prepare('SELECT * FROM jpti_governance_policies WHERE policy_id=?').bind(policyActivation[1]).first();if(!row)return reply(404,{error:'Governance policy version not found.'});
    const reviewer=clean(x.reviewer||'',120);if(!reviewer||reviewer===row.created_by)return reply(403,{error:'A different authorised reviewer must activate this policy version.'});
