@@ -195,7 +195,6 @@ export async function runCycle(db,symbol){
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
     }
-   }
   }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
