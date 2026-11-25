@@ -26,6 +26,7 @@ const AutonomousDepartments = lazy(() => import('./AutonomousDepartments.jsx'));
 const IntelligenceFoundation = lazy(() => import('./IntelligenceFoundation.jsx'));
 const AgentGovernance = lazy(() => import('./AgentGovernance.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
+const MarketDigitalTwin = lazy(() => import('./MarketDigitalTwin.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -67,6 +68,7 @@ const navigation = [
   { label: 'Futures Intelligence', icon: Radio, group: 'MARKETS' },
   { label: 'Market Stream', icon: Radio, group: 'MARKETS' },
   { label: 'Asset Intelligence', icon: Network, group: 'MARKETS' },
+  { label: 'Market Digital Twin & Intelligence Lab', icon: FlaskConical, group: 'RESEARCH' },
   { label: 'AI Intelligence', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Institutional Market Intelligence', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Opportunity Radar', icon: Activity, group: 'INTELLIGENCE' },
@@ -562,6 +564,7 @@ function App() {
     if (['Shared Intelligence Memory','Agent Organisation','Strategy Research Laboratory','Independent Risk Command Centre','Trade Intelligence Records'].includes(page)) return <IntelligenceFoundation page={page} symbol={symbol}/>;
     if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
+    if (page === 'Market Digital Twin & Intelligence Lab') return <MarketDigitalTwin/>;
     if (page === 'Universal Engine') return <UniversalEngine localPrivateAccess={health?.localPrivateAccess === true}/>;
     if (page === 'Overview') return renderOverview();
     if (page === 'Financial & On-chain') return <FinancialIntelligence/>;
