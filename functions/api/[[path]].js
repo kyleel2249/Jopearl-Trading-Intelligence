@@ -333,7 +333,7 @@ function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
         volumeChangePct: volumeChangePct === null ? null : Number(volumeChangePct.toFixed(2)),
         orderBookImbalancePct: null, fundingRate: null, last: latest[4], sma20
       },
-      broadContext: { globalMarketCapChange24hPct: null, status: 'not-connected' },
+      broadContext: { globalMarketCapChange24hPct: null, status: 'pending' },
       multiTimeframe: [{ timeframe, bias, changePct: Number(priceChangePct.toFixed(4)), source: 'selected-timeframe OHLCV' }],
       score: {
         score, direction, confidence,
@@ -345,13 +345,13 @@ function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
       },
       sources: [
         { name: exchange.toUpperCase() + ' OHLCV', status: 'live' },
-        { name: 'Order book depth', status: 'unsupported' },
-        { name: 'Perpetual funding', status: 'unsupported' },
-        { name: 'Global market context', status: 'not-connected' }
+        { name: 'Order book depth', status: 'pending' },
+        { name: 'Perpetual funding', status: 'pending' },
+        { name: 'Global market context', status: 'pending' }
       ],
       limitations: [
-        'This is a lightweight, single-timeframe OHLCV heuristic generated at the Cloudflare edge.',
-        'Order-book depth, funding, global market breadth and multi-timeframe confirmation are not included; this is not a trade instruction.'
+        'Exchange depth, funding, global breadth and multi-timeframe data are provider-dependent; unsupported or stale feeds are excluded.',
+        'Institutional positioning and macro releases have slower publication schedules and are context inputs, not tick-level order flow or trade instructions.'
       ],
       source: 'cloudflare-edge'
     }
@@ -1052,6 +1052,16 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const generatedAt = now().toISOString();
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
       if (context.status === 200) {
+        const [microstructure, globalContext, multiTimeframe] = await Promise.all([
+          fetchExchangeMicrostructure(exchange, symbol, contextType, fetchImpl, env, generatedAt),
+          fetchGlobalMarketContext(fetchImpl, env, generatedAt),
+          fetchMultiTimeframeContext(exchange, symbol, timeframe, contextType, instrumentId, marketProvider, bitgetCfdProvider, env, request, generatedAt)
+        ]);
+        context.body.market = { ...context.body.market, orderBookImbalancePct: microstructure.orderBookImbalancePct, fundingRate: microstructure.fundingRate };
+        context.body.broadContext = { ...globalContext };
+        context.body.multiTimeframe = [...(context.body.multiTimeframe || []), ...(multiTimeframe.timeframes || [])];
+        context.body.sources = (context.body.sources || []).filter(x => !['Order book depth','Perpetual funding','Global market context'].includes(x.name));
+        context.body.sources = [...context.body.sources, ...(microstructure.sources || []), ...(globalContext.sources || []), ...(multiTimeframe.sources || [])];
         const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt, env);
         const institutionalSources = await fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt);
         context.body.institutionalSources = institutionalSources;
