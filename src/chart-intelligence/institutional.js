@@ -43,8 +43,8 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
     if (cftc.nonReportables && finite(cftc.nonReportables.bias)) add('cftc-nonreportable-positioning', signed(cftc.nonReportables.bias, 1), 0.012, 'CFTC TFF non-reportable positions as a smaller-trader proxy, not a pure retail cohort');
   }
   const macro = external.macro || {};
-  const instrument = String(context.symbol || '').toUpperCase();
-  const energyInstrument = /(^|[^A-Z])(WTI|USOIL|CL|BRENT|XTI|XBR)([^A-Z]|$)/.test(instrument);
+  const instrument = String(context.symbol || '').toUpperCase().split(/[/-]/)[0];
+  const energyInstrument = /^(WTI|WTIUSD|USOIL|USOILUSD|CL|CL1!|BRENT|BRENTUSD|XTI|XTIUSD|XBR|XBRUSD)$/.test(instrument);
   const commodityRisk = energyInstrument && finite(macro.commodityRiskBias) ? macro.commodityRiskBias : macro.riskBias;
   if (macro.status === 'live' || (energyInstrument && finite(macro.commodityRiskBias))) add('government-and-central-bank-macro-risk', signed(commodityRisk, 1), 0.04, energyInstrument && finite(macro.commodityRiskBias) ? 'FRED bank liquidity, Treasury yields, dollar and EIA weekly crude inventory context' : 'FRED bank liquidity, Treasury yields, dollar and ECB reference-rate context');
   const retail = external.retailSentiment || {};
