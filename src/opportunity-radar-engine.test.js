@@ -26,6 +26,12 @@ test('correlation aligns candles by timestamp and identifies strongly related re
  const result=correlationFromCandles(a,b);
  assert.equal(result.status,'READY');assert.ok(result.correlation>.99);assert.equal(result.observations,39);
 });
+test('correlation detects inverse return behaviour for diversifying candidates',()=>{
+ let up=100,down=200;
+ const a=[[1700000000000,up,up,up,up,100]],b=[[1700000000000,down,down,down,down,100]];
+ for(let i=0;i<40;i++){const r=[.012,-.006,.018,-.011,.004][i%5];const prevUp=up,prevDown=down;up*=1+r;down*=1-r;a.push([1700000000000+(i+1)*3600000,prevUp,up,Math.min(prevUp,up),up,100]);b.push([1700000000000+(i+1)*3600000,prevDown,down,Math.min(prevDown,down),down,100]);}
+ const result=correlationFromCandles(a,b);assert.equal(result.status,'READY');assert.ok(result.correlation<-.99);
+});
 test('correlation rejects insufficient timestamp overlap',()=>{
  assert.equal(correlationFromCandles(candles(Array.from({length:10},(_,i)=>100+i)),candles(Array.from({length:10},(_,i)=>200+i),1800000000000)).status,'INSUFFICIENT_OVERLAP');
 });
