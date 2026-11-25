@@ -46,7 +46,7 @@ export function mtfBias(inputs, now) {
 const near = (it, price, atr, k) => Math.abs((it.price ?? 0) - price) <= atr * k;
 
 /** Directional components in [-1, 1]; each one is derived from a concrete layer so the score is traceable. */
-export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, institutional = null, chainDex = null, sessionContext = null, regimeCfg }) {
+export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, institutional = null, chainDex = null, sessionContext = null, fvgLiquidityScore = null, regimeCfg }) {
   const comp = {};
   const recent = (it, ts) => it.ts >= ts;
   const lastTs = smc.items.length ? Math.max(...smc.items.map((i) => i.ts)) : 0;
@@ -72,17 +72,18 @@ export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, i
   comp.institutional = institutional && institutional.status === 'ready' ? clamp(institutional.score, -1, 1) : 0;
   comp.chainDex = chainDex && chainDex.status === 'ready' ? clamp(chainDex.score, -1, 1) : 0;
   comp.session = sessionContext && sessionContext.status === 'ready' && Number.isFinite(sessionContext.directionalBias) ? clamp(sessionContext.directionalBias, -1, 1) : 0;
+  comp.fvgLiquidity = fvgLiquidityScore?.available ? clamp(fvgLiquidityScore.value, -1, 1) : 0;
   const w = regimeCfg.weights;
-  const base = { structure: 0.152, location: 0.076, levels: 0.114, flow: 0.0912, liquidity: 0.114, blocks: 0.076, mtf: 0.1064, liquidation: 0.0304, institutional: 0.12, chainDex: 0.08, session: 0.04 };
-  const order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation', 'institutional', 'chainDex', 'session'];
-  const rows = order.map((k) => { const weight = base[k] * (['institutional', 'chainDex', 'session'].includes(k) ? 1 : (w[k] ?? 1)); return { key: k, value: r3(comp[k]), weight: r3(weight), contribution: r3(weight * comp[k]), available: k === 'flow' ? !!(flow && flow.status === 'ready') : k === 'mtf' ? fresh.length > 0 : k === 'liquidation' ? ls.length > 0 : k === 'institutional' ? !!(institutional && institutional.status === 'ready') : k === 'chainDex' ? !!(chainDex && chainDex.status === 'ready') : k === 'session' ? !!(sessionContext && sessionContext.status === 'ready') : true }; });
+  const base = { structure: 0.13984, location: 0.06992, levels: 0.10488, flow: 0.083904, liquidity: 0.10488, blocks: 0.06992, mtf: 0.097888, liquidation: 0.027968, institutional: 0.1104, chainDex: 0.0736, session: 0.0368, fvgLiquidity: 0.08 };
+  const order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation', 'institutional', 'chainDex', 'session', 'fvgLiquidity'];
+  const rows = order.map((k) => { const weight = base[k] * (['institutional', 'chainDex', 'session', 'fvgLiquidity'].includes(k) ? 1 : (w[k] ?? 1)); return { key: k, value: r3(comp[k]), weight: r3(weight), contribution: r3(weight * comp[k]), available: k === 'flow' ? !!(flow && flow.status === 'ready') : k === 'mtf' ? fresh.length > 0 : k === 'liquidation' ? ls.length > 0 : k === 'institutional' ? !!(institutional && institutional.status === 'ready') : k === 'chainDex' ? !!(chainDex && chainDex.status === 'ready') : k === 'session' ? !!(sessionContext && sessionContext.status === 'ready') : k === 'fvgLiquidity' ? !!fvgLiquidityScore?.available : true }; });
   const used = rows.filter((r) => r.available), wSum = used.reduce((s, r) => s + r.weight, 0) || 1;
   const score = used.reduce((s, r) => s + r.contribution, 0) / wSum;
   return { score: r3(score), components: rows };
 }
 
 /** Compare independent sources against the signal direction. Returns conflicts with severities. */
-export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external, institutional, chainDex, eventRisk }) {
+export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external, institutional, chainDex, fvgLiquidity, eventRisk }) {
   const out = [];
   if (!signalDir) return { conflicts: out, severity: 0 };
   const name = (d) => (d > 0 ? 'bullish' : 'bearish');
@@ -94,6 +95,8 @@ export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing
   if (external && external.direction && external.direction !== signalDir) out.push({ id: 'alpha-levels-oppose', severity: 2, detail: 'Alpha Signal Engine levels point ' + name(external.direction) + ' while the chart signal is ' + name(signalDir) });
   if (institutional && institutional.status === 'ready' && institutional.confidence >= 0.45 && Math.abs(institutional.score) >= 0.35 && Math.sign(institutional.score) !== signalDir) out.push({ id: 'institutional-context-opposes', severity: institutional.confidence >= 0.8 ? 3 : institutional.confidence >= 0.7 ? 2 : 1, detail: 'Timestamped cross-domain institutional evidence is ' + name(Math.sign(institutional.score)) + ' and conflicts with the chart signal' });
   if (chainDex && chainDex.status === 'ready' && chainDex.confidence >= 0.55 && Math.abs(chainDex.score) >= 0.35 && Math.sign(chainDex.score) !== signalDir) out.push({ id: 'chain-dex-flow-opposes', severity: chainDex.confidence >= 0.82 ? 2 : 1, detail: 'DEX pool and swap flow is ' + name(Math.sign(chainDex.score)) + ' and opposes the chart signal' });
+  const linked = (fvgLiquidity?.setups || []).filter(s => s.score >= 70 && ['awaiting-retest','retest-observed','retest-in-zone'].includes(s.state));
+  if (linked.some(s => (s.direction === 'bullish' ? 1 : -1) !== signalDir)) out.push({ id: 'fvg-liquidity-opposes', severity: linked.some(s => s.score >= 85) ? 2 : 1, detail: 'A high-quality sweep-to-FVG setup points against the chart signal' });
   if (eventRisk && eventRisk.active) out.push({ id: 'macro-event-risk', severity: eventRisk.severity >= 2 ? 2 : 1, detail: 'Recent high-impact geopolitical or financial news is active; reduce exposure and wait for post-event price confirmation' });
   return { conflicts: out, severity: out.reduce((s, c) => s + c.severity, 0) };
 }
