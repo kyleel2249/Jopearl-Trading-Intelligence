@@ -204,3 +204,40 @@ export function analyze24hLiquidity(candleInput = [], {
     methodology: 'The exchange ticker is authoritative for the rolling 24-hour high/low when available. Candle-derived levels are a fallback over bars intersecting the rolling window. Session attribution is inferred only when a loaded candle matches the reported extreme; otherwise it is explicitly unattributed. Previous-day levels use UTC boundaries.'
   };
 }
+
+
+const medianValue = values => { const a=values.filter(Number.isFinite).sort((x,y)=>x-y); if(!a.length)return null; const m=Math.floor(a.length/2); return a.length%2?a[m]:(a[m-1]+a[m])/2; };
+const percentileValue = (values,p) => { const a=values.filter(Number.isFinite).sort((x,y)=>x-y); return a.length?a[Math.min(a.length-1,Math.max(0,Math.ceil(p*a.length)-1))]:null; };
+
+/**
+ * Session-specific forecast bands for the next/current session in the rolling 24h cycle.
+ * Historical session ranges are measured from timestamped candles; projected levels are estimates, never guaranteed highs/lows.
+ */
+export function predictSessionHighLow(candleInput=[],{now=Date.now(),timeframe='1h',chainDex=null,maxHistory=20}={}){
+ const candles=normalizeCandles(candleInput),tfMs=timeframeToMs(timeframe);
+ if(candles.length<24)return{status:'insufficient',generatedAt:new Date(now).toISOString(),sessions:[],reason:'At least 24 valid candles are required for session forecasts'};
+ const grouped=new Map();
+ for(const row of candles){for(const session of TRADING_SESSIONS){const local=zonedParts(row[0],session.timezone);const [oh,om]=session.open.split(':').map(Number),[ch,cm]=session.close.split(':').map(Number);if(local.minute<oh*60+om||local.minute>=ch*60+cm)continue;const key=session.id+'|'+local.date;let b=grouped.get(key);if(!b){b={sessionId:session.id,date:local.date,open:row[1],high:row[2],low:row[3],close:row[4],volume:0,candles:0};grouped.set(key,b);}b.high=Math.max(b.high,row[2]);b.low=Math.min(b.low,row[3]);b.close=row[4];b.volume+=row[5];b.candles++;}}
+ const latest=candles.at(-1),price=latest[4],ranges=candles.slice(-24).map(c=>c[2]-c[3]).filter(x=>x>0),longRanges=candles.slice(-Math.min(160,candles.length)).map(c=>c[2]-c[3]).filter(x=>x>0),volScale=clamp((medianValue(ranges)||1)/(medianValue(longRanges)||1),0.7,1.5);
+ const momentumBase=candles[Math.max(0,candles.length-7)][4],momentum=momentumBase?(price-momentumBase)/momentumBase:0;
+ const flowPct=Number(chainDex?.flow?.imbalancePct),flowBias=Number.isFinite(flowPct)?clamp(flowPct/100,-1,1):0;
+ const directionalBias=clamp(momentum*120+flowBias*0.18,-1,1);
+ const snapshot=TRADING_SESSIONS.map(session=>{
+  const local=zonedParts(now,session.timezone),[oh,om]=session.open.split(':').map(Number),[ch,cm]=session.close.split(':').map(Number),open=oh*60+om,close=ch*60+cm,minute=local.minute;
+  const active=minute>=open&&minute<close,preOpen=minute<open,remaining=active?close-minute:preOpen?close-open:close-open;
+  const history=[...grouped.values()].filter(x=>x.sessionId===session.id&&x.date!==local.date&&x.high>x.low).slice(-maxHistory);
+  const histRanges=history.map(x=>x.high-x.low),medianRange=medianValue(histRanges),p80Range=percentileValue(histRanges,.8);
+  const current=grouped.get(session.id+'|'+local.date)||null;
+  const baseline=p80Range??medianRange;
+  const expectedRange=baseline==null?null:baseline*volScale;
+  const remainingFactor=active?Math.sqrt(clamp(remaining/(close-open),0.05,1)):1;
+  const projectedRange=expectedRange==null?null:expectedRange*remainingFactor;
+  const skew=projectedRange==null?0:directionalBias*projectedRange*0.12;
+  const observedHigh=active&&current?current.high:null,observedLow=active&&current?current.low:null;
+  const forecastHigh=projectedRange==null?null:Math.max(observedHigh??-Infinity,price+projectedRange*0.55+skew);
+  const forecastLow=projectedRange==null?null:Math.min(observedLow??Infinity,price-projectedRange*0.55+skew);
+  const confidence=history.length>=12?'high':history.length>=6?'moderate':history.length>=3?'low':'very-low';
+  return{id:session.id,name:session.name,timezone:session.timezone,phase:active?'active':preOpen?'upcoming':'next-cycle',localDate:local.date,localTime:Math.floor(minute/60).toString().padStart(2,'0')+':'+(minute%60).toString().padStart(2,'0'),historySamples:history.length,confidence,observed:{high:observedHigh,low:observedLow},forecast:{high:forecastHigh==null?null:Number(forecastHigh.toFixed(8)),low:forecastLow==null?null:Number(forecastLow.toFixed(8)),expectedRange:expectedRange==null?null:Number(expectedRange.toFixed(8)),projectedRemainingRange:projectedRange==null?null:Number(projectedRange.toFixed(8))},directionalBias:Number(directionalBias.toFixed(3)),volatilityScale:Number(volScale.toFixed(3)),method:'historical session 80th-percentile range × current volatility scale, adjusted for remaining session time and bounded directional skew'};
+ });
+ return{status:snapshot.some(s=>s.forecast.high!==null)?'ready':'insufficient',generatedAt:new Date(now).toISOString(),symbol:null,timeframe,referencePrice:price,directionalBias:Number(directionalBias.toFixed(3)),flowBias:Number(flowBias.toFixed(3)),sessions:snapshot,methodology:'Session highs/lows are forecast bands from historical session ranges and current volatility. Current observed extremes are never replaced. Forecasts are estimates with sample-count confidence, not guaranteed levels.'};
+}
