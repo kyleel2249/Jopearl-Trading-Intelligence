@@ -12,6 +12,8 @@ assert.ok(result.evidence.some((x) => x.factor === 'order-book-pressure'), 'prov
 const stale = scoreInstitutionalContext({ ...fresh, generatedAt: new Date(now - 60 * 60 * 1000).toISOString() }, { now });
 assert.equal(stale.status, 'stale');
 assert.equal(stale.score, 0);
+const offline = scoreInstitutionalContext({ ...fresh, sources: fresh.sources.map((x) => ({ ...x, status: 'offline' })) }, { now });
+assert.equal(offline.status, 'unavailable', 'named sources that are all offline must fail closed');
 const sparse = scoreInstitutionalContext({ generatedAt: new Date(now).toISOString(), score: { score: -35 }, sources: [] }, { now });
 assert.equal(sparse.status, 'ready');
 assert.ok(sparse.score < 0);
