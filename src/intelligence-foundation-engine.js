@@ -10,3 +10,55 @@ export function runWalkForward(input,config={}){const rows=candlesOf(input),trai
 export function runMonteCarlo(returns,config={}){const values=(returns||[]).map(n).filter(x=>x!==null),runs=Math.max(500,Math.min(20000,Number(config.runs)||5000)),horizon=Math.max(10,Math.min(1000,Number(config.horizon)||100)),capital=Math.max(1,Number(config.capital)||10000),limit=clamp(config.ruinDrawdownPct??50,1,99);if(values.length<10)return{status:'insufficient-data',observations:values.length,required:10};let seed=Number(config.seed)||91731;const rand=()=>{seed=(seed*1664525+1013904223)>>>0;return seed/4294967296;},terminal=[],dds=[],ruin=[];for(let r=0;r<runs;r++){let e=capital,peak=e,dd=0;for(let i=0;i<horizon;i++){e*=Math.max(.001,1+values[Math.floor(rand()*values.length)]/100);peak=Math.max(peak,e);dd=Math.max(dd,(peak-e)/peak*100);}terminal.push(e);dds.push(dd);if(dd>=limit)ruin.push(1);}const q=(a,x)=>{const s=[...a].sort((u,v)=>u-v);return s[Math.ceil(x*s.length)-1]??null;};return{status:'completed',runs,horizon,observations:values.length,capital,terminalEquity:{p05:q(terminal,.05),p50:q(terminal,.5),p95:q(terminal,.95)},maxDrawdownPct:{p50:q(dds,.5),p95:q(dds,.95)},probabilityOfDrawdownLimitPct:ruin.length/runs*100,method:'Deterministic-seed bootstrap Monte Carlo with replacement.',limitations:['Assumes sampled returns represent future conditions.','Does not model serial dependence, regime shifts or liquidation.']};}
 export function scoreAgentAccountability(m={}){const d=Math.max(0,Number(m.decisions)||0),accuracy=d?Number(m.correctDecisions||0)/d:0,calibration=d?1-Math.min(1,Number(m.brierScore??.5)*2):0,evidence=clamp(m.evidenceQuality??0,0,1),discipline=1-Math.min(1,Number(m.riskViolations||0)/Math.max(1,d)),collab=clamp(m.usefulHandoffs??0,0,1),contribution=clamp(m.researchContribution??0,0,1);return{score:Math.round((accuracy*.25+calibration*.15+evidence*.2+discipline*.25+collab*.05+contribution*.1)*100),sampleSize:d,confidence:d>=50?'higher':d>=15?'moderate':'low',components:{accuracy:accuracy*100,calibration:calibration*100,evidence:evidence*100,riskDiscipline:discipline*100,collaboration:collab*100,researchContribution:contribution*100},note:'Small samples are provisional; agreement alone does not improve accuracy.'};}
 export function createSetupFingerprint(x={}){return[x.symbol,x.direction,x.regime,x.session,x.timeframe,x.strategyId,x.structure,x.volatilityBucket].map(v=>String(v??'').trim().toLowerCase()).join('|').replace(/[^a-z0-9|._/-]/g,'').slice(0,300);}
+
+export function evolveStrategyCandidates(family,base={},count=8,generation=1,seed=7341){
+ const supported=['ema','donchian','momentum','mean-reversion'];if(!supported.includes(family))throw new Error('Unsupported strategy family.');
+ let state=Number(seed)>>>0;const rand=()=>{state=(state*1664525+1013904223)>>>0;return state/4294967296;};
+ const clampInt=(v,a,b)=>Math.max(a,Math.min(b,Math.round(v)));
+ const candidates=[];for(let i=0;i<Math.max(1,Math.min(24,count));i++){let p={...base};
+  if(family==='ema'){p.fast=clampInt((Number(base.fast)||9)*(0.65+rand()*.8),3,40);p.slow=clampInt((Number(base.slow)||21)*(0.7+rand()*.9),12,100);if(p.fast>=p.slow)p.slow=p.fast+Math.max(5,Math.round(p.fast*.5));}
+  else if(family==='donchian')p.period=clampInt((Number(base.period)||20)*(0.55+rand()*1.3),5,100);
+  else if(family==='momentum')p.period=clampInt((Number(base.period)||12)*(0.5+rand()*1.5),3,80);
+  else{p.period=clampInt((Number(base.period)||20)*(0.6+rand()*1.2),5,100);p.entryZ=Number(((Number(base.entryZ)||1.5)*(0.7+rand()*.7)).toFixed(2));}
+  candidates.push({candidateId:'g'+generation+'-'+(i+1),generation,family,parameters:p,parentParameters:base,mutation:'bounded deterministic parameter mutation'});
+ }return candidates;
+}
+export function rankStrategyCandidates(candles,candidates,config={}){
+ return(candidates||[]).map(candidate=>{const result=runBacktest(candles,{...config,family:candidate.family,parameters:candidate.parameters}),sample=result.tradeCount||0,score=result.status!=='completed'||sample<10?-Infinity:(Number(result.expectancyPct)||0)-Math.max(0,Number(result.maxDrawdownPct)||0)*.45+Math.min(sample,50)*.015;return{...candidate,result,selectionScore:Number.isFinite(score)?Number(score.toFixed(5)):null,eligible:sample>=30&&Number(result.expectancyPct)>0&&Number(result.profitFactor)>1.05};}).sort((a,b)=>(b.selectionScore??-Infinity)-(a.selectionScore??-Infinity));
+}
+export function adaptivePositionSize(input={},policy={}){
+ const equity=Math.max(0,Number(input.equity)||0),entry=Number(input.entryPrice)||0,stop=Number(input.stopPrice)||0,baseRisk=Math.min(Number(input.baseRiskPercent)||.5,Number(policy.maxRiskPercent)||.75),distance=Math.abs(entry-stop);
+ if(!(equity>0&&entry>0&&distance>0))return{allowed:false,reason:'Equity, entry and structural stop are required.'};
+ const regime=String(input.regime||'unknown'),regimeFactor=regime==='high-volatility'?.35:regime==='compression'?.65:regime==='range'?.8:regime==='trending'?1:.5,confidence=clamp(input.confidence??.5,0,1),confidenceFactor=.4+confidence*.6,correlationFactor=clamp(input.correlationFactor??1,.1,1),riskPercent=Math.min(baseRisk,Number(policy.maxRiskPercent)||.75)*regimeFactor*confidenceFactor*correlationFactor/Math.max(1,Number(input.volatilityScale)||1),riskAmount=equity*riskPercent/100,quantity=riskAmount/distance,notional=quantity*entry,maxNotional=Number(policy.maxNotionalUsd)||2500,finalQuantity=Math.min(quantity,maxNotional/entry),finalNotional=finalQuantity*entry;
+ return{allowed:finalQuantity>0,riskPercent:Number(riskPercent.toFixed(4)),riskAmount:Number((finalQuantity*distance).toFixed(8)),quantity:finalQuantity,notional:finalNotional,regimeFactor,confidenceFactor,correlationFactor,stopDistancePercent:distance/entry*100,cappedByNotional:finalNotional<notional,liveExecutionAuthorized:false};
+}
+export function updateDynamicStop(input={}){
+ const long=String(input.direction||'LONG').toUpperCase()==='LONG',entry=Number(input.entryPrice),current=Number(input.currentPrice),old=Number(input.stopPrice),risk=Math.abs(entry-old),r=risk>0?(current-entry)*(long?1:-1)/risk:0;
+ if(!(entry>0&&current>0&&old>0&&risk>0))return{updated:false,reason:'Valid entry, price and initial stop are required.'};
+ const breakEvenAt=Number(input.breakEvenAtR)||1,trailAt=Number(input.trailAtR)||1.5,atr=Number(input.atr)||0,trailDistance=atr>0?atr*(Number(input.atrMultiplier)||2):current*(Number(input.trailPercent)||.004),candidate=r>=trailAt?(long?current-trailDistance:current+trailDistance):r>=breakEvenAt?entry:old,stop=long?Math.max(old,candidate):Math.min(old,candidate);
+ return{updated:Math.abs(stop-old)>1e-12,stopPrice:stop,openProfitR:Number(r.toFixed(3)),breakEvenActive:r>=breakEvenAt,trailingActive:r>=trailAt,neverLoosened:long?stop>=old:stop<=old};
+}
+export function buildPartialExitPlan(input={}){
+ const entry=Number(input.entryPrice),stop=Number(input.stopPrice),direction=String(input.direction||'LONG').toUpperCase(),risk=Math.abs(entry-stop);
+ if(!(entry>0&&stop>0&&risk>0))return{valid:false,exits:[]};
+ const levels=Array.isArray(input.levels)?input.levels:[{r:1,portion:.25},{r:1.5,portion:.25},{r:2,portion:.25},{r:3,portion:.25}],exits=levels.slice(0,8).map(x=>({r:Number(x.r),portion:clamp(x.portion,0,1),price:entry+(direction==='LONG'?1:-1)*risk*Number(x.r)})).filter(x=>x.r>0&&x.portion>0).sort((a,b)=>a.r-b.r);
+ const total=exits.reduce((s,x)=>s+x.portion,0);return{valid:total<=1.000001,exits,remainingPortion:Math.max(0,1-total),note:'Partial exit targets are a plan; actual fills and fees must be recorded separately.'};
+}
+export function calculateReturnCorrelations(series={},threshold=.7){
+ const names=Object.keys(series),out=[];for(let i=0;i<names.length;i++)for(let j=i+1;j<names.length;j++){const a=series[names[i]]||[],b=series[names[j]]||[],len=Math.min(a.length,b.length),x=a.slice(-len).map(Number),y=b.slice(-len).map(Number),mx=mean(x),my=mean(y);if(len<10||mx===null||my===null)continue;const cov=mean(x.map((v,k)=>(v-mx)*(y[k]-my))),sx=Math.sqrt(mean(x.map(v=>(v-mx)**2))||0),sy=Math.sqrt(mean(y.map(v=>(v-my)**2))||0),corr=sx&&sy?cov/(sx*sy):null;if(corr!==null)out.push({a:names[i],b:names[j],correlation:Number(corr.toFixed(4)),highCorrelation:Math.abs(corr)>=threshold,observations:len});}return out;
+}
+export function analyzeOrderBook(book={}){
+ const bids=(book.bids||[]).slice(0,20).map(x=>[Number(x[0]),Number(x[1])]).filter(x=>x.every(Number.isFinite)&&x[0]>0&&x[1]>0),asks=(book.asks||[]).slice(0,20).map(x=>[Number(x[0]),Number(x[1])]).filter(x=>x.every(Number.isFinite)&&x[0]>0&&x[1]>0);
+ if(!bids.length||!asks.length)return{status:'insufficient-data',imbalance:null,spreadPct:null,limitations:['A two-sided order book is required.']};
+ const bidDepth=bids.reduce((s,x)=>s+x[0]*x[1],0),askDepth=asks.reduce((s,x)=>s+x[0]*x[1],0),bestBid=Math.max(...bids.map(x=>x[0])),bestAsk=Math.min(...asks.map(x=>x[0])),mid=(bestBid+bestAsk)/2,imbalance=(bidDepth-askDepth)/(bidDepth+askDepth||1),meanDepth=(bidDepth+askDepth)/(bids.length+asks.length),walls=[...bids.map(x=>({side:'bid',price:x[0],notional:x[0]*x[1]})),...asks.map(x=>({side:'ask',price:x[0],notional:x[0]*x[1]}))].filter(x=>x.notional>meanDepth*3).sort((a,b)=>b.notional-a.notional).slice(0,10);
+ return{status:'available',bestBid,bestAsk,mid,spreadPct:(bestAsk-bestBid)/mid*100,bidDepth,askDepth,imbalance,wallCandidates:walls,interpretation:imbalance>.15?'bid-depth-dominant':imbalance<-.15?'ask-depth-dominant':'balanced-depth',limitations:['Visible depth is a snapshot and can be cancelled or spoofed.','Wall candidates are size outliers, not confirmed institutional orders.','Depth is only as complete as the exchange feed.']};
+}
+export function classifyTradingSession(timestamp=Date.now()){
+ const hour=new Date(timestamp).getUTCHours();return{session:hour<7?'ASIA':hour<12?'LONDON':hour<16?'LONDON_NEW_YORK_OVERLAP':hour<22?'NEW_YORK':'ROLLOVER',utcHour:hour,timezone:'UTC',note:'Session windows are operational UTC approximations; daylight-saving shifts are not applied.'};
+}
+export function evaluateStrategyLifecycle(metrics={},policy={}){
+ const trades=Number(metrics.outOfSampleTrades??metrics.tradeCount)||0,expectancy=Number(metrics.expectancyPct)||0,profitFactor=Number(metrics.profitFactor)||0,drawdown=Number(metrics.maxDrawdownPct)||0;
+ if(trades>=100&&expectancy<0&&profitFactor<.8)return{status:'retire',reason:'Persistent negative expectancy and weak profit factor across a sufficient sample.'};
+ if(trades>=30&&expectancy>0&&profitFactor>1.1&&drawdown<=(Number(policy.maxDrawdownPct)||8))return{status:'champion-candidate',reason:'Out-of-sample sample, expectancy, profit factor and drawdown meet promotion gates.'};
+ return{status:'challenger',reason:'Insufficient or inconclusive out-of-sample evidence; continue controlled testing.'};
+}
