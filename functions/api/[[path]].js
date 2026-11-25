@@ -340,7 +340,7 @@ async function fetchCrossExchangeTradeFlow(exchange,symbol,fetchImpl=fetch,env={
 }
 
 async function fetchSmtContext(exchange,symbol,timeframe,marketType,primaryCandles,marketProvider,env,request,generatedAt){
- if(marketType==='cfd')return{status:'unsupported',bias:0,confidence:0,reason:'CFD correlation mapping is not configured.'};
+ if(marketType==='cfd'||(exchange==='bitget'&&marketType!=='spot'))return{status:'unsupported',bias:0,confidence:0,reason:'SMT correlation mapping is not configured for this exchange product; no unrelated instrument is substituted.'};
  const base=String(symbol||'').split(/[/-]/)[0].toUpperCase(),correlated=base==='BTC'?'ETH/USDT':'BTC/USDT';
  const key='jpti:smt:v1:'+exchange+':'+symbol+':'+correlated+':'+timeframe+':'+marketType;
  if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* query fresh candles */}}
