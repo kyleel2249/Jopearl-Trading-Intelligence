@@ -311,6 +311,33 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
  if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
  return out;
 }
+async function fetchCrossExchangeTradeFlow(exchange,symbol,fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
+ const cacheKey='jpti:xvenue-trades:v1:'+exchange+':'+String(symbol||'').replace(/[/-]/g,'').toUpperCase();
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(cacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<15000)return hit.body;}catch{/* fetch live */}}
+ const marketSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),out={status:'unavailable',venue:exchange,timestamp:generatedAt,perpAggressiveBuyUsd:null,perpAggressiveSellUsd:null,openInterestDeltaUsd:null,source:'public-perpetual-trade-sample'};
+ const get=async url=>{const r=await fetchImpl(url,{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
+ try{
+  let trades=[];
+  if(exchange==='binance'){
+   const p=await get('https://fapi.binance.com/fapi/v1/aggTrades?symbol='+encodeURIComponent(marketSymbol)+'&limit=1000');
+   trades=(Array.isArray(p)?p:[]).map(x=>({buy:!x.m,usd:Number(x.p)*Number(x.q)}));
+  }else if(exchange==='bybit'){
+   const p=await get('https://api.bybit.com/v5/market/recent-trade?category=linear&symbol='+encodeURIComponent(marketSymbol)+'&limit=1000');
+   trades=(p.result?.list||[]).map(x=>({buy:String(x.side).toLowerCase()==='buy',usd:Number(x.price)*Number(x.size)}));
+  }else if(exchange==='bitget'){
+   const p=await get('https://api.bitget.com/api/v2/mix/market/fills?symbol='+encodeURIComponent(marketSymbol)+'&productType=USDT-FUTURES&limit=100');
+   trades=(Array.isArray(p.data)?p.data:[]).map(x=>({buy:String(x.side).toLowerCase()==='buy',usd:Number(x.price)*Number(x.size)}));
+  }else{
+   out.reason='This venue exposes no normalised public perpetual aggressor-trade sample in this adapter; depth and funding remain available.';
+  }
+  const valid=trades.filter(x=>Number.isFinite(x.usd)&&x.usd>0);
+  if(valid.length){out.perpAggressiveBuyUsd=valid.filter(x=>x.buy).reduce((s,x)=>s+x.usd,0);out.perpAggressiveSellUsd=valid.filter(x=>!x.buy).reduce((s,x)=>s+x.usd,0);out.tradeCount=valid.length;out.status='live';}
+  else if(!out.reason)out.reason='No usable recent perpetual trades were returned.';
+ }catch(error){out.status='offline';out.reason=String(error?.message||error).slice(0,160);}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
+ return out;
+}
+
 async function fetchGlobalMarketContext(fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
  const key='jpti:global-market-context:v1';
  if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<300000)return hit.body;}catch{/* continue */}}
@@ -1106,7 +1133,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           fetchChainDexContext(symbol, fetchImpl, generatedAt, env),
           fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt),
           fetchBisFlows({ url: env.BIS_LBS_DATA_URL, fetchImpl, now: Date.parse(generatedAt), env }),
-          Promise.all(['binance','bybit','okx','bitget'].map(async venue => ({ venue, data: await fetchExchangeMicrostructure(venue, symbol, 'futures', fetchImpl, env, generatedAt) })))
+          Promise.all(['binance','bybit','okx','bitget'].map(async venue => { const [data, flow] = await Promise.all([fetchExchangeMicrostructure(venue, symbol, 'futures', fetchImpl, env, generatedAt), fetchCrossExchangeTradeFlow(venue, symbol, fetchImpl, env, generatedAt)]); return { venue, data, flow }; }))
         ]);
         context.body.institutionalSources = institutionalSources;
         context.body.sources = [...(context.body.sources || []), ...(institutionalSources.sources || [])];
@@ -1116,7 +1143,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         context.body.sources = [...(context.body.sources || []), ...(chainDex.sources || [])];
         context.body.limitations = [...(context.body.limitations || []), ...(chainDex.limitations || [])];
         context.body.chainDex = { ...chainDex, persistence: persisted, history };
-        const crossExchangeFlows = aggregateCrossExchangeFlows(venueMicrostructure.map(({venue,data}) => ({ venue, marketType:'perpetual', timestamp:generatedAt, orderBookImbalance: Number.isFinite(data.orderBookImbalancePct) ? data.orderBookImbalancePct / 100 : null, fundingRate:data.fundingRate, sourceQuality:'public-orderbook-and-funding-proxy' })), { now:Date.parse(generatedAt) });
+        const crossExchangeFlows = aggregateCrossExchangeFlows(venueMicrostructure.map(({venue,data,flow}) => ({ venue, marketType:'perpetual', timestamp:generatedAt, orderBookImbalance: Number.isFinite(data.orderBookImbalancePct) ? data.orderBookImbalancePct / 100 : null, fundingRate:data.fundingRate, perpAggressiveBuyUsd:flow.perpAggressiveBuyUsd, perpAggressiveSellUsd:flow.perpAggressiveSellUsd, sourceQuality:'public-perpetual-trades-orderbook-and-funding-proxy' })), { now:Date.parse(generatedAt) });
         context.body.crossExchangeFlows = crossExchangeFlows;
         context.body.bisFlows = bisFlows;
         const eventItems = (institutionalSources.news || []).map((item,index) => ({ id:'news-'+index, title:item.title, time:item.publishedAt, source:item.source || 'public-news', url:item.url, importance:/war|invasion|attack|emergency|default|bank failure|sanction|cyberattack/i.test(item.title||'')?'critical':/rate|inflation|central bank|tariff|regulation|bank/i.test(item.title||'')?'high':'medium' }));
@@ -1126,7 +1153,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const walletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
         const walletFlows = aggregateAttributedWalletSwapFlows(chainDex.trades || [], walletAttributions, { now:Date.parse(generatedAt) });
         context.body.walletAttribution = { status:walletAttributions.some(x=>x.verified)?'ready':'not-configured-or-unverified', verifiedWallets:walletAttributions.filter(x=>x.verified), unverifiedCount:walletAttributions.filter(x=>!x.verified).length, flows:walletFlows, basis:'explicit-evidence-registry-plus-sampled-dex-swaps' };
-        context.body.sources = [...(context.body.sources || []), ...venueMicrostructure.flatMap(x=>x.data.sources || []), {name:'Cross-exchange public order-book and funding aggregation',status:crossExchangeFlows.status,retrievedAt:generatedAt}, {name:'BIS international banking statistics',status:bisFlows.status,retrievedAt:generatedAt}, {name:'Event impact risk model',status:context.body.eventImpact.status,retrievedAt:generatedAt}, {name:'Verified wallet attribution registry',status:walletAttributions.some(x=>x.verified)?'live':'not-configured',retrievedAt:generatedAt}];
+        context.body.sources = [...(context.body.sources || []), ...venueMicrostructure.flatMap(x=>[...(x.data.sources || []), {name:x.venue.toUpperCase()+' recent perpetual aggressor trades',status:x.flow.status,retrievedAt:generatedAt}]), {name:'Cross-exchange public order-book, funding and taker-flow aggregation',status:crossExchangeFlows.status,retrievedAt:generatedAt}, {name:'BIS international banking statistics',status:bisFlows.status,retrievedAt:generatedAt}, {name:'Event impact risk model',status:context.body.eventImpact.status,retrievedAt:generatedAt}, {name:'Verified wallet attribution registry',status:walletAttributions.some(x=>x.verified)?'live':'not-configured',retrievedAt:generatedAt}];
         context.body.limitations = [...(context.body.limitations || []), crossExchangeFlows.caveat, bisFlows.methodology || bisFlows.reason, context.body.eventImpact.methodology, walletFlows.caveat];
         await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
       }
