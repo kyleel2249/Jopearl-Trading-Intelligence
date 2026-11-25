@@ -24,6 +24,7 @@ const InstitutionalMarketIntelligence = lazy(() => import('./InstitutionalMarket
 const AgentCommandCenter = lazy(() => import('./AgentCommandCenter.jsx'));
 const AutonomousDepartments = lazy(() => import('./AutonomousDepartments.jsx'));
 const IntelligenceFoundation = lazy(() => import('./IntelligenceFoundation.jsx'));
+const AgentGovernance = lazy(() => import('./AgentGovernance.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
@@ -91,6 +92,7 @@ const navigation = [
   { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Shared Intelligence Memory', icon: Database, group: 'INTELLIGENCE' },
   { label: 'Agent Organisation', icon: Network, group: 'INTELLIGENCE' },
+  { label: 'Agent Governance & Approval Centre', icon: ShieldCheck, group: 'INTELLIGENCE' },
   { label: 'Strategy Research Laboratory', icon: FlaskConical, group: 'RESEARCH' },
   { label: 'Independent Risk Command Centre', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Trade Intelligence Records', icon: BookOpen, group: 'OPERATIONS' },
@@ -556,6 +558,7 @@ function App() {
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
     if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
+    if (page === 'Agent Governance & Approval Centre') return <AgentGovernance/>;
     if (['Shared Intelligence Memory','Agent Organisation','Strategy Research Laboratory','Independent Risk Command Centre','Trade Intelligence Records'].includes(page)) return <IntelligenceFoundation page={page} symbol={symbol}/>;
     if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
     if (page === 'Portfolio Allocation') return <PortfolioAllocation/>;
