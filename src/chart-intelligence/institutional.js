@@ -31,8 +31,8 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
   add('order-book-pressure', signed(market.orderBookImbalancePct, 100), 0.119, 'exchange order-book depth imbalance');
   const funding = finite(market.fundingRate) ? Number(market.fundingRate) : null;
   add('funding-crowding', funding == null ? NaN : clamp(-funding / 0.001, -1, 1), 0.068, 'perpetual funding, contrarian crowding adjustment');
-  const mtf = Array.isArray(context.multiTimeframe) ? context.multiTimeframe.filter((x) => x && finite(x.bias)) : [];
-  if (mtf.length) add('institutional-context-mtf', mtf.reduce((sum, x) => sum + Number(x.bias), 0) / mtf.length, 0.102, 'timeframe-aligned exchange context');
+  const mtf = Array.isArray(context.multiTimeframe) ? context.multiTimeframe.map(x => ({ ...x, numericBias: finite(x?.bias) ? Number(x.bias) : x?.bias === 'bullish' ? 1 : x?.bias === 'bearish' ? -1 : x?.bias === 'neutral' ? 0 : finite(x?.biasScore) ? Number(x.biasScore) : null })).filter(x => x.numericBias !== null) : [];
+  if (mtf.length) add('institutional-context-mtf', mtf.reduce((sum, x) => sum + x.numericBias, 0) / mtf.length, 0.102, 'timeframe-aligned exchange context');
   const external = context.institutionalSources || {};
   const cftc = external.cftc || {};
   if (cftc.status === 'live') add('cftc-managed-money-positioning', signed(cftc.netBias, 1), 0.06, 'CFTC weekly TFF leveraged-money net position / open interest');
