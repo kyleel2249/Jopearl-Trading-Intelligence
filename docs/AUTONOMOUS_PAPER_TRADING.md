@@ -27,7 +27,7 @@ All gates must pass on persisted trade records:
 - Observed win rate at least 98%.
 - At least 200 closed trades and 90 observation days.
 - Profit factor at least 1.5 and expectancy at least 0.15R.
-- Positive net P&L, maximum drawdown no greater than 5%, Sharpe at least 0.8.
+- Positive net P&L, maximum drawdown strictly below 5%, Sharpe at least 0.8.
 - No recorded risk breaches and no more than five consecutive losses.
 - At least 50 forward-validation trades and at least 30 trades in each defined market regime.
 
@@ -39,10 +39,10 @@ When an agent passes every gate, its tier changes to **LIVE_READY**. A successor
 An agent reaching the maximum drawdown is suspended from opening new paper positions. An agent with at least 100 closed trades, negative net P&L, profit factor below 0.8 and negative expectancy is retired. A successor is created after retirement. Retired and suspended records are retained for audit; no history is deleted.
 
 ## Capital controls and simulation
-Per-trade risk is capped at 0.25% of virtual equity, daily loss at 2%, maximum drawdown at 5%, leverage at 1x and concurrent positions at one per agent. Paper fills account for taker-fee assumptions, spread and slippage. Closed-candle signals exclude the currently forming candle. Stale ticker data, missing quotes, invalid candles or D1 failure pause new entries.
+Per-trade risk is capped at 0.25% of virtual equity, daily loss at 2%, maximum drawdown at 5%, leverage at 1x and concurrent positions at one per agent. Fleet-wide controls cap total open positions at 10, positions per symbol at 2 and same-direction positions at 6. These concentration limits are checked against the persisted D1 open-position ledger and released as soon as a paper position closes. Paper fills model fees, adverse half-spread and slippage on both entry and exit; quantity sizing includes the full round-trip execution-cost estimate. Closed-candle signals exclude the currently forming candle. Stale ticker data, missing quotes, invalid candles or D1 failure pause new entries.
 
 ## Daily performance review
-The Cloudflare Worker scans BTC, ETH, SOL, XRP, SOPH, BNB, DOGE, ADA, LINK and SUI USDT perpetual markets each minute and stores a UTC daily review at 00:05. Reviews cover each agent's equity, net P&L, win rate, profit factor, expectancy, drawdown, consecutive losses, forward-validation count, regime coverage, risk breaches, status changes and successor creation. Reviews are retained in D1.
+The Cloudflare Worker scans BTC, ETH, SOL, XRP, SOPH, BNB, DOGE, ADA, LINK and SUI USDT perpetual markets each minute and stores a UTC daily review at 00:05. Reviews cover each agent's equity, net P&L, win rate, profit factor, expectancy, drawdown, consecutive losses, forward-validation count, regime coverage, risk breaches, status changes and successor creation. The performance ledger also calculates average win/loss, payoff ratio, expectancy per trade in USD, total fees, best/worst trade, recovery factor and average holding time. Sharpe uses calendar-day returns, including zero-trade days, rather than sampling only days with closed trades. Reviews are retained in D1.
 
 ## Important limitations
 A high win rate can still lose money if average losses exceed average wins. KPI qualification therefore includes net profit, profit factor, expectancy, drawdown and risk-breach checks. Simulated fills cannot reproduce every queue position, funding payment, partial fill, latency spike or exchange rejection. Live readiness is a research milestone, not a profitability guarantee.
