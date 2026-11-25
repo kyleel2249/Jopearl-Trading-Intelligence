@@ -7,6 +7,7 @@ const candleTs=c=>Number(c?.[0]);
 const candleHigh=c=>Number(c?.[2]);
 const candleLow=c=>Number(c?.[3]);
 const candleClose=c=>Number(c?.[4]);
+const dirSign=d=>d==="bullish"?1:d==="bearish"?-1:0;
 
 function clusterLiquidity(pools, price, atr, toleranceAtr=.18){
   const valid=(pools||[]).filter(p=>finite(p.price)&&["high","low"].includes(p.side));
@@ -111,18 +112,20 @@ export function analyzeFvgLiquidity(smc, candles, {atr=0, timeframeMs=60_000, ma
       reasons,source:"closed-candle-smc-correlation"
     });
   }
-  setups.sort((a,b)=>b.score-a.score||b.sweep.ts-a.sweep.ts);
+  const activeStates=["awaiting-retest","retest-observed","retest-in-zone"];
+  setups.sort((a,b)=>(Number(activeStates.includes(b.state))-Number(activeStates.includes(a.state)))||b.score-a.score||b.sweep.ts-a.sweep.ts);
   const activeFvgs=gaps.map(g=>({...g,lifecycle:classifyLifecycle(g)})).filter(g=>g.lifecycle!=="invalidated");
-  const latest=rows.at(-1)[0];
+  const latest=rows.at(-1)[0],activeSetups=setups.filter(s=>activeStates.includes(s.state));
   return {status:"ready",generatedAt:new Date(now).toISOString(),asOf:new Date(latest).toISOString(),clusters,setups:setups.slice(0,30),activeFvgs,
-    summary:{sweepCount:sweeps.length,correlatedSetupCount:setups.length,highQualityCount:setups.filter(s=>s.score>=75).length,
-      bestSetup:setups[0]?.id??null,methodology:"Rule-based sweep-to-displacement-to-FVG correlation. Scores are confluence rankings, not probabilities or trade instructions."}};
+    summary:{sweepCount:sweeps.length,correlatedSetupCount:activeSetups.length,highQualityCount:activeSetups.filter(s=>s.score>=75).length,
+      bestSetup:activeSetups[0]?.id??null,methodology:"Rule-based sweep-to-displacement-to-FVG correlation. Scores are confluence rankings, not probabilities or trade instructions."}};
 }
 
 export function scoreFvgLiquidityForConfluence(analysis, direction){
   if(analysis?.status!=="ready"||!analysis.setups?.length)return {available:false,value:0,weight:0};
-  const sign=dirSign(direction), ranked=analysis.setups.slice(0,5);
+  const ranked=analysis.setups.filter(s=>["awaiting-retest","retest-observed","retest-in-zone"].includes(s.state)).slice(0,5);
+  if(!ranked.length)return {available:false,value:0,weight:0};
   const value=ranked.reduce((sum,s)=>sum+(s.direction==="bullish"?1:-1)*s.score/100,0)/ranked.length;
-  return {available:true,value:round(clamp(value,-1,1),3),weight:.12,
+  return {available:true,value:round(clamp(value,-1,1),3),weight:.08,
     evidence:ranked.map(s=>({id:s.id,direction:s.direction,score:s.score,state:s.state}))};
 }
