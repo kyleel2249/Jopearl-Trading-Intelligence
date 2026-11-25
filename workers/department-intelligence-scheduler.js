@@ -4,11 +4,11 @@ import { runFoundationPulse } from '../functions/intelligence-foundation.js';
 export default {
   async scheduled(controller, env, context) {
     context.waitUntil((async () => {
-      const results = await Promise.allSettled([runOrganizationPulse({ env }), runFoundationPulse({ env })]);
-      results.forEach((result, index) => {
-        if (result.status === 'rejected') console.error('[JPTI intelligence scheduler] Pulse ' + index + ' failed:', result.reason?.message || result.reason);
-      });
-      if (results.every(result => result.status === 'rejected')) throw new Error('Both JPTI scheduled intelligence pulses failed.');
+      const organisation = await Promise.allSettled([runOrganizationPulse({ env })]);
+      if (organisation[0].status === 'rejected') console.error('[JPTI intelligence scheduler] Department pulse failed:', organisation[0].reason?.message || organisation[0].reason);
+      const foundation = await Promise.allSettled([runFoundationPulse({ env })]);
+      if (foundation[0].status === 'rejected') console.error('[JPTI intelligence scheduler] Foundation pulse failed:', foundation[0].reason?.message || foundation[0].reason);
+      if (organisation[0].status === 'rejected' && foundation[0].status === 'rejected') throw new Error('Both JPTI scheduled intelligence pulses failed.');
     })());
   },
   async fetch(request, env) {
