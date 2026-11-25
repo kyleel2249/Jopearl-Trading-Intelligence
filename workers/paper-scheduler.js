@@ -2,6 +2,13 @@ import { runCycle, dailyReview, ensureAgents } from '../functions/api/paper/[[pa
 
 const WATCHLIST = ['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','SOPHUSDT','BNBUSDT','DOGEUSDT','ADAUSDT','LINKUSDT','SUIUSDT'];
 const DAILY_REVIEW_CRON = '5 0 * * *';
+export function isDailyReviewDue(event = {}) {
+  if (event.cron === DAILY_REVIEW_CRON) return true;
+  const scheduledAt = Number(event.scheduledTime);
+  if (!Number.isFinite(scheduledAt) || scheduledAt <= 0) return false;
+  const date = new Date(scheduledAt);
+  return date.getUTCHours() === 0 && date.getUTCMinutes() === 5;
+}
 const shortError = (error) => String(error?.message || error).slice(0, 180);
 
 export default {
@@ -20,13 +27,12 @@ export default {
         }
       }
       // The daily review must not be skipped, nor lose its own failure, because a market cycle failed.
-      if (event.cron === DAILY_REVIEW_CRON) {
+      if (isDailyReviewDue(event)) {
         try { await dailyReview(env.JPTI_DB); }
         catch (error) { failures.push({ stage: 'daily-review', error: shortError(error) }); }
       }
       if (failures.length) {
-        // The per-minute and 00:05 crons both fire at 00:05, so the id must be unique per invocation;
-        // a minute-granular id made the second health write collide and silently drop its failures.
+        // Each invocation receives a unique health-event ID so overlapping retries cannot overwrite diagnostics.
         const at = new Date().toISOString();
         const id = 'paper-scheduler:' + at + ':' + crypto.randomUUID().slice(0, 8);
         try {
