@@ -46,7 +46,7 @@ export function mtfBias(inputs, now) {
 const near = (it, price, atr, k) => Math.abs((it.price ?? 0) - price) <= atr * k;
 
 /** Directional components in [-1, 1]; each one is derived from a concrete layer so the score is traceable. */
-export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, regimeCfg }) {
+export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, institutional = null, regimeCfg }) {
   const comp = {};
   const recent = (it, ts) => it.ts >= ts;
   const lastTs = smc.items.length ? Math.max(...smc.items.map((i) => i.ts)) : 0;
@@ -69,16 +69,17 @@ export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, r
   comp.mtf = fresh.length ? clamp(fresh.reduce((s, m) => s + m.bias, 0) / fresh.length, -1, 1) : 0;
   const ls = liq && liq.status === 'ready' ? liq.clusters : [];
   comp.liquidation = clamp(ls.filter((c) => c.distanceAtr <= 4).reduce((s, c) => s + (c.side === 'short' ? 1 : -1) * c.density / (1 + c.distanceAtr), 0), -1, 1);
-  const w = regimeCfg.weights, order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation'];
-  const base = { structure: 0.2, location: 0.1, levels: 0.15, flow: 0.12, liquidity: 0.15, blocks: 0.1, mtf: 0.14, liquidation: 0.04 };
-  const rows = order.map((k) => ({ key: k, value: r3(comp[k]), weight: r3(base[k] * w[k]), contribution: r3(base[k] * w[k] * comp[k]), available: k === 'flow' ? !!(flow && flow.status === 'ready') : k === 'mtf' ? fresh.length > 0 : k === 'liquidation' ? ls.length > 0 : true }));
+  comp.institutional = institutional && institutional.status === 'ready' ? clamp(institutional.score, -1, 1) : 0;
+  const w = regimeCfg.weights, order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation', 'institutional'];
+  const base = { structure: 0.176, location: 0.088, levels: 0.132, flow: 0.1056, liquidity: 0.132, blocks: 0.088, mtf: 0.1232, liquidation: 0.0352, institutional: 0.12 };
+  const rows = order.map((k) => { const weight = base[k] * (k === 'institutional' ? 1 : (w[k] ?? 1)); return { key: k, value: r3(comp[k]), weight: r3(weight), contribution: r3(weight * comp[k]), available: k === 'flow' ? !!(flow && flow.status === 'ready') : k === 'mtf' ? fresh.length > 0 : k === 'liquidation' ? ls.length > 0 : k === 'institutional' ? !!(institutional && institutional.status === 'ready') : true }; });
   const used = rows.filter((r) => r.available), wSum = used.reduce((s, r) => s + r.weight, 0) || 1;
   const score = used.reduce((s, r) => s + r.contribution, 0) / wSum;
   return { score: r3(score), components: rows };
 }
 
 /** Compare independent sources against the signal direction. Returns conflicts with severities. */
-export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external }) {
+export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external, institutional }) {
   const out = [];
   if (!signalDir) return { conflicts: out, severity: 0 };
   const name = (d) => (d > 0 ? 'bullish' : 'bearish');
@@ -88,6 +89,7 @@ export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing
   if (flow && flow.status === 'ready' && flow.summary.pressure * signalDir < -0.25) out.push({ id: 'flow-opposes', severity: flow.basis === 'measured-aggressor' ? 2 : 1, detail: 'Order flow shows ' + flow.summary.bias + ' pressure (' + flow.basis.replace('-', ' ') + ')' });
   if (dealing && ((signalDir > 0 && dealing.position > 0.8) || (signalDir < 0 && dealing.position < 0.2))) out.push({ id: 'location-extreme', severity: 1, detail: (signalDir > 0 ? 'Buying in deep premium' : 'Selling in deep discount') + ' of the dealing range' });
   if (external && external.direction && external.direction !== signalDir) out.push({ id: 'alpha-levels-oppose', severity: 2, detail: 'Alpha Signal Engine levels point ' + name(external.direction) + ' while the chart signal is ' + name(signalDir) });
+  if (institutional && institutional.status === 'ready' && institutional.confidence >= 0.45 && Math.abs(institutional.score) >= 0.35 && Math.sign(institutional.score) !== signalDir) out.push({ id: 'institutional-context-opposes', severity: institutional.confidence >= 0.7 ? 2 : 1, detail: 'Timestamped cross-domain institutional evidence is ' + name(Math.sign(institutional.score)) + ' and conflicts with the chart signal' });
   return { conflicts: out, severity: out.reduce((s, c) => s + c.severity, 0) };
 }
 
