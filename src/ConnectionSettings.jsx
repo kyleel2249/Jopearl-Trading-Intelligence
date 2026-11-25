@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './ConnectionSettings.css';
-import { getApiBaseUrl } from './lib/api.js';
+import { getApiBaseUrl, getApiToken, setApiToken } from './lib/api.js';
 
 const VAULT_KEY = 'jpti.connectionVault.v1';
 const PROFILE_KEY = 'jpti.connectionProfile.v2';
@@ -52,7 +52,7 @@ export default function ConnectionSettings() {
   const initialProfile = loadProfile();
   const [url, setUrl] = useState(typeof window !== 'undefined' ? window.location.origin : getApiBaseUrl());
   const [savedUrl, setSavedUrl] = useState(typeof window !== 'undefined' ? window.location.origin : getApiBaseUrl());
-  const [token, setToken] = useState('');
+  const [token, setToken] = useState(() => getApiToken());
   const [savedToken, setSavedToken] = useState('');
   const [apiStatus, setApiStatus] = useState(null);
   const [apiBusy, setApiBusy] = useState(false);
@@ -80,12 +80,14 @@ export default function ConnectionSettings() {
   }, [variables]);
   const count = Object.keys(variables).length;
   const secretCount = Object.keys(variables).filter(key => SECRET_PATTERN.test(key)).length;
-  useEffect(() => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ variables, apiBaseUrl: url, apiToken: token, savedAt: new Date().toISOString() })); } catch { setVaultError('Auto-save failed: device storage is full or unavailable.'); } }, [variables, url, token]);
+  useEffect(() => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ variables, apiBaseUrl: url, apiToken: '', savedAt: new Date().toISOString() })); } catch { setVaultError('Auto-save failed: device storage is full or unavailable.'); } }, [variables, url]);
 
   const importText = async (text) => {
     const parsed = parseEnv(text);
     if (!Object.keys(parsed).length) throw new Error('No KEY=value entries were found in that file.');
     setVariables(current => ({ ...current, ...parsed }));
+    const importedToken = parsed.JPTI_JOURNAL_TOKEN || parsed.JPTI_API_TOKEN || '';
+    if (importedToken) setToken(importedToken);
     // Imported variables are retained in the encrypted device profile only; they are not pushed to a server.
     setVaultUnlocked(true);
     setVaultMessage('Imported and auto-saved ' + Object.keys(parsed).length + ' variables on this device.');
@@ -118,7 +120,8 @@ export default function ConnectionSettings() {
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Vault contents are invalid.');
       setVariables(data.variables || {});
       setUrl('');
-      setToken('');
+      setToken(data.apiToken || '');
+      setApiToken(data.apiToken || '');
       setVaultUnlocked(true);
       setVaultMessage('Encrypted connection vault unlocked on this device.');
     } catch { setVaultError('Could not unlock the vault. Check the passphrase or import a valid JPTI configuration file.'); }
@@ -147,7 +150,7 @@ export default function ConnectionSettings() {
     if (file.name.toLowerCase().endsWith('.json')) {
       const data = JSON.parse(text);
       if (data.format !== 'jpti-connection-config' || !data.variables || typeof data.variables !== 'object') throw new Error('This is not a JPTI connection configuration export.');
-      setVariables(data.variables); setUrl(''); setToken(''); setVaultUnlocked(true);
+      setVariables(data.variables); setUrl(''); setToken(data.apiToken || ''); setApiToken(data.apiToken || ''); setVaultUnlocked(true);
       setVaultMessage('Imported ' + Object.keys(data.variables).length + ' settings from a JPTI configuration export.');
     } else await importText(text);
   };
@@ -170,12 +173,13 @@ export default function ConnectionSettings() {
   const saveSettingsAndSync = async () => {
     try {
       const profile = { variables, apiBaseUrl: '', apiToken: '', savedAt: new Date().toISOString() };
+      setApiToken(token);
+      setSavedToken(token ? 'ACTIVE IN THIS SESSION' : 'NOT CONFIGURED');
       localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
       setUrl(typeof window !== 'undefined' ? window.location.origin : '');
       setSavedUrl(typeof window !== 'undefined' ? window.location.origin : '');
-      setToken(''); setSavedToken('');
       setApiError('');
-      setServerMessage('Saved this device profile. JPTI uses the Cloudflare Pages same-origin API; no external gateway URL or token is required.');
+      setServerMessage(token ? 'Device settings saved. Private agent, department and journal requests will use the token for this browser session; public charts remain token-free.' : 'Device settings saved. Public charts are available; private agent, department and journal requests need the existing JPTI_JOURNAL_TOKEN.');
       await testApi();
     } catch (error) {
       setApiError(error.message || 'Settings could not be saved.');
@@ -197,7 +201,10 @@ export default function ConnectionSettings() {
 
     <div className="detail-workspace">
       <div className="connection-section-head"><div><span className="eyebrow">01 · CLOUDFLARE EDGE</span><h4>Built-in JPTI market-data connection</h4></div><span className={apiStatus ? 'connected' : 'not-connected'}>{apiStatus ? 'CLOUDFLARE ONLINE' : 'NOT CHECKED'}</span></div>
-      <p className="subtle-note">JPTI uses the Cloudflare Pages Functions API on this same domain. No Render service, external API gateway URL, API token, or manual endpoint setup is required for public market charts.</p>
+      <p className="subtle-note">JPTI uses the Cloudflare Pages Functions API on this same domain. Public market charts need no token. Private agent evaluations, department operations and journal memory require the existing JPTI_JOURNAL_TOKEN Cloudflare secret.</p>
+      <label className="connection-label" htmlFor="jpti-private-token">Private JPTI access token</label>
+      <input id="jpti-private-token" className="connection-url" type="password" autoComplete="off" spellCheck="false" value={token} onChange={event => setToken(event.target.value)} placeholder="Enter the existing JPTI_JOURNAL_TOKEN value" />
+      <p className="subtle-note">The token is held in session storage and sent only to protected same-origin JPTI routes. It is excluded from the unencrypted device profile. Save device settings to activate it for this session.{savedToken ? ' Status: ' + savedToken + '.' : ''}</p>
       <div className="news-search"><button type="button" onClick={testApi} disabled={apiBusy}>{apiBusy ? 'Checking…' : 'Check Cloudflare connection'}</button><button type="button" onClick={saveSettingsAndSync}>Save device settings</button></div>
       {apiError && <p className="quote-error">{apiError}</p>}
       {apiStatus && <p className="connection-success">Connected · {apiStatus.service} · {apiStatus.exchanges?.join(', ')} · public market data only.</p>}
