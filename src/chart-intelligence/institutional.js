@@ -43,7 +43,10 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
     if (cftc.nonReportables && finite(cftc.nonReportables.bias)) add('cftc-nonreportable-positioning', signed(cftc.nonReportables.bias, 1), 0.012, 'CFTC TFF non-reportable positions as a smaller-trader proxy, not a pure retail cohort');
   }
   const macro = external.macro || {};
-  if (macro.status === 'live') add('government-and-central-bank-macro-risk', signed(macro.riskBias, 1), 0.04, 'FRED, Treasury Fiscal Data and ECB observations; low-frequency macro context');
+  const instrument = String(context.symbol || '').toUpperCase();
+  const energyInstrument = /(^|[^A-Z])(WTI|USOIL|CL|BRENT|XTI|XBR)([^A-Z]|$)/.test(instrument);
+  const commodityRisk = energyInstrument && finite(macro.commodityRiskBias) ? macro.commodityRiskBias : macro.riskBias;
+  if (macro.status === 'live' || (energyInstrument && finite(macro.commodityRiskBias))) add('government-and-central-bank-macro-risk', signed(commodityRisk, 1), 0.04, energyInstrument && finite(macro.commodityRiskBias) ? 'FRED bank liquidity, Treasury yields, dollar and EIA weekly crude inventory context' : 'FRED bank liquidity, Treasury yields, dollar and ECB reference-rate context');
   const retail = external.retailSentiment || {};
   if (retail.status === 'live') add('retail-risk-sentiment', signed(retail.riskBias, 1), 0.05, 'public Crypto Fear & Greed sentiment index; crowd sentiment, not position-level flow');
   const usedWeight = evidence.reduce((sum, x) => sum + x.weight, 0);
@@ -53,5 +56,5 @@ export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs 
   const completeness = clamp(usedWeight, 0, 1);
   const confidence = round(clamp(coverage * 0.45 + freshness * 0.25 + completeness * 0.30, 0, 1));
   const available = evidence.length > 0 && (!knownSources || liveSources > 0);
-  return { status: available ? 'ready' : 'unavailable', score: available ? round(raw) : 0, confidence: available ? confidence : 0, ageMs, sourceCoverage: round(coverage), evidence, sources: sourceRows, limitations: Array.isArray(context.limitations) ? context.limitations : [], generatedAt: context.generatedAt || null, reason: available ? null : 'No live corroborating source is available', method: 'Timestamp-gated weighted evidence; missing sources are excluded and remaining weights are renormalised' };
+  return { status: available ? 'ready' : 'unavailable', score: available ? round(raw) : 0, confidence: available ? confidence : 0, eventRisk: external.eventRisk || { active: false, severity: 0 }, ageMs, sourceCoverage: round(coverage), evidence, sources: sourceRows, limitations: Array.isArray(context.limitations) ? context.limitations : [], generatedAt: context.generatedAt || null, reason: available ? null : 'No live corroborating source is available', method: 'Timestamp-gated weighted evidence; missing sources are excluded and remaining weights are renormalised' };
 }
