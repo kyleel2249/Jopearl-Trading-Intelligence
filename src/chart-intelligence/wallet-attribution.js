@@ -8,7 +8,7 @@ export function assessWalletAttribution({chain,address,claims=[]}={}){
   const a=norm(address),c=norm(chain).toLowerCase();
   const valid=c==="solana"?SOL.test(a):EVM.test(a);
   if(!valid)return{status:"invalid-address",verified:false,confidence:0,chain:c,address:a,entity:null,evidence:[],reason:"Address format does not match the selected chain."};
-  const evidence=(claims||[]).filter(x=>x&&allowed.has(x.type)&&x.verified===true&&x.source&&x.sourceUrl&&/^https:\/\//i.test(x.sourceUrl));
+  const evidence=(claims||[]).filter(x=>x&&allowed.has(x.type)&&x.verified===true&&x.source&&x.sourceUrl&&/^https:\/\//i.test(x.sourceUrl)&&((x.type==="official-entity-registry"&&x.registryRecordId)||(x.type==="signed-attestation"&&x.signatureVerified===true&&x.attestationId)||(x.type==="provider-verified-label"&&x.providerLabelId)||(x.type==="exchange-published-proof"&&x.proofId)));
   const signed=evidence.some(x=>x.type==="signed-attestation"&&x.signatureVerified===true);
   const registry=evidence.some(x=>x.type==="official-entity-registry"&&x.registryRecordId);
   const exchange=evidence.some(x=>x.type==="exchange-published-proof"&&x.entityType==="exchange");
