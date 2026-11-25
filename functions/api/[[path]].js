@@ -1080,6 +1080,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         context.body.limitations = [...(context.body.limitations || []), ...(institutionalSources.limitations || [])];
         const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol.replace('-', '/'), chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
         const history = await readDexTransactions(env, symbol.replace('-', '/'), 80);
+        context.body.sources = [...(context.body.sources || []), ...(chainDex.sources || [])];
+        context.body.limitations = [...(context.body.limitations || []), ...(chainDex.limitations || [])];
         context.body.chainDex = { ...chainDex, persistence: persisted, history };
         await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
       }
