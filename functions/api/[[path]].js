@@ -782,7 +782,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       return handleMentorRoute(request, env, fetchImpl);
     }
 
-    const dexHistoryMatch=url.pathname.match(/^\\/api\\/chain-dex\\/transactions\\/([^/]+)$/i);
+    const dexHistoryMatch=url.pathname.match(/^\/api\/chain-dex\/transactions\/([^/]+)$/i);
     if(dexHistoryMatch){
       if(request.method!=='GET')return json(405,{error:'DEX transaction history supports GET only.'},request,{allow:'GET, OPTIONS'});
       let requestedSymbol;try{requestedSymbol=decodeURIComponent(dexHistoryMatch[1]).replace('-', '/');}catch{return json(400,{error:'Invalid DEX history symbol.'},request);}
