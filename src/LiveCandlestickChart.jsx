@@ -695,6 +695,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>Commercial-bank deposits: <b>{marketContext?.institutionalSources?.macro?.fred?.DPSACBW027SBOG?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.DPSACBW027SBOG.latest.value).toLocaleString()}</b></span>
         <span>Fed assets (WALCL): <b>{marketContext?.institutionalSources?.macro?.fred?.WALCL?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.WALCL.latest.value).toLocaleString()}</b></span>
         <span>Commercial-bank loans: <b>{marketContext?.institutionalSources?.macro?.fred?.BUSLOANS?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.BUSLOANS.latest.value).toLocaleString()}</b></span>
+        <span>Crude inventory weekly change: <b>{marketContext?.institutionalSources?.macro?.commodityInventories?.WCESTUS1?.weeklyChange == null ? '—' : Number(marketContext.institutionalSources.macro.commodityInventories.WCESTUS1.weeklyChange).toLocaleString()} thousand barrels</b></span>
         <span>Retail Fear & Greed: <b>{marketContext?.institutionalSources?.retailSentiment?.value ?? '—'} {marketContext?.institutionalSources?.retailSentiment?.classification || ''}</b></span>
         <span>ECB USD per EUR: <b>{marketContext?.institutionalSources?.ecb?.latest?.value ?? '—'}</b></span>
       </div>
