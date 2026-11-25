@@ -1,4 +1,5 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
+import { evaluateRiskGate } from '../../../src/intelligence-foundation-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -94,6 +95,9 @@ export async function runCycle(db,symbol){
  const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
+ let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
+ try{const row=await db.prepare("SELECT policy_json FROM jpti_risk_policies WHERE policy_id='default'").first();if(row?.policy_json)independentPolicy={...independentPolicy,...JSON.parse(row.policy_json)};}catch{/* The existing paper gates remain active until migration 0010 is applied. */}
+ report.riskVetoes=[];
  for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
  for(const agent of await loadAgents(db)){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
@@ -132,6 +136,13 @@ export async function runCycle(db,symbol){
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
    const quantity=Math.min(riskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    if(quantity>0&&Number.isFinite(quantity)){
+    const sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
+    const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:openNow,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:1.5,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
+    if(!riskDecision.allowed){
+     reason='Independent risk veto: '+riskDecision.violations.map(x=>x.code).join(', ');
+     report.riskVetoes.push({agentId:agent.id,decision:riskDecision});
+     try{await db.prepare('INSERT INTO jpti_risk_events(event_id,event_type,severity,decision,reason,context_json,created_at) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),'paper-entry-veto','warning','REJECT',reason,JSON.stringify({agentId:agent.id,symbol:market.symbol,riskDecision}),iso()).run();}catch{/* Risk event persistence is available after migration 0010. */}
+    }else{
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});
     const stop=fill.entryPrice+(signal.direction==='LONG'?-stopDistance:stopDistance),target=fill.entryPrice+(signal.direction==='LONG'?stopDistance*1.5:-stopDistance*1.5);
     const tradeId=crypto.randomUUID(),openedAt=iso();
@@ -142,7 +153,9 @@ export async function runCycle(db,symbol){
      report.opened.push(trade);exposure.total+=1;exposure.bySymbol.set(market.symbol,(exposure.bySymbol.get(market.symbol)||0)+1);exposure.byDirection.set(signal.direction,(exposure.byDirection.get(signal.direction)||0)+1);action='PAPER_ORDER_OPENED';reason='Simulated entry accepted after market freshness, per-agent and fleet exposure gates.';
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
-  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration or direction-concentration gate.';
+    }
+   }
+  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
