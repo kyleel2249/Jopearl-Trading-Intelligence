@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { apiFetch, getApiSource, subscribeApiSource } from './lib/api.js';
 import { detectSmartMoney } from './smartMoney.js';
 import { getSessionSnapshot, analyzeSessionCandles } from './session-intelligence.js';
-import { predictSessionHighLow } from './session-liquidity-engine.js';
+import { predictSessionHighLow, analyze24hLiquidity } from './session-liquidity-engine.js';
 import { sessionForecastAdjustment, detectSessionLiquiditySweeps, sessionRiskAssessment, sessionPerformanceComparison, readSessionMemory, recordSessionOutcome, summarizeSessionMemory } from './session-trading-intelligence.js';
 import { analyzeGainzAlphaInspired } from './gainz-alpha-intelligence.js';
 import { useGainzAlpha } from './gainz-alpha/useGainzAlpha.js';
@@ -148,6 +148,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const sessionAnalytics = useMemo(() => analyzeSessionCandles(candles, sessionClock), [candles, sessionClock]);
   const sessionForecast = useMemo(() => sessionForecastAdjustment(candles, {symbol, timeframe, now:sessionClock}), [candles, symbol, timeframe, sessionClock]);
   const sessionForecastBands = useMemo(() => predictSessionHighLow(candles.slice(0, -1), { symbol, timeframe, now: sessionClock, chainDex: marketContext?.chainDex || null }), [candles, symbol, timeframe, sessionClock, marketContext?.chainDex]);
+  const observed24hLiquidity = useMemo(() => analyze24hLiquidity(candles.slice(0, -1), { now: sessionClock, timeframe, ticker }), [candles, sessionClock, timeframe, ticker]);
+  const sessionDecisionContext = useMemo(() => ({ ...sessionForecastBands, liquidity24h: observed24hLiquidity }), [sessionForecastBands, observed24hLiquidity]);
   const chainDexTrades = useMemo(() => marketContext?.chainDex?.trades?.length ? marketContext.chainDex.trades : (marketContext?.chainDex?.history?.transactions || []), [marketContext?.chainDex]);
   const sessionSweeps = useMemo(() => detectSessionLiquiditySweeps(candles, {now:sessionClock}), [candles, sessionClock]);
   const sessionRisk = useMemo(() => sessionRiskAssessment(candles, {now:sessionClock, baseRiskPercent:1}), [candles, sessionClock]);
@@ -161,7 +163,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const gainzAlpha = useMemo(() => analyzeGainzAlphaInspired(candles.slice(0, -1), { symbol, timeframe, historicalOutcomes: sessionMemory, now: sessionClock }), [candles, symbol, timeframe, sessionMemory, sessionClock]);
   const [gaOverlaysMounted, setGaOverlaysMounted] = useState(false);
   const ga = useGainzAlpha({ exchange, symbol, timeframe, candles });
-  const ci = useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionForecastBands, clock: sessionClock });
+  const ci = useChartIntelligence({ exchange, symbol, timeframe, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, clock: sessionClock });
   const ciReady = Boolean(ci.settings.enabled && ci.result && ci.result.status === 'ready');
   const [ciOverlaysMounted, setCiOverlaysMounted] = useState(false);
   const [compactChart, setCompactChart] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 600px)').matches : false));
@@ -765,6 +767,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     </div>
     <div className="market-context-panel session-forecast-panel">
       <div className="market-context-heading"><b>24-HOUR SESSION HIGH / LOW FORECAST</b><span>{sessionForecastBands.status === 'ready' ? 'HISTORICAL RANGE MODEL' : 'INSUFFICIENT HISTORY'}</span></div>
+      <div className="market-context-summary"><span>Observed rolling 24h high: {observed24hLiquidity.levels?.high?.price == null ? '—' : fmt(observed24hLiquidity.levels.high.price)}</span><span>Observed rolling 24h low: {observed24hLiquidity.levels?.low?.price == null ? '—' : fmt(observed24hLiquidity.levels.low.price)}</span><span>Range position: {observed24hLiquidity.range?.positionPercent == null ? '—' : observed24hLiquidity.range.positionPercent.toFixed(1) + '%'}</span></div>
       <div className="session-forecast-grid">{(sessionForecastBands.sessions || []).map(session => <div key={session.id} className="session-forecast-card"><b>{session.name}</b><small>{session.phase} · {session.confidence} confidence · {session.historySamples} samples</small><span className="up">Forecast high: {session.forecast.high == null ? '—' : fmt(session.forecast.high)}</span><span className="down">Forecast low: {session.forecast.low == null ? '—' : fmt(session.forecast.low)}</span><small>Observed high / low: {session.observed.high == null ? '—' : fmt(session.observed.high)} / {session.observed.low == null ? '—' : fmt(session.observed.low)}</small></div>)}</div>
       <p>{sessionForecastBands.methodology || sessionForecastBands.reason}</p>
     </div>
