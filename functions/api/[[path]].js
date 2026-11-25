@@ -231,6 +231,73 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
  return out;
 }
 
+function depthNotionalImbalance(bids,asks){
+ const total=rows=>(Array.isArray(rows)?rows.slice(0,20):[]).reduce((sum,row)=>{const price=Number(row?.[0]),size=Number(row?.[1]);return sum+(Number.isFinite(price)&&Number.isFinite(size)?price*size:0);},0);
+ const bid=total(bids),ask=total(asks),all=bid+ask;return all>0?Number(((bid-ask)/all*100).toFixed(3)):null;
+}
+async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
+ const key='jpti:microstructure:v1:'+exchange+':'+symbol+':'+marketType;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<15000)return hit.body;}catch{/* continue to public exchange */}}
+ const out={orderBookImbalancePct:null,fundingRate:null,sources:[],generatedAt};
+ const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),derivative=!['spot','margin','cfd'].includes(String(marketType||'spot').toLowerCase());
+ const get=async url=>{const r=await fetchImpl(url,{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
+ let bookUrl=null,fundingUrl=null;
+ if(exchange==='bitget'&&marketType!=='cfd'){
+  const productType=String(marketType).includes('coin')?'COIN-FUTURES':String(marketType).includes('usdc')?'USDC-FUTURES':'USDT-FUTURES';
+  bookUrl=derivative?'https://api.bitget.com/api/v2/mix/market/merge-depth?productType='+productType+'&symbol='+baseSymbol+'&limit=20':'https://api.bitget.com/api/v2/spot/market/orderbook?symbol='+baseSymbol+'&type=step0&limit=20';
+  if(derivative)fundingUrl='https://api.bitget.com/api/v2/mix/market/current-fund-rate?productType='+productType+'&symbol='+baseSymbol;
+ }else if(exchange==='binance'){
+  bookUrl=(derivative?'https://fapi.binance.com/fapi/v1/depth?symbol=':'https://api.binance.com/api/v3/depth?symbol=')+baseSymbol+'&limit=20';
+  if(derivative)fundingUrl='https://fapi.binance.com/fapi/v1/premiumIndex?symbol='+baseSymbol;
+ }else if(exchange==='bybit'){
+  const category=derivative?(String(marketType).includes('coin')?'inverse':'linear'):'spot';
+  bookUrl='https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+baseSymbol+'&limit=25';
+  if(derivative)fundingUrl='https://api.bybit.com/v5/market/tickers?category='+category+'&symbol='+baseSymbol;
+ }else if(exchange==='okx'){
+  const pair=String(symbol||'').replace('/', '-').replace('-', '-');
+  const inst=derivative?pair+'-SWAP':pair;
+  bookUrl='https://www.okx.com/api/v5/market/books?instId='+encodeURIComponent(inst)+'&sz=20';
+  if(derivative)fundingUrl='https://www.okx.com/api/v5/public/funding-rate?instId='+encodeURIComponent(inst);
+ }
+ if(bookUrl){
+  try{
+   const p=await get(bookUrl),d=exchange==='bybit'?p.result:(exchange==='okx'?p.data?.[0]:p.data||p);
+   const bids=d?.bids||d?.b||[],asks=d?.asks||d?.a||[];
+   out.orderBookImbalancePct=depthNotionalImbalance(bids,asks);
+   out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:out.orderBookImbalancePct==null?'empty':'live',retrievedAt:generatedAt,levels:Math.min(20,bids.length,asks.length)});
+  }catch(error){out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ }else out.sources.push({name:exchange.toUpperCase()+' top-20 order-book depth',status:'unsupported',retrievedAt:generatedAt});
+ if(fundingUrl){
+  try{
+   const p=await get(fundingUrl),d=exchange==='bybit'?p.result?.list?.[0]:(exchange==='okx'?p.data?.[0]:(Array.isArray(p.data)?p.data[0]:p.data||p));
+   const rate=Number(d?.fundingRate??d?.funding_rate??d?.fundingRate);
+   out.fundingRate=Number.isFinite(rate)?rate:null;
+   out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:out.fundingRate==null?'empty':'live',retrievedAt:generatedAt});
+  }catch(error){out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ }else out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'unsupported',retrievedAt:generatedAt});
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:15});}catch{/* optional cache */}}
+ return out;
+}
+async function fetchGlobalMarketContext(fetchImpl=fetch,env={},generatedAt=new Date().toISOString()){
+ const key='jpti:global-market-context:v1';
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<300000)return hit.body;}catch{/* continue */}}
+ const out={globalMarketCapChange24hPct:null,status:'unavailable',sources:[]};
+ try{const r=await fetchImpl('https://api.coingecko.com/api/v3/global',{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);const p=await r.json(),data=p.data||{};const change=Number(data.market_cap_change_percentage_24h_usd);out.globalMarketCapChange24hPct=Number.isFinite(change)?Number(change.toFixed(3)):null;out.totalMarketCapUsd=Number(data.total_market_cap?.usd)||null;out.totalVolume24hUsd=Number(data.total_volume?.usd)||null;out.btcDominancePct=Number(data.market_cap_percentage?.btc)||null;out.activeCryptocurrencies=Number(data.active_cryptocurrencies)||null;out.status=out.globalMarketCapChange24hPct==null?'empty':'live';out.sources.push({name:'CoinGecko global crypto market breadth',status:out.status,retrievedAt:generatedAt});}
+ catch(error){out.status='offline';out.sources.push({name:'CoinGecko global crypto market breadth',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:300});}catch{/* optional cache */}}
+ return out;
+}
+async function fetchMultiTimeframeContext(exchange,symbol,timeframe,marketType,instrumentId,marketProvider,bitgetCfdProvider,env,request,generatedAt){
+ const key='jpti:multi-timeframe:v1:'+exchange+':'+symbol+':'+marketType;
+ if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* continue */}}
+ const frames=timeframe==='1m'||timeframe==='3m'?['15m','1h','4h','1d']:timeframe==='5m'||timeframe==='15m'||timeframe==='30m'?['1h','4h','1d']:timeframe==='1h'||timeframe==='2h'?['4h','1d','1w']:timeframe==='4h'||timeframe==='6h'||timeframe==='8h'?['1d','1w','1h']:['1h','4h','1d'];
+ const selected=[...new Set(frames)].filter(x=>x!==timeframe).slice(0,3),instrumentQuery=instrumentId?'&instrumentId='+encodeURIComponent(instrumentId):'';
+ const rows=await Promise.all(selected.map(async tf=>{try{let result;if(exchange==='bitget'&&marketType==='cfd')result=await bitgetCfdProvider.request(env,{kind:'ohlcv',symbol,timeframe:tf,side:new URL(request.url).searchParams.get('side')||'buy',limit:100});else result=await marketProvider.request('/api/exchanges/'+exchange+'/ohlcv/'+encodeURIComponent(symbol)+'?timeframe='+tf+'&limit=100&type='+encodeURIComponent(marketType)+instrumentQuery,{method:'GET',signal:request.signal});const candles=(result?.body?.candles||[]).filter(x=>Array.isArray(x)&&x.length>=6).map(x=>x.map(Number));const closed=candles.slice(0,-1);if(closed.length<21)return null;const a=closed.at(-1)[4],b=closed.at(-21)[4],change=b?((a-b)/b)*100:0;return{timeframe:tf,bias:change>.15?'bullish':change<-.15?'bearish':'neutral',biasScore:change>.15?1:change<-.15?-1:0,changePct:Number(change.toFixed(4)),last:a,source:'exchange closed-candle OHLCV',status:'fresh'};}catch{return null;}}));
+ const out={timeframes:rows.filter(Boolean),sources:[{name:'Exchange multi-timeframe closed-candle context',status:rows.some(Boolean)?'live':'offline',retrievedAt:generatedAt}]};
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(key,JSON.stringify({cachedAt:generatedAt,body:out}),{expirationTtl:60});}catch{/* optional cache */}}
+ return out;
+}
+
 function buildCandleContext(exchange, symbol, timeframe, candles, generatedAt) {
   const rows = (Array.isArray(candles) ? candles : [])
     .filter((row) => Array.isArray(row) && row.length >= 6 && row.slice(0, 6).every((value) => Number.isFinite(Number(value))))
