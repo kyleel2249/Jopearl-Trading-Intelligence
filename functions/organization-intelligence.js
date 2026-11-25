@@ -46,7 +46,7 @@ function parseRss(xml, limit = 8) {
   const items = [];
   for (const match of String(xml || '').matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)) {
     const block = match[1];
-    const field = name => xmlText(block.match(new RegExp('<' + name + '(?:\\s[^>]*)?>([\\s\S]*?)</' + name + '>', 'i'))?.[1] || '');
+    const field = name => xmlText(block.match(new RegExp('<' + name + '(?:\\s[^>]*)?>([\\s\\S]*?)</' + name + '>', 'i'))?.[1] || '');
     const title = field('title'), link = field('link'), publishedAt = field('pubDate');
     if (title && link) items.push({ title: title.slice(0, 240), url: link.slice(0, 800), publishedAt: publishedAt || null });
     if (items.length >= limit) break;
