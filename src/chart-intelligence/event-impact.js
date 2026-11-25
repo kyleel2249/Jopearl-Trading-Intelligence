@@ -19,6 +19,6 @@ export function predictEventImpact({events=[],now=Date.now(),horizonMinutes=240,
   const baseline=realized.length?realized.reduce((s,x)=>s+Number(x.rangeMultiple),0)/realized.length:null;
   const risk= max>=80?"critical":max>=60?"high":max>=35?"moderate":"low";
   return{status:"ready",generatedAt:new Date(now).toISOString(),horizonMinutes,impactScore:max,risk,active:active.length>0,
-    events:relevant.slice(0,30),expectedVolatility:baseline==null?"un calibrated baseline":baseline*(1+max/100),
+    events:relevant.slice(0,30),expectedVolatility:baseline==null?"uncalibrated baseline":baseline*(1+max/100),
     baselineSamples:realized.length,methodology:"Heuristic event proximity and importance ranking. Not a trained probability model; no bullish/bearish direction is inferred from headlines."};
 }
