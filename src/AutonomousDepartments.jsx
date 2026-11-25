@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, ArrowDownLeft, ArrowUpRight, BrainCircuit, Building2, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, Play, RefreshCw, Search, Send, ShieldCheck, Sparkles, Target, Users } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import './AutonomousDepartments.css';
@@ -18,6 +18,7 @@ export default function AutonomousDepartments() {
   const [reviewBusy, setReviewBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const pulseAttempted = useRef(false);
 
   const load = useCallback(async () => {
     setError('');
@@ -43,8 +44,10 @@ export default function AutonomousDepartments() {
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    if (!data) return;
-    const timer = window.setTimeout(() => { if (!data.reviews?.some(item => item.date === new Date().toISOString().slice(0, 10))) runPulse(); }, 1200);
+    if (!data || pulseAttempted.current) return;
+    pulseAttempted.current = true;
+    if (data.reviews?.some(item => item.date === new Date().toISOString().slice(0, 10))) return;
+    const timer = window.setTimeout(() => runPulse(), 1200);
     return () => window.clearTimeout(timer);
   }, [data, runPulse]);
   useEffect(() => {
