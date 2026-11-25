@@ -11,7 +11,7 @@ export function predictEventImpact({events=[],now=Date.now(),horizonMinutes=240,
       const score=clamp(100*base*(.35+.65*proximity)*(1+.2*surpriseMagnitude));
       return{id:e.id||[e.source||"event",ts,e.title||e.name||"event"].join("|"),title:e.title||e.name||"Unnamed event",category:e.category||"macro",
         importance,scheduledAt:new Date(ts).toISOString(),minutesFromNow:Math.round(delta/60_000),impactScore:Math.round(score),
-        surprise,actual:e.actual??null,forecast:e.forecast??null,source:e.source||"unspecified",sourceUrl:e.url||null,
+        surprise,actual:e.actual??null,forecast:e.forecast??null,source:e.source||"unspecified",sourceUrl:e.url||e.sourceUrl||null,country:e.country||null,currency:e.currency||null,assets:Array.isArray(e.assets)?e.assets:[],reference:e.reference||null,ticker:e.ticker||null,symbol:e.symbol||null,datePrecision:e.datePrecision||"source-reported",
         direction:"neutral",directionReason:surprise==null?"No actual-versus-consensus surprise; direction is intentionally neutral.":"Surprise direction is event-specific and requires an explicit signed mapping."};})
     .filter(e=>e.minutesFromNow<=horizonMinutes&&e.minutesFromNow>=-horizonMinutes).sort((a,b)=>b.impactScore-a.impactScore);
   const max=relevant[0]?.impactScore||0,active=relevant.filter(e=>e.impactScore>=45);
