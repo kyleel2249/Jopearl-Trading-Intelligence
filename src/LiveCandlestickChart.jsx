@@ -80,7 +80,7 @@ function atr(candles, period = 14) {
 
 const fmt = (value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 8 });
 const TX_EXPLORERS = { ethereum:'https://etherscan.io/tx/', eth:'https://etherscan.io/tx/', base:'https://basescan.org/tx/', arbitrum:'https://arbiscan.io/tx/', optimism:'https://optimistic.etherscan.io/tx/', bsc:'https://bscscan.com/tx/', polygon:'https://polygonscan.com/tx/', polygon_pos:'https://polygonscan.com/tx/', avalanche:'https://snowtrace.io/tx/', avax:'https://snowtrace.io/tx/', solana:'https://solscan.io/tx/' };
-const transactionUrl = (trade) => TX_EXPLORERS[String(trade.chainId || '').toLowerCase()] ? TX_EXPLORERS[String(trade.chainId).toLowerCase()] + encodeURIComponent(trade.txHash) : (trade.poolUrl || null);
+const transactionUrl = (trade) => TX_EXPLORERS[String(trade.chainId || '').toLowerCase()] ? TX_EXPLORERS[String(trade.chainId).toLowerCase()] + encodeURIComponent(trade.txHash) : null;
 const timeLabel = (stamp, timeframe) => {
   const date = new Date(stamp);
   return ['1d', '3d', '1w', '1M'].includes(timeframe)
@@ -664,11 +664,20 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />
     <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} instrumentId={marketInstrumentId} candles={candles} />
     <div className="market-context-panel">
+      <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
+      {marketContext ? <>
+        <div className="market-context-summary"><strong className={marketContext.score.score > 0 ? 'up' : marketContext.score.score < 0 ? 'down' : ''}>{marketContext.score.direction.toUpperCase()}</strong><span>Evidence score {marketContext.score.score}</span><span>Confidence: {marketContext.score.confidence}</span><span>20-bar momentum: {marketContext.market.priceChangePct}%</span><span>Relative volume: {marketContext.market.volumeChangePct == null ? '—' : marketContext.market.volumeChangePct + '%'}</span><span>Global crypto market 24h: {marketContext.broadContext.globalMarketCapChange24hPct == null ? '—' : marketContext.broadContext.globalMarketCapChange24hPct.toFixed(2) + '%'}</span><span>Order-book imbalance: {marketContext.market.orderBookImbalancePct == null ? 'Not supported' : marketContext.market.orderBookImbalancePct + '%'}</span><span>Funding: {marketContext.market.fundingRate == null ? 'Not supported' : (marketContext.market.fundingRate * 100).toFixed(4) + '%'}</span></div>
+        <div className="market-context-evidence">Timeframes: {marketContext.multiTimeframe.map((item) => item.timeframe + ' ' + item.bias + (item.changePct == null ? '' : ' (' + item.changePct + '%)')).join(' · ')}</div>
+        <div className="market-context-evidence">{marketContext.score.evidence.map((item) => <span key={item.factor}>{item.factor}: <b>{item.contribution > 0 ? '+' : ''}{item.contribution}</b></span>)}</div>
+        <div className="market-context-sources">{marketContext.sources.map((item) => <span key={item.name}><i className={item.status === 'live' ? 'source-live' : 'source-down'}/>{item.name}: {item.status}</span>)}</div>
+        <p>{marketContext.limitations[0]} {marketContext.limitations[1]}</p>
+      </> : <p>{contextError || 'Calculating exchange and global market context…'}</p>}
+    </div>
+    <div className="market-context-panel institutional-decision-panel">
       <div className="market-context-heading"><b>INSTITUTIONAL DECISION INPUT</b><span>{ci.result?.institutional?.status === 'ready' ? 'FED INTO CHART CONFLUENCE' : ci.result?.institutional?.status === 'stale' ? 'STALE · EXCLUDED' : 'AWAITING VERIFIED INPUT'}</span></div>
       <div className="market-context-summary">
         <strong className={ci.result?.institutional?.score > 0 ? 'up' : ci.result?.institutional?.score < 0 ? 'down' : ''}>{ci.result?.institutional?.status === 'ready' ? (ci.result.institutional.score > 0 ? 'BULLISH' : ci.result.institutional.score < 0 ? 'BEARISH' : 'NEUTRAL') : 'UNAVAILABLE'}</strong>
-        <span>Institutional score {ci.result?.institutional?.score ?? '—'}</span>
-        <span>Evidence confidence {ci.result?.institutional?.confidence ?? '—'}</span>
+        <span>Institutional score {ci.result?.institutional?.score ?? '—'}</span><span>Confidence {ci.result?.institutional?.confidence ?? '—'}</span>
         <span>Source coverage {ci.result?.institutional?.sourceCoverage == null ? '—' : (ci.result.institutional.sourceCoverage * 100).toFixed(0) + '%'}</span>
         <span>Chart confluence {ci.result?.confluence?.score ?? '—'}</span>
         <span>Institutional contribution {ci.result?.confluence?.components?.find(x => x.key === 'institutional')?.contribution ?? '0'}</span>
@@ -684,17 +693,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>ECB USD per EUR: <b>{marketContext?.institutionalSources?.ecb?.latest?.value ?? '—'}</b></span>
       </div>
       <div className="market-context-evidence">{(marketContext?.institutionalSources?.news || []).slice(0,4).map((item,i)=><a key={i} href={item.url} target="_blank" rel="noreferrer">{item.title}</a>)}</div>
-      {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced; review the evidence before acting.</p>}
-    </div>
-    <div className="market-context-panel">
-      <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
-      {marketContext ? <>
-        <div className="market-context-summary"><strong className={marketContext.score.score > 0 ? 'up' : marketContext.score.score < 0 ? 'down' : ''}>{marketContext.score.direction.toUpperCase()}</strong><span>Evidence score {marketContext.score.score}</span><span>Confidence: {marketContext.score.confidence}</span><span>20-bar momentum: {marketContext.market.priceChangePct}%</span><span>Relative volume: {marketContext.market.volumeChangePct == null ? '—' : marketContext.market.volumeChangePct + '%'}</span><span>Global crypto market 24h: {marketContext.broadContext.globalMarketCapChange24hPct == null ? '—' : marketContext.broadContext.globalMarketCapChange24hPct.toFixed(2) + '%'}</span><span>Order-book imbalance: {marketContext.market.orderBookImbalancePct == null ? 'Not supported' : marketContext.market.orderBookImbalancePct + '%'}</span><span>Funding: {marketContext.market.fundingRate == null ? 'Not supported' : (marketContext.market.fundingRate * 100).toFixed(4) + '%'}</span></div>
-        <div className="market-context-evidence">Timeframes: {marketContext.multiTimeframe.map((item) => item.timeframe + ' ' + item.bias + (item.changePct == null ? '' : ' (' + item.changePct + '%)')).join(' · ')}</div>
-        <div className="market-context-evidence">{marketContext.score.evidence.map((item) => <span key={item.factor}>{item.factor}: <b>{item.contribution > 0 ? '+' : ''}{item.contribution}</b></span>)}</div>
-        <div className="market-context-sources">{marketContext.sources.map((item) => <span key={item.name}><i className={item.status === 'live' ? 'source-live' : 'source-down'}/>{item.name}: {item.status}</span>)}</div>
-        <p>{marketContext.limitations[0]} {marketContext.limitations[1]}</p>
-      </> : <p>{contextError || 'Calculating exchange and global market context…'}</p>}
+      {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced.</p>}
     </div>
     <div className="market-context-panel chain-dex-panel">
       <div className="market-context-heading"><b>BLOCKCHAIN & DEX TRANSACTION INTELLIGENCE</b><span>{marketContext?.chainDex?.status === 'ready' ? 'LIVE MULTI-CHAIN EVIDENCE' : 'AWAITING DEX DATA'}</span></div>
@@ -702,75 +701,15 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <div className="market-context-summary">
           <strong className={ci.result?.chainDex?.score > 0 ? 'up' : ci.result?.chainDex?.score < 0 ? 'down' : ''}>{ci.result?.chainDex?.status === 'ready' ? (ci.result.chainDex.score > 0 ? 'BUY PRESSURE' : ci.result.chainDex.score < 0 ? 'SELL PRESSURE' : 'BALANCED') : 'UNAVAILABLE'}</strong>
           <span>DEX evidence {ci.result?.chainDex?.score ?? '—'}</span><span>Confidence {ci.result?.chainDex?.confidence ?? '—'}</span>
-          <span>Net swap flow {marketContext.chainDex.flow?.netUsd == null ? '—' : '
-      <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
-      <div><small>Liquidity sweeps</small><strong>{smartMoney.liquiditySweeps.length}</strong></div>
-      <div><small>BOS / CHoCH</small><strong>{smartMoney.structureBreaks.length}</strong></div>
-      <div><small>Order blocks</small><strong>{smartMoney.orderBlocks.length}</strong></div>
-      <div className="smc-last-event"><small>Latest structure</small><strong>{smartMoney.structureBreaks.length ? smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].kind + ' · ' + smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].direction : 'Waiting for confirmation'}</strong></div>
-    </div>
-    <div className="smc-method-note">SMC analysis uses closed candles and confirmed swing points. Zones are rule-based technical estimates, not verified institutional orders or trade recommendations.</div>
-    <div className="chart-footer">
-      <span>{candles.length} candles · {timeframe} · Auto-refresh 20s · SMC uses closed candles · BOS/CHoCH {smartMoney.structureBreaks.length} · FVG {smartMoney.fairValueGaps.length}</span>
-      <button type="button" onClick={tools.clearAll}>Clear drawings</button>
-      <span>EMA 20 <i className="ema20-key"/> EMA 50 <i className="ema50-key"/> Bullish <i className="bull-key"/> Bearish <i className="bear-key"/></span>
-    </div>
-  </section>;
-}
- + Number(marketContext.chainDex.flow.netUsd).toLocaleString()}</span>
+          <span>Net swap flow {marketContext.chainDex.flow?.netUsd == null ? '—' : 'USD ' + Number(marketContext.chainDex.flow.netUsd).toLocaleString()}</span>
           <span>Pools {marketContext.chainDex.coverage?.pools ?? marketContext.chainDex.pools?.length ?? 0}</span>
           <span>Chains {marketContext.chainDex.coverage?.chains ?? '—'}</span>
           <span>Saved swaps {marketContext.chainDex.persistence?.count ?? 0}</span>
         </div>
         <div className="market-context-sources">{(marketContext.chainDex.sources || []).map(source => <span key={source.name}><i className={source.status === 'live' ? 'source-live' : 'source-down'}/>{source.name}: {source.status}</span>)}</div>
-        <div className="chain-dex-pools">{(marketContext.chainDex.pools || []).slice(0, 4).map(pool => <div key={pool.chainId + '|' + pool.pairAddress}><b>{pool.baseToken?.symbol}/{pool.quoteToken?.symbol}</b><span>{pool.chainId} · {pool.dexId}</span><span>Liquidity {'
-      <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
-      <div><small>Liquidity sweeps</small><strong>{smartMoney.liquiditySweeps.length}</strong></div>
-      <div><small>BOS / CHoCH</small><strong>{smartMoney.structureBreaks.length}</strong></div>
-      <div><small>Order blocks</small><strong>{smartMoney.orderBlocks.length}</strong></div>
-      <div className="smc-last-event"><small>Latest structure</small><strong>{smartMoney.structureBreaks.length ? smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].kind + ' · ' + smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].direction : 'Waiting for confirmation'}</strong></div>
-    </div>
-    <div className="smc-method-note">SMC analysis uses closed candles and confirmed swing points. Zones are rule-based technical estimates, not verified institutional orders or trade recommendations.</div>
-    <div className="chart-footer">
-      <span>{candles.length} candles · {timeframe} · Auto-refresh 20s · SMC uses closed candles · BOS/CHoCH {smartMoney.structureBreaks.length} · FVG {smartMoney.fairValueGaps.length}</span>
-      <button type="button" onClick={tools.clearAll}>Clear drawings</button>
-      <span>EMA 20 <i className="ema20-key"/> EMA 50 <i className="ema50-key"/> Bullish <i className="bull-key"/> Bearish <i className="bear-key"/></span>
-    </div>
-  </section>;
-}
- + Number(pool.liquidityUsd || 0).toLocaleString()}</span><span>24h volume {'
-      <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
-      <div><small>Liquidity sweeps</small><strong>{smartMoney.liquiditySweeps.length}</strong></div>
-      <div><small>BOS / CHoCH</small><strong>{smartMoney.structureBreaks.length}</strong></div>
-      <div><small>Order blocks</small><strong>{smartMoney.orderBlocks.length}</strong></div>
-      <div className="smc-last-event"><small>Latest structure</small><strong>{smartMoney.structureBreaks.length ? smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].kind + ' · ' + smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].direction : 'Waiting for confirmation'}</strong></div>
-    </div>
-    <div className="smc-method-note">SMC analysis uses closed candles and confirmed swing points. Zones are rule-based technical estimates, not verified institutional orders or trade recommendations.</div>
-    <div className="chart-footer">
-      <span>{candles.length} candles · {timeframe} · Auto-refresh 20s · SMC uses closed candles · BOS/CHoCH {smartMoney.structureBreaks.length} · FVG {smartMoney.fairValueGaps.length}</span>
-      <button type="button" onClick={tools.clearAll}>Clear drawings</button>
-      <span>EMA 20 <i className="ema20-key"/> EMA 50 <i className="ema50-key"/> Bullish <i className="bull-key"/> Bearish <i className="bear-key"/></span>
-    </div>
-  </section>;
-}
- + Number(pool.volume24hUsd || 0).toLocaleString()}</span>{pool.pairUrl && <a href={pool.pairUrl} target="_blank" rel="noreferrer">Pool details</a>}</div>)}</div>
+        <div className="chain-dex-pools">{(marketContext.chainDex.pools || []).slice(0, 4).map(pool => <div key={pool.chainId + '|' + pool.pairAddress}><b>{pool.baseToken?.symbol}/{pool.quoteToken?.symbol}</b><span>{pool.chainId} · {pool.dexId}</span><span>Liquidity USD {Number(pool.liquidityUsd || 0).toLocaleString()}</span><span>24h volume USD {Number(pool.volume24hUsd || 0).toLocaleString()}</span>{pool.pairUrl && <a href={pool.pairUrl} target="_blank" rel="noreferrer">Pool details</a>}</div>)}</div>
         <div className="chain-dex-transactions"><b>Recent confirmed swaps / persisted history ({chainDexTrades.length})</b>
-          {chainDexTrades.slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · {'
-      <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
-      <div><small>Liquidity sweeps</small><strong>{smartMoney.liquiditySweeps.length}</strong></div>
-      <div><small>BOS / CHoCH</small><strong>{smartMoney.structureBreaks.length}</strong></div>
-      <div><small>Order blocks</small><strong>{smartMoney.orderBlocks.length}</strong></div>
-      <div className="smc-last-event"><small>Latest structure</small><strong>{smartMoney.structureBreaks.length ? smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].kind + ' · ' + smartMoney.structureBreaks[smartMoney.structureBreaks.length - 1].direction : 'Waiting for confirmation'}</strong></div>
-    </div>
-    <div className="smc-method-note">SMC analysis uses closed candles and confirmed swing points. Zones are rule-based technical estimates, not verified institutional orders or trade recommendations.</div>
-    <div className="chart-footer">
-      <span>{candles.length} candles · {timeframe} · Auto-refresh 20s · SMC uses closed candles · BOS/CHoCH {smartMoney.structureBreaks.length} · FVG {smartMoney.fairValueGaps.length}</span>
-      <button type="button" onClick={tools.clearAll}>Clear drawings</button>
-      <span>EMA 20 <i className="ema20-key"/> EMA 50 <i className="ema50-key"/> Bullish <i className="bull-key"/> Bearish <i className="bear-key"/></span>
-    </div>
-  </section>;
-}
- + Number(trade.amountUsd || 0).toLocaleString()}</span><span>{trade.trader ? trade.trader.slice(0, 6) + '…' + trade.trader.slice(-4) : 'Wallet unavailable'}</span><time>{new Date(trade.timestamp).toLocaleTimeString()}</time>{transactionUrl(trade) && <a href={transactionUrl(trade)} target="_blank" rel="noreferrer">Tx</a>}</div>)}
+          {chainDexTrades.slice(0, 12).map(trade => <div key={trade.id} className="chain-dex-transaction"><span className={trade.side === 'buy' ? 'up' : 'down'}>{trade.side.toUpperCase()}</span><span>{trade.chainId} · USD {Number(trade.amountUsd || 0).toLocaleString()}</span><span>{trade.trader ? trade.trader.slice(0, 6) + '…' + trade.trader.slice(-4) : 'Wallet unavailable'}</span><time>{new Date(trade.timestamp).toLocaleTimeString()}</time>{transactionUrl(trade) && <a href={transactionUrl(trade)} target="_blank" rel="noreferrer">Tx</a>}</div>)}
         </div>
         {(marketContext.chainDex.limitations || []).map((note,i)=><p key={i}>{note}</p>)}
       </> : <p>{contextError || 'Searching supported DEX pools and confirmed on-chain swaps…'}</p>}
