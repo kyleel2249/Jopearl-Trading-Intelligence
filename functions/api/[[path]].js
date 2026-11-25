@@ -707,6 +707,14 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       return handleMentorRoute(request, env, fetchImpl);
     }
 
+    const dexHistoryMatch=url.pathname.match(/^\\/api\\/chain-dex\\/transactions\\/([^/]+)$/i);
+    if(dexHistoryMatch){
+      if(request.method!=='GET')return json(405,{error:'DEX transaction history supports GET only.'},request,{allow:'GET, OPTIONS'});
+      let requestedSymbol;try{requestedSymbol=decodeURIComponent(dexHistoryMatch[1]).replace('-', '/');}catch{return json(400,{error:'Invalid DEX history symbol.'},request);}
+      const history=await readDexTransactions(env,requestedSymbol,url.searchParams.get('limit')||60);
+      return json(history.storage==='unavailable'?503:200,{symbol:requestedSymbol,...history,source:'jpti-cloudflare-d1'},request);
+    }
+
     if (!['GET', 'HEAD'].includes(request.method)) {
       return json(405, { error: 'This Cloudflare edge API currently accepts read-only requests.' }, request, { allow: 'GET, HEAD, OPTIONS' });
     }
@@ -1035,6 +1043,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           '/api/alpha/gainz/outcomes',
           '/api/alpha/gainz/calibration',
           '/api/alerts',
+          '/api/chain-dex/transactions/:symbol',
           '/api/mentor/analyze'
         ],
         note: 'Public chart data, private reflective journal, session outcome memory and GainzAlpha outcome persistence run on Cloudflare Pages Functions and D1. Private account access and order execution remain disabled.'
