@@ -69,6 +69,12 @@ test('private journal token stays in session storage and is sent only to private
     assert.equal(requests[2].options.headers.get('x-jpti-api-token'), 'secret-token');
     await apiFetch('/api/alpha/gainz/outcomes');
     assert.equal(requests[3].options.headers.get('x-jpti-api-token'), 'secret-token');
+    await apiFetch('/api/org/overview');
+    assert.equal(requests[4].options.headers.get('x-jpti-api-token'), 'secret-token');
+    await apiFetch('/api/agents/history?limit=12');
+    assert.equal(requests[5].options.headers.get('x-jpti-api-token'), 'secret-token');
+    await apiFetch('/api/agents/evaluate', { method: 'POST', body: '{}' });
+    assert.equal(requests[6].options.headers.get('x-jpti-api-token'), 'secret-token');
     assert.equal(getApiSource().mode, 'cloudflare-edge');
   } finally { globalThis.window = previousWindow; globalThis.fetch = previousFetch; }
 });
