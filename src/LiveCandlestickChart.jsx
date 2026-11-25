@@ -706,6 +706,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           <span>Chains {marketContext.chainDex.coverage?.chains ?? '—'}</span>
           <span>Saved swaps {marketContext.chainDex.persistence?.count ?? 0}</span>
         </div>
+        <div className="market-context-evidence">Token contract identity: <b>{ci.result?.chainDex?.identityVerified ? 'verified' : 'symbol match only · unverified'}</b>. Unverified pool matches have capped confidence.</div>
         <div className="market-context-sources">{(marketContext.chainDex.sources || []).map(source => <span key={source.name}><i className={source.status === 'live' ? 'source-live' : 'source-down'}/>{source.name}: {source.status}</span>)}</div>
         <div className="chain-dex-pools">{(marketContext.chainDex.pools || []).slice(0, 4).map(pool => <div key={pool.chainId + '|' + pool.pairAddress}><b>{pool.baseToken?.symbol}/{pool.quoteToken?.symbol}</b><span>{pool.chainId} · {pool.dexId}</span><span>Liquidity USD {Number(pool.liquidityUsd || 0).toLocaleString()}</span><span>24h volume USD {Number(pool.volume24hUsd || 0).toLocaleString()}</span>{pool.pairUrl && <a href={pool.pairUrl} target="_blank" rel="noreferrer">Pool details</a>}</div>)}</div>
         <div className="chain-dex-transactions"><b>Recent confirmed swaps / persisted history ({chainDexTrades.length})</b>
