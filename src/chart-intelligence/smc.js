@@ -32,18 +32,24 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     let ob = -1;
     for (let i = e.index - 1; i >= from; i--) { if (bull ? rows[i][4] < rows[i][1] : rows[i][4] > rows[i][1]) { ob = i; break; } }
     if (ob < 0) continue;
-    blocks.push({ index: ob, direction: e.direction, top: rows[ob][2], bottom: rows[ob][3], formedAt: e.index, kind: e.kind });
+    const impulse = rows[e.index], impulseAtr = (atrS[e.index] || atr), impulseBodyAtr = Math.abs(impulse[4] - impulse[1]) / impulseAtr, impulseVolume = relativeVolume(rows.slice(0, e.index + 1));
+    blocks.push({ index: ob, direction: e.direction, top: rows[ob][2], bottom: rows[ob][3], formedAt: e.index, kind: e.kind, impulseBodyAtr, impulseVolume });
   }
   for (const b of blocks) {
-    let status = 'active', touchedAt = null, brokeAt = null;
+    let status = 'active', touchedAt = null, brokeAt = null, mitigationTouches = 0, deepestMitigation = 0;
     for (let j = b.formedAt + 1; j <= last; j++) {
       const c = rows[j];
-      if (b.direction === 'bullish') { if (c[4] < b.bottom) { status = 'breaker'; brokeAt = j; break; } if (c[3] <= b.top && touchedAt == null) { touchedAt = j; status = 'mitigated'; } }
-      else { if (c[4] > b.top) { status = 'breaker'; brokeAt = j; break; } if (c[2] >= b.bottom && touchedAt == null) { touchedAt = j; status = 'mitigated'; } }
+      const touched = b.direction === 'bullish' ? c[3] <= b.top && c[2] >= b.bottom : c[2] >= b.bottom && c[3] <= b.top;
+      if (touched) { mitigationTouches++; const depth = b.direction === 'bullish' ? clamp((b.top - c[3]) / Math.max(1e-12, b.top - b.bottom), 0, 1) : clamp((c[2] - b.bottom) / Math.max(1e-12, b.top - b.bottom), 0, 1); deepestMitigation = Math.max(deepestMitigation, depth); if (touchedAt == null) touchedAt = j; }
+      if (b.direction === 'bullish') { if (c[4] < b.bottom) { status = 'breaker'; brokeAt = j; break; } if (touchedAt != null) status = 'mitigated'; }
+      else { if (c[4] > b.top) { status = 'breaker'; brokeAt = j; break; } if (touchedAt != null) status = 'mitigated'; }
     }
     const dir = status === 'breaker' ? (b.direction === 'bullish' ? 'bearish' : 'bullish') : b.direction;
     const kind = status === 'breaker' ? 'BREAKER' : status === 'mitigated' ? 'MITIGATION_BLOCK' : 'ORDER_BLOCK';
-    add({ id: [kind, rows[b.index][0], b.direction].join('|'), layer: 'orderBlocks', kind, direction: dir, ts: rows[b.index][0], endTs: brokeAt != null ? rows[brokeAt][0] : null, top: r8(b.top), bottom: r8(b.bottom), price: r8((b.top + b.bottom) / 2), label: kind === 'BREAKER' ? 'Breaker' : kind === 'MITIGATION_BLOCK' ? 'Mitigation' : 'OB', status, strength: status === 'active' ? 0.75 : status === 'mitigated' ? 0.5 : 0.6, source: src('last-opposite-candle-before-structure-break', { origin: b.kind, formedAt: rows[b.formedAt][0] }) });
+    const impulseQuality = clamp((b.impulseBodyAtr / 2) * 0.55 + (b.impulseVolume == null ? 0.1 : clamp((b.impulseVolume - 0.8) / 2, 0, 1) * 0.3) + (b.kind === 'CHoCH' ? 0.15 : 0.1), 0, 1);
+    const mitigationPenalty = Math.min(0.35, mitigationTouches * 0.08 + deepestMitigation * 0.12);
+    const blockQuality = clamp(impulseQuality - mitigationPenalty + (status === 'active' ? 0.12 : 0), 0.15, 1);
+    add({ id: [kind, rows[b.index][0], b.direction].join('|'), layer: 'orderBlocks', kind, direction: dir, ts: rows[b.index][0], endTs: brokeAt != null ? rows[brokeAt][0] : null, top: r8(b.top), bottom: r8(b.bottom), price: r8((b.top + b.bottom) / 2), label: kind === 'BREAKER' ? 'Breaker' : kind === 'MITIGATION_BLOCK' ? 'Mitigation' : 'OB', status, strength: r8(blockQuality), quality: r8(blockQuality), mitigationTouches, deepestMitigation: r8(deepestMitigation), impulseBodyAtr: r8(b.impulseBodyAtr), relativeVolume: r8(b.impulseVolume), source: src('last-opposite-candle-before-structure-break-quality-scored', { origin: b.kind, formedAt: rows[b.formedAt][0], impulseBodyAtr: r8(b.impulseBodyAtr), relativeVolume: r8(b.impulseVolume), mitigationTouches, deepestMitigation: r8(deepestMitigation) }) });
   }
 
   // --- FVG / IFVG ---------------------------------------------------------------------------------------
