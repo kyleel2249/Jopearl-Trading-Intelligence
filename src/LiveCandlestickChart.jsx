@@ -674,6 +674,16 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>Institutional contribution {ci.result?.confluence?.components?.find(x => x.key === 'institutional')?.contribution ?? '0'}</span>
       </div>
       <div className="market-context-evidence">{(ci.result?.institutional?.evidence || []).map(item => <span key={item.factor}>{item.factor}: <b>{item.contribution > 0 ? '+' : ''}{item.contribution}</b></span>)}</div>
+      <div className="market-context-evidence">
+        <span>CFTC leveraged-money net: <b>{marketContext?.institutionalSources?.cftc?.netPosition == null ? '—' : Number(marketContext.institutionalSources.cftc.netPosition).toLocaleString()}</b></span>
+        <span>COT report date: <b>{marketContext?.institutionalSources?.cftc?.reportDate || '—'}</b></span>
+        <span>10Y Treasury: <b>{marketContext?.institutionalSources?.macro?.fred?.DGS10?.latest?.value ?? '—'}%</b></span>
+        <span>Fed funds: <b>{marketContext?.institutionalSources?.macro?.fred?.DFF?.latest?.value ?? '—'}%</b></span>
+        <span>Commercial-bank deposits: <b>{marketContext?.institutionalSources?.macro?.fred?.DPSACBW027SBOG?.latest?.value == null ? '—' : Number(marketContext.institutionalSources.macro.fred.DPSACBW027SBOG.latest.value).toLocaleString()}</b></span>
+        <span>Retail Fear & Greed: <b>{marketContext?.institutionalSources?.retailSentiment?.value ?? '—'} {marketContext?.institutionalSources?.retailSentiment?.classification || ''}</b></span>
+        <span>ECB USD per EUR: <b>{marketContext?.institutionalSources?.ecb?.latest?.value ?? '—'}</b></span>
+      </div>
+      <div className="market-context-evidence">{(marketContext?.institutionalSources?.news || []).slice(0,4).map((item,i)=><a key={i} href={item.url} target="_blank" rel="noreferrer">{item.title}</a>)}</div>
       {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced; review the evidence before acting.</p>}
     </div>
     <div className="market-context-panel">
