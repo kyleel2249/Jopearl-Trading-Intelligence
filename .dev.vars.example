@@ -25,6 +25,10 @@ BIS_LBS_DATA_URL=
 # Optional Bitquery multi-chain wallet-label enrichment. Provider labels are not cryptographic proof.
 BITQUERY_ACCESS_TOKEN=
 
+# Optional global economic calendar (Trading Economics) and company earnings/IPO calendar (Finnhub).
+TRADING_ECONOMICS_API_KEY=
+FINNHUB_API_KEY=
+
 # Optional verified wallet registry JSON. Keep this server-side; use evidence-backed records only.
 # Example shape: [{"chain":"ethereum","address":"0x...","claims":[{"type":"official-entity-registry","verified":true,"registryRecordId":"record-id","entityName":"Entity","entityType":"exchange","source":"Official registry","sourceUrl":"https://..."}]}]
 JPTI_VERIFIED_WALLET_REGISTRY=[]
