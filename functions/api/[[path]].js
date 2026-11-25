@@ -189,8 +189,9 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   out.macro.fred=Object.fromEntries(observations);
   const dgs=out.macro.fred.DGS10,dollar=out.macro.fred.DTWEXBGS;
   const risk=[];
-  if(dgs?.latest&&dgs?.previous)risk.push(Math.max(-1,Math.min(1,-(dgs.latest.value-dgs.previous.value)/.15)));
-  if(dollar?.latest&&dollar?.previous&&dollar.previous.value!==0)risk.push(Math.max(-1,Math.min(1,-((dollar.latest.value-dollar.previous.value)/dollar.previous.value*100)/.15)));
+  const freshObservation=x=>x?.latest?.date&&Date.parse(generatedAt)-Date.parse(x.latest.date)<=14*86400000;
+  if(freshObservation(dgs)&&dgs?.previous)risk.push(Math.max(-1,Math.min(1,-(dgs.latest.value-dgs.previous.value)/.15)));
+  if(freshObservation(dollar)&&dollar?.previous&&dollar.previous.value!==0)risk.push(Math.max(-1,Math.min(1,-((dollar.latest.value-dollar.previous.value)/dollar.previous.value*100)/.15)));
   out.macro.riskBias=risk.length?Number((risk.reduce((a,b)=>a+b,0)/risk.length).toFixed(3)):null;
   out.macro.status=risk.length?'live':'partial';
   source('Federal Reserve FRED observations',observations.some(x=>x[1].status==='live')?'live':'offline','https://fred.stlouisfed.org/docs/api/fred/series_observations.html',{series:fredSeries});
@@ -209,7 +210,8 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const lines=(await r.text()).trim().split(/\r?\n/),headers=(lines[0]||'').split(','),ti=headers.indexOf('TIME_PERIOD'),vi=headers.indexOf('OBS_VALUE');
   const vals=lines.slice(1).map(line=>line.split(',')).map(row=>({date:row[ti],value:Number(row[vi])})).filter(x=>x.date&&Number.isFinite(x.value)).sort((a,b)=>a.date.localeCompare(b.date));
   out.ecb={status:vals.length?'live':'empty',series:'EUR/USD reference (USD per EUR)',latest:vals.at(-1)||null,previous:vals.at(-2)||null};
-  if(vals.length>1&&vals.at(-2).value)out.macro.ecbUsdPerEurChangePct=(vals.at(-1).value/vals.at(-2).value-1)*100;
+  const ecbFresh=vals.length&&Date.parse(generatedAt)-Date.parse(vals.at(-1).date)<=14*86400000;
+  if(ecbFresh&&vals.length>1&&vals.at(-2).value)out.macro.ecbUsdPerEurChangePct=(vals.at(-1).value/vals.at(-2).value-1)*100;
   if(out.macro.riskBias==null&&Number.isFinite(out.macro.ecbUsdPerEurChangePct))out.macro.riskBias=Math.max(-1,Math.min(1,out.macro.ecbUsdPerEurChangePct/.15));
   if(out.macro.status!=='live'&&Number.isFinite(out.macro.riskBias))out.macro.status='live';
   source('European Central Bank daily reference exchange rates','live','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
@@ -219,7 +221,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const p=await safeJson('https://api.alternative.me/fng/?limit=2&format=json');
   const rows=Array.isArray(p.data)?p.data:[];
   const latest=rows[0],previous=rows[1],value=Number(latest?.value);
-  if(Number.isFinite(value)){out.retailSentiment={status:'live',value,classification:latest.value_classification||null,timestamp:latest.timestamp||null,previousValue:previous?Number(previous.value):null,riskBias:Math.max(-1,Math.min(1,(value-50)/50))};source('Alternative.me Crypto Fear & Greed retail sentiment','live','https://api.alternative.me/fng/');}
+  if(Number.isFinite(value)){const ageMs=latest.timestamp?Math.max(0,Date.parse(generatedAt)-Number(latest.timestamp)*1000):null;const status=ageMs!==null&&ageMs<=48*3600000?'live':'stale';out.retailSentiment={status,value,classification:latest.value_classification||null,timestamp:latest.timestamp||null,ageMs,previousValue:previous?Number(previous.value):null,riskBias:status==='live'?Math.max(-1,Math.min(1,(value-50)/50)):null};source('Alternative.me Crypto Fear & Greed retail sentiment',status,'https://api.alternative.me/fng/');}
   else{out.retailSentiment={status:'empty'};source('Alternative.me Crypto Fear & Greed retail sentiment','empty','https://api.alternative.me/fng/');}
  }catch(error){out.retailSentiment={status:'offline',error:String(error?.message||error).slice(0,140)};source('Alternative.me Crypto Fear & Greed retail sentiment','offline','https://api.alternative.me/fng/',{error:out.retailSentiment.error});}
  // Official Federal Reserve press releases are contextual event evidence only; headlines never receive an automatic directional score.
