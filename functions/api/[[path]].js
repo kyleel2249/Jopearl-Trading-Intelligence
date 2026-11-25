@@ -175,7 +175,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly leveraged-money positioning','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
  }else{out.cftc.status='unsupported';source('CFTC weekly leveraged-money positioning','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
  // FRED: Treasury yields, broad dollar and policy rate. A user-provided key remains server-side only.
- const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL'];
+ const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR'];
  if(env.FRED_API_KEY){
   const observations=await Promise.all(fredSeries.map(async id=>{try{const u='https://api.stlouisfed.org/fred/series/observations?series_id='+id+'&api_key='+encodeURIComponent(env.FRED_API_KEY)+'&file_type=json&sort_order=desc&limit=5';const p=await safeJson(u);const rows=(p.observations||[]).filter(x=>x.value!=='.'&&Number.isFinite(Number(x.value)));return[id,{status:'live',latest:rows[0]?{date:rows[0].date,value:Number(rows[0].value)}:null,previous:rows[1]?{date:rows[1].date,value:Number(rows[1].value)}:null}];}catch(error){return[id,{status:'offline',error:String(error?.message||error).slice(0,140)}];}}));
   out.macro.fred=Object.fromEntries(observations);
@@ -206,6 +206,14 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   if(out.macro.status!=='live'&&Number.isFinite(out.macro.riskBias))out.macro.status='live';
   source('European Central Bank daily reference exchange rates','live','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{observationDate:out.ecb.latest?.date||null});
  }catch(error){out.ecb.status='offline';source('European Central Bank daily reference exchange rates','offline','https://data.ecb.europa.eu/help/getting-data-web-services-sdmx-0',{error:String(error?.message||error).slice(0,140)});}
+ // Public retail crowd sentiment: a broad index, not a measured long/short account ratio.
+ try{
+  const p=await safeJson('https://api.alternative.me/fng/?limit=2&format=json');
+  const rows=Array.isArray(p.data)?p.data:[];
+  const latest=rows[0],previous=rows[1],value=Number(latest?.value);
+  if(Number.isFinite(value)){out.retailSentiment={status:'live',value,classification:latest.value_classification||null,timestamp:latest.timestamp||null,previousValue:previous?Number(previous.value):null,riskBias:Math.max(-1,Math.min(1,(value-50)/50))};source('Alternative.me Crypto Fear & Greed retail sentiment','live','https://api.alternative.me/fng/');}
+  else{out.retailSentiment={status:'empty'};source('Alternative.me Crypto Fear & Greed retail sentiment','empty','https://api.alternative.me/fng/');}
+ }catch(error){out.retailSentiment={status:'offline',error:String(error?.message||error).slice(0,140)};source('Alternative.me Crypto Fear & Greed retail sentiment','offline','https://api.alternative.me/fng/',{error:out.retailSentiment.error});}
  // Official Federal Reserve press releases are contextual event evidence only; headlines never receive an automatic directional score.
  try{
   const url='https://www.federalreserve.gov/feeds/press_all.xml',r=await fetchImpl(url,{headers:{accept:'application/rss+xml, application/xml, text/xml'}});if(!r.ok)throw new Error('HTTP '+r.status);
