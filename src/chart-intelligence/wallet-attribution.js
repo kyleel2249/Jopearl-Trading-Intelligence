@@ -14,7 +14,7 @@ export function assessWalletAttribution({chain,address,claims=[]}={}){
   const exchange=evidence.some(x=>x.type==="exchange-published-proof"&&x.entityType==="exchange");
   const independent=new Set(evidence.map(x=>String(x.source).toLowerCase())).size;
   const verified=!!(signed||registry||exchange)&&independent>=1;
-  const confidence=verified?Math.min(.99,.82+Math.min(.15,Math.max(0,independent-1)*.07)+(signed?.02:0)):Math.min(.45,evidence.length*.12);
+  const confidence=verified?Math.min(.99,.82+Math.min(.15,Math.max(0,independent-1)*.07)+(signed ? 0.02 : 0)):Math.min(.45,evidence.length*.12);
   const entity=verified?(evidence.find(x=>x.entityName)?.entityName||null):null;
   return{status:verified?"verified":evidence.length?"unconfirmed-evidence":"unattributed",verified,confidence:Number(confidence.toFixed(3)),chain:c,address:a,entity,
     entityType:verified?(evidence.find(x=>x.entityType)?.entityType||"unknown"):null,
