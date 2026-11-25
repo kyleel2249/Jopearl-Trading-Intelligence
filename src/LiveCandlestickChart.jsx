@@ -713,7 +713,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
           <span>Net swap flow {marketContext.chainDex.flow?.netUsd == null ? '—' : 'USD ' + Number(marketContext.chainDex.flow.netUsd).toLocaleString()}</span>
           <span>Pools {marketContext.chainDex.coverage?.pools ?? marketContext.chainDex.pools?.length ?? 0}</span>
           <span>Chains {marketContext.chainDex.coverage?.chains ?? '—'}</span>
-          <span>Saved swaps {marketContext.chainDex.persistence?.count ?? 0}</span>
+          <span>Saved history {marketContext.chainDex.history?.count ?? 0}</span><span>Newly saved {marketContext.chainDex.persistence?.count ?? 0}</span>
         </div>
         <div className="market-context-evidence">Token contract identity: <b>{ci.result?.chainDex?.identityVerified ? 'verified' : 'symbol match only · unverified'}</b>. Unverified pool matches have capped confidence.</div>
         <div className="market-context-sources">{(marketContext.chainDex.sources || []).map(source => <span key={source.name}><i className={source.status === 'live' ? 'source-live' : 'source-down'}/>{source.name}: {source.status}</span>)}</div>
