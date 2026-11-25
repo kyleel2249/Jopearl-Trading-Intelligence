@@ -1037,6 +1037,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           bisInternationalBanking: true,
           bisCatalogueMonitoring: true,
           bitqueryWalletLabels: Boolean(env.BITQUERY_ACCESS_TOKEN),
+          globalEconomicCalendar: Boolean(env.TRADING_ECONOMICS_API_KEY),
+          earningsAndIpoCalendar: Boolean(env.FINNHUB_API_KEY),
           verifiedWalletAttribution: (() => { try { const list = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); return Array.isArray(list) && list.length > 0; } catch { return false; } })(),
           eventImpactPrediction: true,
           scheduledEventCalendar: (() => { try { const list = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); return Array.isArray(list) && list.some(x => x && x.verified === true); } catch { return false; } })(),
