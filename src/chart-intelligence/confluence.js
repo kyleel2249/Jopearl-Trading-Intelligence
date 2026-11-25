@@ -82,7 +82,7 @@ export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, i
 }
 
 /** Compare independent sources against the signal direction. Returns conflicts with severities. */
-export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external, institutional, chainDex }) {
+export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing, external, institutional, chainDex, eventRisk }) {
   const out = [];
   if (!signalDir) return { conflicts: out, severity: 0 };
   const name = (d) => (d > 0 ? 'bullish' : 'bearish');
@@ -94,6 +94,7 @@ export function detectConflicts({ signalDir, score, minScore, mtf, flow, dealing
   if (external && external.direction && external.direction !== signalDir) out.push({ id: 'alpha-levels-oppose', severity: 2, detail: 'Alpha Signal Engine levels point ' + name(external.direction) + ' while the chart signal is ' + name(signalDir) });
   if (institutional && institutional.status === 'ready' && institutional.confidence >= 0.45 && Math.abs(institutional.score) >= 0.35 && Math.sign(institutional.score) !== signalDir) out.push({ id: 'institutional-context-opposes', severity: institutional.confidence >= 0.8 ? 3 : institutional.confidence >= 0.7 ? 2 : 1, detail: 'Timestamped cross-domain institutional evidence is ' + name(Math.sign(institutional.score)) + ' and conflicts with the chart signal' });
   if (chainDex && chainDex.status === 'ready' && chainDex.confidence >= 0.55 && Math.abs(chainDex.score) >= 0.35 && Math.sign(chainDex.score) !== signalDir) out.push({ id: 'chain-dex-flow-opposes', severity: chainDex.confidence >= 0.82 ? 2 : 1, detail: 'DEX pool and swap flow is ' + name(Math.sign(chainDex.score)) + ' and opposes the chart signal' });
+  if (eventRisk && eventRisk.active) out.push({ id: 'macro-event-risk', severity: eventRisk.severity >= 2 ? 2 : 1, detail: 'Recent high-impact geopolitical or financial news is active; reduce exposure and wait for post-event price confirmation' });
   return { conflicts: out, severity: out.reduce((s, c) => s + c.severity, 0) };
 }
 
