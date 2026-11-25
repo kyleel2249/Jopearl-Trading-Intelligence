@@ -72,7 +72,7 @@ export function scoreComponents({ price, atr, smc, levels, sr, flow, liq, mtf, i
   comp.institutional = institutional && institutional.status === 'ready' ? clamp(institutional.score, -1, 1) : 0;
   comp.chainDex = chainDex && chainDex.status === 'ready' ? clamp(chainDex.score, -1, 1) : 0;
   comp.session = sessionContext && sessionContext.status === 'ready' && Number.isFinite(sessionContext.directionalBias) ? clamp(sessionContext.directionalBias, -1, 1) : 0;
-  const w = regimeCfg.weights, order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation', 'institutional'];
+  const w = regimeCfg.weights;
   const base = { structure: 0.152, location: 0.076, levels: 0.114, flow: 0.0912, liquidity: 0.114, blocks: 0.076, mtf: 0.1064, liquidation: 0.0304, institutional: 0.12, chainDex: 0.08, session: 0.04 };
   const order = ['structure', 'location', 'levels', 'flow', 'liquidity', 'blocks', 'mtf', 'liquidation', 'institutional', 'chainDex', 'session'];
   const rows = order.map((k) => { const weight = base[k] * (['institutional', 'chainDex', 'session'].includes(k) ? 1 : (w[k] ?? 1)); return { key: k, value: r3(comp[k]), weight: r3(weight), contribution: r3(weight * comp[k]), available: k === 'flow' ? !!(flow && flow.status === 'ready') : k === 'mtf' ? fresh.length > 0 : k === 'liquidation' ? ls.length > 0 : k === 'institutional' ? !!(institutional && institutional.status === 'ready') : k === 'chainDex' ? !!(chainDex && chainDex.status === 'ready') : k === 'session' ? !!(sessionContext && sessionContext.status === 'ready') : true }; });
