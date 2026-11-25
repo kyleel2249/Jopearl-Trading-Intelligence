@@ -170,10 +170,10 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
    const validRows=(Array.isArray(rows)?rows:[]).filter(x=>Number(x.open_interest_all)>0),latestReport=validRows[0]?.report_date_as_yyyy_mm_dd,cohort=validRows.filter(x=>String(x.report_date_as_yyyy_mm_dd||'').slice(0,10)===String(latestReport||'').slice(0,10));
    const row=cohort[0];
    if(row){
-    const field=(x,names)=>{for(const name of names){const v=Number(x[name]);if(Number.isFinite(v))return v;}return 0;};
-    const long=cohort.reduce((sum,x)=>sum+field(x,['lev_money_positions_long_all','lev_money_positions_long','leveraged_money_positions_long_all']),0),short=cohort.reduce((sum,x)=>sum+field(x,['lev_money_positions_short_all','lev_money_positions_short','leveraged_money_positions_short_all']),0),oi=cohort.reduce((sum,x)=>sum+Number(x.open_interest_all||0),0),net=long-short,reportDate=String(latestReport||'').slice(0,10);
+    const field=(x,names)=>{for(const name of names){const v=Number(x[name]);if(Number.isFinite(v))return v;}return null;};
+    const longs=cohort.map(x=>field(x,['lev_money_positions_long_all','lev_money_positions_long','leveraged_money_positions_long_all'])),shorts=cohort.map(x=>field(x,['lev_money_positions_short_all','lev_money_positions_short','leveraged_money_positions_short_all'])),hasPositionData=longs.some(v=>v!==null)&&shorts.some(v=>v!==null),long=hasPositionData?longs.reduce((sum,v)=>sum+(v??0),0):NaN,short=hasPositionData?shorts.reduce((sum,v)=>sum+(v??0),0):NaN,oi=cohort.reduce((sum,x)=>sum+Number(x.open_interest_all||0),0),net=long-short,reportDate=String(latestReport||'').slice(0,10);
     const ageDays=reportDate?Math.max(0,(Date.parse(generatedAt)-Date.parse(reportDate))/86400000):null;
-    const cftcStatus=Number.isFinite(long)&&Number.isFinite(short)&&oi>0&&ageDays!==null&&ageDays<=14?'live':'stale';
+    const cftcStatus=hasPositionData&&Number.isFinite(long)&&Number.isFinite(short)&&oi>0&&ageDays!==null&&ageDays<=14?'live':'stale';
     out.cftc={status:cftcStatus,reportName:'Traders in Financial Futures · Futures Only',market:cohort.slice(0,4).map(x=>x.market_and_exchange_names).join(' · '),contracts:cohort.length,reportDate,openInterest:oi,leveragedMoneyLong:long,leveragedMoneyShort:short,netPosition:net,netBias:Math.max(-1,Math.min(1,net/oi/.25)),longShortRatio:short?long/short:null,ageDays};
     source('CFTC weekly leveraged-money positioning',cftcStatus,'https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
    }else{out.cftc.status='no-match';source('CFTC weekly leveraged-money positioning','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
