@@ -192,6 +192,8 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const freshObservation=x=>x?.latest?.date&&Date.parse(generatedAt)-Date.parse(x.latest.date)<=14*86400000;
   if(freshObservation(dgs)&&dgs?.previous)risk.push(Math.max(-1,Math.min(1,-(dgs.latest.value-dgs.previous.value)/.15)));
   if(freshObservation(dollar)&&dollar?.previous&&dollar.previous.value!==0)risk.push(Math.max(-1,Math.min(1,-((dollar.latest.value-dollar.previous.value)/dollar.previous.value*100)/.15)));
+  const pctMove=id=>{const x=out.macro.fred[id];return freshObservation(x)&&x.previous?.value?((x.latest.value/x.previous.value)-1)*100:null;};
+  for(const id of ['WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR']){const move=pctMove(id);if(Number.isFinite(move))risk.push(Math.max(-1,Math.min(1,move/.2)));}
   out.macro.riskBias=risk.length?Number((risk.reduce((a,b)=>a+b,0)/risk.length).toFixed(3)):null;
   out.macro.status=risk.length?'live':'partial';
   source('Federal Reserve FRED observations',observations.some(x=>x[1].status==='live')?'live':'offline','https://fred.stlouisfed.org/docs/api/fred/series_observations.html',{series:fredSeries});
