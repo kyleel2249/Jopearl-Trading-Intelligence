@@ -125,7 +125,7 @@ export async function runCycle(db,symbol){
    if(nextPartial!==nextIndex){
     partialState.nextPartialExitIndex=nextPartial;
     await db.prepare("UPDATE jpti_paper_trades SET quantity=?,risk_usd=?,entry_fee_usd=?,payload=? WHERE trade_id=? AND status='open'").bind(remainingQuantity,remainingRisk,remainingEntryFee,JSON.stringify(partialState),open.trade_id).run();
-    open.quantity=remainingQuantity;open.risk_usd=remainingRisk;open.entry_fee_usd=remainingEntryFee;open.payload=JSON.stringify(partialState);
+    open.quantity=remainingQuantity;open.risk_usd=remainingRisk;open.riskUsd=remainingRisk;open.entry_fee_usd=remainingEntryFee;open.entryFeeUsd=remainingEntryFee;open.payload=JSON.stringify(partialState);
     report.partialExits.push({agentId:agent.id,tradeId:open.trade_id,fills:partialFills,remainingQuantity,realizedPartialPnlUsd:partialState.partialRealizedPnlUsd});
    }
    const realizedToday=trades.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+num(t.netPnlUsd),0);
@@ -147,7 +147,7 @@ export async function runCycle(db,symbol){
      const outcome={exitReason:reason,exitPrice:settled.exitPrice,grossPnlUsd:settled.grossPnlUsd,netPnlUsd:settled.netPnlUsd,rMultiple:settled.rMultiple,partialExits:settled.partialExits||[],closedAt:payload.closedAt};
      await db.prepare("UPDATE jpti_trade_intelligence SET status='closed',closed_at=?,execution_json=?,outcome_json=?,updated_at=? WHERE trade_id=?").bind(payload.closedAt,JSON.stringify({exitFeeUsd:settled.exitFeeUsd,source:'simulated-last-price'}),JSON.stringify(outcome),payload.closedAt,open.trade_id).run();
      await db.prepare('INSERT INTO jpti_intelligence_memory(memory_id,scope,memory_type,title,content,source,evidence_status,confidence,importance,tags_json,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)')
-      .bind(crypto.randomUUID(),'global','paper-trade-lesson','Paper trade closed: '+market.symbol,JSON.stringify({tradeId:open.trade_id,agentId:agent.id,symbol:market.symbol,direction:open.direction,outcome}),'JPTI paper trade '+open.trade_id,'verified',.65,.75,JSON.stringify(['paper-trade','trade-outcome',market.symbol]),JSON.stringify({regime:open.regime}),payload.closedAt,payload.closedAt).run();
+      .bind(crypto.randomUUID(),'global','paper-trade-lesson','Paper trade closed: '+market.symbol,JSON.stringify({tradeId:open.trade_id,agentId:agent.id,symbol:market.symbol,direction:open.direction,outcome}),'JPTI paper trade '+open.trade_id,'inferred',.65,.75,JSON.stringify(['paper-trade','trade-outcome',market.symbol]),JSON.stringify({regime:open.regime}),payload.closedAt,payload.closedAt).run();
     }catch(error){console.error('[JPTI trade intelligence] Outcome mirror unavailable:',error?.message||error);}
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});exposure.total=Math.max(0,exposure.total-1);exposure.bySymbol.set(open.symbol,Math.max(0,(exposure.bySymbol.get(open.symbol)||0)-1));exposure.byDirection.set(open.direction,Math.max(0,(exposure.byDirection.get(open.direction)||0)-1));
    }
