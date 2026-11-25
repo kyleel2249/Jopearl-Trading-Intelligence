@@ -15,6 +15,8 @@ import { handleIntelligenceFoundationApi } from '../intelligence-foundation.js';
 import { normaliseDexTrade } from '../../src/chart-intelligence/chain-dex.js';
 import { aggregateCrossExchangeFlows } from '../../src/chart-intelligence/cross-exchange-flows.js';
 import { fetchBisFlows } from '../../src/chart-intelligence/bis-flows.js';
+import { fetchBitqueryWalletLabels } from '../../src/chart-intelligence/wallet-attribution.js';
+import { fetchMarketEventCalendar } from '../../src/chart-intelligence/event-calendars.js';
 import { predictEventImpact } from '../../src/chart-intelligence/event-impact.js';
 import { assessWalletAttribution, aggregateAttributedWalletSwapFlows } from '../../src/chart-intelligence/wallet-attribution.js';
 import { analyzeSmtDivergence } from '../../src/chart-intelligence/smt-divergence.js';
@@ -892,6 +894,21 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
       return new Response(null, { status: 204, headers });
     }
+    const publicIntelPath = url.pathname.replace(/\/+$/, '');
+    if (publicIntelPath === '/api/bis/monitor') {
+      if (request.method !== 'GET') return json(405, { error: 'BIS monitoring supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      const rawCursor = url.searchParams.get('cursor');
+      const cursor = rawCursor === null ? null : Number(rawCursor);
+      const rawBatch = Number(url.searchParams.get('batchSize') || 12);
+      const batchSize = Number.isFinite(rawBatch) ? Math.max(1, Math.min(12, Math.floor(rawBatch))) : 12;
+      if (cursor !== null && (!Number.isInteger(cursor) || cursor < 0)) return json(400, { error: 'cursor must be a non-negative integer.' }, request);
+      const result = await fetchBisFlows({ fetchImpl, now: now().getTime(), env, batchSize, cursor });
+      return json(result.status === 'offline' ? 503 : 200, result, request);
+    }
+    if (publicIntelPath === '/api/market/event-calendar') {
+      if (request.method !== 'GET') return json(405, { error: 'Event calendar supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      return json(200, await fetchMarketEventCalendar({ fetchImpl, now: now().getTime(), env }), request);
+    }
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/intelligence-foundation/')) return handleIntelligenceFoundationApi({ request, env });
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/org/')) return handleOrganizationApi({ request, env, fetchImpl });
     const agentPath = url.pathname.replace(/\/+$/, '');
@@ -1017,7 +1034,12 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           researchCouncil: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
           fvgLiquidityIntelligence: true,
           crossExchangeFlowAggregation: true,
-          bisInternationalBanking: Boolean(env.BIS_LBS_DATA_URL),
+          bisInternationalBanking: true,
+          bisCatalogueMonitoring: true,
+          bitqueryWalletLabels: Boolean(env.BITQUERY_ACCESS_TOKEN),
+          globalEconomicCalendar: Boolean(env.TRADING_ECONOMICS_API_KEY),
+          earningsAndIpoCalendar: Boolean(env.FINNHUB_API_KEY),
+          cryptoEventCalendar: Boolean(env.COINMARKETCAL_API_KEY || env.TOKENOMIST_API_KEY),
           verifiedWalletAttribution: (() => { try { const list = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); return Array.isArray(list) && list.length > 0; } catch { return false; } })(),
           eventImpactPrediction: true,
           scheduledEventCalendar: (() => { try { const list = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); return Array.isArray(list) && list.some(x => x && x.verified === true); } catch { return false; } })(),
@@ -1030,7 +1052,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           ...(!env.JPTI_DB ? ['JPTI_DB is not bound; private journal and learning history are unavailable.'] : []),
           ...(!(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
           ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : []),
-          ...(!env.BIS_LBS_DATA_URL ? ['BIS_LBS_DATA_URL is not configured; international banking context will remain unavailable.'] : []),
+          ...(!env.BITQUERY_ACCESS_TOKEN ? ['BITQUERY_ACCESS_TOKEN is not configured; wallet labels remain limited to the manual evidence registry.'] : []),
           ...(!env.JPTI_VERIFIED_WALLET_REGISTRY ? ['JPTI_VERIFIED_WALLET_REGISTRY is not configured; no wallet flow will be attributed.'] : [])
         ],
         exchanges: DIRECT_EXCHANGES,
@@ -1148,11 +1170,12 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         context.body.smtDivergence = smtDivergence;
         context.body.sources = (context.body.sources || []).filter(x => !['Order book depth','Perpetual funding','Global market context'].includes(x.name));
         context.body.sources = [...context.body.sources, ...(microstructure.sources || []), ...(globalContext.sources || []), ...(multiTimeframe.sources || [])];
-        const [chainDex, institutionalSources, bisFlows, venueMicrostructure] = await Promise.all([
+        const [chainDex, institutionalSources, bisFlows, venueMicrostructure, eventCalendar] = await Promise.all([
           fetchChainDexContext(symbol, fetchImpl, generatedAt, env),
           fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt),
-          fetchBisFlows({ url: env.BIS_LBS_DATA_URL, fetchImpl, now: Date.parse(generatedAt), env }),
-          Promise.all(['binance','bybit','okx','bitget'].map(async venue => { const [data, flow] = await Promise.all([fetchExchangeMicrostructure(venue, symbol, 'futures', fetchImpl, env, generatedAt), fetchCrossExchangeTradeFlow(venue, symbol, fetchImpl, env, generatedAt)]); return { venue, data, flow }; }))
+          fetchBisFlows({ fetchImpl, now: Date.parse(generatedAt), env, batchSize: 6 }),
+          Promise.all(['binance','bybit','okx','bitget'].map(async venue => { const [data, flow] = await Promise.all([fetchExchangeMicrostructure(venue, symbol, 'futures', fetchImpl, env, generatedAt), fetchCrossExchangeTradeFlow(venue, symbol, fetchImpl, env, generatedAt)]); return { venue, data, flow }; })),
+          fetchMarketEventCalendar({ fetchImpl, now: Date.parse(generatedAt), env })
         ]);
         context.body.institutionalSources = institutionalSources;
         context.body.sources = [...(context.body.sources || []), ...(institutionalSources.sources || [])];
@@ -1168,14 +1191,17 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const newsEvents = (institutionalSources.news || []).map((item,index) => ({ id:'news-'+index, title:item.title, time:item.publishedAt, source:item.source || 'public-news', url:item.url, importance:/war|invasion|attack|emergency|default|bank failure|sanction|cyberattack/i.test(item.title||'')?'critical':/rate|inflation|central bank|tariff|regulation|bank/i.test(item.title||'')?'high':'medium' }));
         let configuredCalendar = [];
         try { const parsed = JSON.parse(String(env.JPTI_EVENT_CALENDAR_JSON || '[]')); if (Array.isArray(parsed)) configuredCalendar = parsed.filter(x => x && x.verified === true && x.title && (x.time || x.scheduledAt) && x.source && /^https:\/\//i.test(String(x.sourceUrl || x.url || ''))).map((x,index) => ({ id:x.id || 'calendar-'+index, title:String(x.title).slice(0,240), time:x.time || x.scheduledAt, source:x.source, url:x.sourceUrl || x.url, importance:x.importance || 'medium', category:x.category || 'macro', actual:x.actual ?? null, forecast:x.forecast ?? null })); } catch { configuredCalendar = []; }
-        context.body.eventImpact = predictEventImpact({ events:[...newsEvents,...configuredCalendar], now:Date.parse(generatedAt), horizonMinutes:360 });
+        context.body.eventCalendar = eventCalendar;
+        context.body.eventImpact = predictEventImpact({ events:[...newsEvents,...configuredCalendar,...(eventCalendar.events||[])], now:Date.parse(generatedAt), horizonMinutes:10080 });
         let walletRegistry = [];
         try { const parsed = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); walletRegistry = Array.isArray(parsed) ? parsed : []; } catch { walletRegistry = []; }
-        const walletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
+        const manualWalletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
+        const providerWalletLabels = await fetchBitqueryWalletLabels(chainDex.trades || [], { apiToken: env.BITQUERY_ACCESS_TOKEN, fetchImpl, maxAddresses: 2000, env });
+        const walletAttributions = [...manualWalletAttributions, ...(providerWalletLabels.labels || [])];
         const walletFlows = aggregateAttributedWalletSwapFlows(chainDex.trades || [], walletAttributions, { now:Date.parse(generatedAt) });
-        context.body.walletAttribution = { status:walletAttributions.some(x=>x.verified)?'ready':'not-configured-or-unverified', verifiedWallets:walletAttributions.filter(x=>x.verified), unverifiedCount:walletAttributions.filter(x=>!x.verified).length, flows:walletFlows, basis:'explicit-evidence-registry-plus-sampled-dex-swaps' };
-        context.body.sources = [...(context.body.sources || []), ...venueMicrostructure.flatMap(x=>[...(x.data.sources || []), {name:x.venue.toUpperCase()+' recent perpetual aggressor trades',status:x.flow.status,retrievedAt:generatedAt}]), {name:'Cross-exchange public order-book, funding and taker-flow aggregation',status:crossExchangeFlows.status,retrievedAt:generatedAt}, {name:'BIS international banking statistics',status:bisFlows.status,retrievedAt:generatedAt}, {name:'Event impact risk model',status:context.body.eventImpact.status,retrievedAt:generatedAt}, {name:'Verified wallet attribution registry',status:walletAttributions.some(x=>x.verified)?'live':'not-configured',retrievedAt:generatedAt}];
-        context.body.limitations = [...(context.body.limitations || []), crossExchangeFlows.caveat, bisFlows.methodology || bisFlows.reason, context.body.eventImpact.methodology, walletFlows.caveat];
+        context.body.walletAttribution = { status:walletAttributions.some(x=>x.verified||x.providerAttributed)?'ready':providerWalletLabels.status, verifiedWallets:walletAttributions.filter(x=>x.verified), providerAttributedWallets:walletAttributions.filter(x=>x.providerAttributed), unverifiedCount:manualWalletAttributions.filter(x=>!x.verified).length, provider:providerWalletLabels, flows:walletFlows, basis:'manual-evidence-registry-plus-provider-labels-plus-sampled-dex-swaps' };
+        context.body.sources = [...(context.body.sources || []), ...venueMicrostructure.flatMap(x=>[...(x.data.sources || []), {name:x.venue.toUpperCase()+' recent perpetual aggressor trades',status:x.flow.status,retrievedAt:generatedAt}]), {name:'Cross-exchange public order-book, funding and taker-flow aggregation',status:crossExchangeFlows.status,retrievedAt:generatedAt}, ...(bisFlows.sources || []), ...(eventCalendar.sources || []).map(x=>({name:x.name,status:x.status,retrievedAt:generatedAt,url:x.url,error:x.error})), {name:'Event impact risk model',status:context.body.eventImpact.status,retrievedAt:generatedAt}, {name:'Wallet label enrichment',status:providerWalletLabels.status,retrievedAt:generatedAt}];
+        context.body.limitations = [...(context.body.limitations || []), crossExchangeFlows.caveat, bisFlows.methodology || bisFlows.reason, ...(eventCalendar.limitations || []), context.body.eventImpact.methodology, walletFlows.caveat, providerWalletLabels.caveat].filter(Boolean);
         await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
       }
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });

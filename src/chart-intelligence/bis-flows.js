@@ -1,51 +1,72 @@
-// BIS SDMX adapter. The dataset/series URL is configured explicitly; no undocumented series is guessed.
-const BIS_HOST="stats.bis.org";
-function periodTimestamp(period){
-  const p=String(period||"");
-  if(/^\d{4}-\d{2}$/.test(p)){const [y,m]=p.split("-").map(Number);return Date.UTC(y,m,0,23,59,59);}
-  if(/^\d{4}-Q[1-4]$/i.test(p)){const m=p.match(/^(\d{4})-Q([1-4])$/i);return Date.UTC(Number(m[1]),Number(m[2])*3,0,23,59,59);}
-  if(/^\d{4}$/.test(p))return Date.UTC(Number(p),11,31,23,59,59);
-  const t=Date.parse(p);return Number.isFinite(t)?t:null;
+// BIS SDMX catalogue crawler and bounded all-dataflow observer.
+// Discovers every published BIS dataflow, then rotates through the complete catalogue.
+// Each selected dataflow is queried for its latest observation across all available series.
+const BIS_BASE="https://stats.bis.org/api/v1";
+const BIS_DATA_ACCEPT="application/vnd.sdmx.data+json;version=1.0.0";
+const BIS_STRUCTURE_ACCEPT="application/vnd.sdmx.structure+json;version=1.0.0";
+const FINANCE_TERMS=/bank|credit|debt|liquid|rate|interest|policy|exchange|currency|foreign|fx|capital|securit|bond|derivative|financial|fund|portfolio|property|house|mortgage|payment|reserve|money|monetary|global|cross.border|lending|loan|leverage|bis|macro|yield|risk|stress|claim|deposit|asset|liabilit|equity|market|price|commodity|consumer|inflation|trade/i;
+const num=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v))?Number(v):null;
+const periodTimestamp=period=>{const p=String(period||"");if(/^\d{4}-\d{2}$/.test(p)){const[y,m]=p.split("-").map(Number);return Date.UTC(y,m,0,23,59,59);}if(/^\d{4}-Q[1-4]$/i.test(p)){const m=p.match(/^(\d{4})-Q([1-4])$/i);return Date.UTC(Number(m[1]),Number(m[2])*3,0,23,59,59);}if(/^\d{4}$/.test(p))return Date.UTC(Number(p),11,31,23,59,59);const t=Date.parse(p);return Number.isFinite(t)?t:null;};
+const observationAge=(period,now)=>{const ts=periodTimestamp(period);return ts===null?null:Math.max(0,now-ts);};
+function values(dims,key){return String(key||"").split(":").map((n,i)=>dims[i]?.values?.[Number(n)]?.id||dims[i]?.values?.[Number(n)]?.name||null);}
+export function parseBisDataflows(payload){
+ const candidates=[];
+ const visit=node=>{if(!node||typeof node!=="object")return;if(Array.isArray(node)){for(const x of node)visit(x);return;}
+  if(typeof node.id==="string"&&(node.agencyID||node.agency||node.version)&&((node.name)||(node.names)||(node.structure)))candidates.push(node);
+  for(const[k,v]of Object.entries(node))if(["dataflow","dataflows","Dataflow","Dataflows","structures","structure"].includes(k))visit(v);
+ };
+ visit(payload);const seen=new Set();
+ const localized=v=>{if(Array.isArray(v)){const item=v.find(n=>n.lang==="en")||v[0]||{};return item.text||item["#text"]||item.value||item.name||"";}if(v&&typeof v==="object")return v.text||v["#text"]||v.value||"";return String(v||"");};
+ return candidates.map(x=>{const id=String(x.id),agency=String(x.agencyID||x.agency||"BIS"),version=String(x.version||"latest"),name=localized(x.name)||localized(x.names)||id,description=localized(x.description);return{id,agency,version,name:String(name),description:String(description),flowRef:id.includes(",")?id:[agency,id,version].join(","),url:"https://stats.bis.org/api/v1/dataflow/"+encodeURIComponent([agency,id,version].join(","))};})
+ .filter(x=>{const k=x.agency+":"+x.id+":"+x.version;if(seen.has(k))return false;seen.add(k);return true;})
+ .map(x=>({...x,relevance:FINANCE_TERMS.test(x.id+" "+x.name+" "+x.description)?"financial-context":"general-statistics"}))
+ .sort((a,b)=>(a.relevance==="financial-context"?0:1)-(b.relevance==="financial-context"?0:1)||a.id.localeCompare(b.id));
 }
-function sdmxJsonRows(payload){
-  const ds=payload?.dataSets?.[0],structure=payload?.structure;
-  if(!ds?.series||!structure?.dimensions)return[];
-  const obsDims=structure.dimensions.observation||[],seriesDims=structure.dimensions.series||[];
-  const periodDim=obsDims.findIndex(d=>/TIME_PERIOD|TIME|PERIOD/i.test(d.id||d.name||""));
-  const dimensionValues=(dims,key)=>String(key||"").split(":").map((index,i)=>dims[i]?.values?.[Number(index)]?.id||dims[i]?.values?.[Number(index)]?.name||null);
-  const rows=[];
-  for(const [seriesKey,series] of Object.entries(ds.series)){
-    const seriesValues=dimensionValues(seriesDims,seriesKey),meta={};
-    seriesDims.forEach((d,i)=>{const id=String(d.id||d.name||"").toUpperCase();if(/REF_AREA|REPORTER|L_REP_CTY/.test(id))meta.reporter=seriesValues[i];if(/COUNTERPART_AREA|COUNTERPARTY|L_CP_COUNTRY/.test(id))meta.counterparty=seriesValues[i];if(/MEASURE|INDICATOR|L_MEASURE/.test(id))meta.measure=seriesValues[i];if(/UNIT|L_DENOM/.test(id))meta.unit=seriesValues[i];});
-    for(const [obsKey,value] of Object.entries(series.observations||{})){
-      const indices=String(obsKey).split(":").map(Number),periodIndex=periodDim>=0?indices[periodDim]:indices[0],period=obsDims[periodDim>=0?periodDim:0]?.values?.[periodIndex]?.id||obsDims[periodDim>=0?periodDim:0]?.values?.[periodIndex]?.name||String(periodIndex);
-      const numeric=Number(Array.isArray(value)?value[0]:value);
-      if(Number.isFinite(numeric))rows.push({period,value:numeric,...meta});
-    }
-  }
-  return rows;
+export function parseBisSdmxObservations(payload,{dataflowId=null}={}){
+ const structure=payload?.structure||payload?.structures?.[0]||payload?.data?.structures?.[0]||payload?.data?.structure;
+ const dataset=payload?.dataSets?.[0]||payload?.data?.dataSets?.[0],seriesRoot=dataset?.series||{};
+ const seriesDims=structure?.dimensions?.series||[],obsDims=structure?.dimensions?.observation||[];
+ const periodIndex=Math.max(0,obsDims.findIndex(d=>/TIME_PERIOD|TIME|PERIOD/i.test(String(d.id||d.name||"")))),rows=[];
+ for(const[seriesKey,series]of Object.entries(seriesRoot)){const sv=values(seriesDims,seriesKey),meta={};seriesDims.forEach((d,i)=>{const id=String(d.id||d.name||"").toUpperCase(),v=sv[i];if(/REF_AREA|REPORTER|L_REP_CTY/.test(id))meta.reporter=v;if(/COUNTERPART_AREA|COUNTERPARTY|L_CP_COUNTRY/.test(id))meta.counterparty=v;if(/MEASURE|INDICATOR|SERIES|SUBJECT/.test(id))meta.measure=v;if(/UNIT|DENOM/.test(id))meta.unit=v;if(/FREQ|FREQUENCY/.test(id))meta.frequency=v;if(/CURRENCY|CURR/.test(id))meta.currency=v;});
+  for(const[obsKey,raw]of Object.entries(series.observations||{})){const oi=String(obsKey).split(":").map(Number),idx=oi[periodIndex]??oi[0]??0,dim=obsDims[periodIndex]||obsDims[0],period=dim?.values?.[idx]?.id||dim?.values?.[idx]?.name||String(idx),value=num(Array.isArray(raw)?raw[0]:raw);if(value!==null)rows.push({dataflowId,seriesKey,period,value,...meta});}}
+ if(rows.length)return rows;
+ const compact=payload?.data?.dataSets?.[0],dims=payload?.data?.structures?.[0]?.dimensions||payload?.structure?.dimensions;
+ if(compact?.observations&&dims){const od=dims.observation||[],pi=Math.max(0,od.findIndex(d=>/TIME_PERIOD|TIME|PERIOD/i.test(String(d.id||d.name||""))));for(const[k,raw]of Object.entries(compact.observations)){const oi=k.split(":").map(Number),ix=oi[pi]??oi[0]??0,period=od[pi]?.values?.[ix]?.id||od[pi]?.values?.[ix]?.name||String(ix),value=num(Array.isArray(raw)?raw[0]:raw);if(value!==null)rows.push({dataflowId,seriesKey:"compact:"+k,period,value});}}
+ return rows;
 }
+// Backward-compatible single-dataset normalizer used by legacy analysis callers and tests.
 export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=null}={}){
-  const raw=Array.isArray(payload?.data)?payload.data:Array.isArray(payload?.observations)?payload.observations:sdmxJsonRows(payload);
-  const observations=raw.map(x=>({period:String(x.period||x.TIME_PERIOD||x.time||""),value:Number(x.value??x.OBS_VALUE),unit:x.unit||x.UNIT_MEASURE||null,
-    reporter:x.reporter||x.REF_AREA||null,counterparty:x.counterparty||x.COUNTERPART_AREA||null,measure:x.measure||x.MEASURE||null}))
-    .filter(x=>x.period&&Number.isFinite(x.value)).sort((a,b)=>a.period.localeCompare(b.period));
-  const latest=observations.at(-1)||null,previous=observations.at(-2)||null;
-  const periodTs=latest?periodTimestamp(latest.period):null,ageMs=periodTs==null?null:Math.max(0,now-periodTs),periodLimit=maxAgeMs??(/^\d{4}-Q[1-4]$/i.test(latest?.period||"")?240:/^\d{4}-\d{2}$/.test(latest?.period||"")?75:/^\d{4}$/.test(latest?.period||"")?550:14)*24*60*60*1000;
-  return{status:latest?"ready":"unavailable",source:"Bank for International Settlements SDMX",dataset:payload?.dataset||payload?.structure?.name||null,
-    observationCount:observations.length,latest,previous,change:latest&&previous?latest.value-previous.value:null,
-    freshness:ageMs==null?"unknown":ageMs>periodLimit?"stale":"fresh",ageMs,observations:observations.slice(-120),
-    methodology:"BIS cross-border banking observations are low-frequency, revised macro-financial context; they are not real-time exchange order flow."};
+ let observations=parseBisSdmxObservations(payload,{dataflowId:payload?.structure?.name||payload?.dataset||"BIS"});
+ if(!observations.length&&Array.isArray(payload?.data)){observations=payload.data.map((x,index)=>({dataflowId:payload.dataset||"BIS",seriesKey:[x.reporter||"",x.counterparty||"",x.measure||"",x.unit||""].join("|")||"legacy:"+index,period:String(x.period||""),value:num(x.value),reporter:x.reporter||null,counterparty:x.counterparty||null,measure:x.measure||null,unit:x.unit||null,frequency:x.frequency||null,currency:x.currency||null})).filter(x=>x.period&&x.value!==null);}
+ const ordered=[...observations].sort((a,b)=>(periodTimestamp(a.period)||0)-(periodTimestamp(b.period)||0));const latest=ordered.at(-1)||null,previous=ordered.length>1?ordered.at(-2):null;
+ if(!latest)return{status:"unavailable",source:"BIS SDMX",latest:null,observations:[],seriesCount:0,reason:"No numeric BIS observations were present in the supplied SDMX JSON."};
+ const quarterly=/^\d{4}-Q[1-4]$/i.test(String(latest.period)),monthly=/^\d{4}-\d{2}$/.test(String(latest.period)),annual=/^\d{4}$/.test(String(latest.period));
+ const limit=maxAgeMs??(quarterly?240:monthly?75:annual?550:14)*24*60*60*1000,ageMs=observationAge(latest.period,now);
+ return{status:ageMs!==null&&ageMs>limit?"stale":"ready",source:"Bank for International Settlements SDMX",latest,change:previous&&previous.seriesKey===latest.seriesKey?Number((latest.value-previous.value).toFixed(8)):null,observations,seriesCount:new Set(observations.map(x=>x.seriesKey)).size,ageMs,maxAgeMs:limit,generatedAt:new Date(now).toISOString(),methodology:"Single BIS SDMX dataset compatibility adapter. Latest observation is selected using its period end and freshness threshold appropriate to the reporting frequency."};
 }
-export async function fetchBisFlows({url,fetchImpl=fetch,now=Date.now(),maxAgeMs,env={}}={}){
-  if(!url)return{status:"not-configured",source:"BIS SDMX",reason:"Set BIS_LBS_DATA_URL to a documented BIS SDMX dataset/series query."};
-  const cacheKey="jpti:bis-sdmx:v1:"+await (async()=>{const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(url)));return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");})();
-  if(env.JPTI_KV){try{const cached=await env.JPTI_KV.get(cacheKey,"json");if(cached?.body&&now-Number(cached.cachedAt||0)<3600000)return cached.body;}catch{/* live request remains available */}}
-  let parsed;try{parsed=new URL(url);}catch{return{status:"invalid-config",reason:"BIS URL is invalid."};}
-  if(parsed.protocol!=="https:"||parsed.hostname!==BIS_HOST)return{status:"blocked",reason:"Only HTTPS endpoints on stats.bis.org are accepted."};
-  try{const response=await fetchImpl(parsed.toString(),{headers:{accept:"application/vnd.sdmx.data+json;version=1.0.0, application/json"}});if(!response.ok)throw new Error("BIS HTTP "+response.status);
-    const data=await response.json(),body=normalizeBisFlows(data,{now,maxAgeMs});
-    if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:now,body}),{expirationTtl:3600});}catch{/* optional cache */}}
-    return body;}
-  catch(error){return{status:"offline",source:"BIS SDMX",reason:error.message};}
+export function normalizeBisMonitor({catalogue=[],datasets=[],now=Date.now(),totalDataflows=null,cursor=0,nextCursor=0}={}){
+ const observations=datasets.flatMap(x=>x.observations||[]).sort((a,b)=>String(a.period).localeCompare(String(b.period)));
+ const latest=[...observations].sort((a,b)=>(periodTimestamp(b.period)||0)-(periodTimestamp(a.period)||0))[0]||null;
+ const financial=catalogue.filter(x=>x.relevance==="financial-context"),scanned=datasets.filter(x=>x.status==="ready").length,attempted=datasets.length;
+ const seriesCount=datasets.reduce((n,x)=>n+(x.seriesCount||x.observations?.length||0),0);
+ return{status:scanned?"ready":catalogue.length?"partial":"unavailable",source:"Bank for International Settlements SDMX catalogue",catalogueStatus:catalogue.length?"ready":"unavailable",generatedAt:new Date(now).toISOString(),
+  totalDataflows:totalDataflows??catalogue.length,financialDataflows:financial.length,scannedDataflows:attempted,successfulDataflows:scanned,seriesObserved:seriesCount,coveragePct:catalogue.length?Number((attempted/catalogue.length*100).toFixed(2)):0,cursor,nextCursor,latest,observations:observations.slice(-500),
+  datasets:datasets.map(x=>({id:x.id,name:x.name,status:x.status,seriesCount:x.seriesCount||0,latestPeriod:x.latestPeriod||null,error:x.error||null})),
+  methodology:"Complete BIS dataflow catalogue discovery with rotating observation scans across every published dataflow, including all series returned by each selected flow. Financial relevance is separately classified for chart context. Each selected flow requests the latest observation across its available series; historical full-depth extraction is not repeated on every refresh. BIS data is low-frequency macro-financial context, not tick-level exchange flow."};
+}
+export async function fetchBisFlows({fetchImpl=fetch,now=Date.now(),env={},batchSize=6,cursor=null}={}){
+ const catalogueKey="jpti:bis:dataflow-catalogue:v2",cursorKey="jpti:bis:monitor-cursor:v2";let catalogue=null;
+ if(env.JPTI_KV){try{const cached=await env.JPTI_KV.get(catalogueKey,"json");if(cached?.items&&now-Number(cached.cachedAt||0)<86400000)catalogue=cached.items;}catch{}}
+ const get=async(url,accept)=>{const r=await fetchImpl(url,{headers:{accept,"user-agent":"JPTI-Market-Intelligence/1.0"}});if(!r.ok)throw new Error("BIS HTTP "+r.status);return r.json();};
+ if(!catalogue){try{const payload=await get(BIS_BASE+"/dataflow/BIS",BIS_STRUCTURE_ACCEPT);catalogue=parseBisDataflows(payload);if(env.JPTI_KV&&catalogue.length)try{await env.JPTI_KV.put(catalogueKey,JSON.stringify({cachedAt:now,items:catalogue}),{expirationTtl:86400});}catch{}}catch(error){return{status:"offline",source:"BIS SDMX",catalogueStatus:"offline",reason:String(error?.message||error).slice(0,180),totalDataflows:0,financialDataflows:0,scannedDataflows:0,seriesObserved:0,observations:[]};}}
+ const monitorable=catalogue;let start=Number.isInteger(cursor)?Math.max(0,cursor):0;
+ if(cursor===null&&env.JPTI_KV){try{start=Number(await env.JPTI_KV.get(cursorKey)||0)||0;}catch{}}
+ if(monitorable.length)start%=monitorable.length;
+ const count=Math.max(1,Math.min(12,Number(batchSize)||6)),selected=Array.from({length:Math.min(count,monitorable.length)},(_,i)=>monitorable[(start+i)%monitorable.length]);
+ const datasets=await Promise.all(selected.map(async flow=>{const dataKey="jpti:bis:dataflow-observations:v1:"+flow.id;if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(dataKey,"json");if(hit?.body&&now-Number(hit.cachedAt||0)<21600000)return hit.body;}catch{}}try{const flowRef=flow.flowRef||[flow.agency,flow.id,flow.version].join(",");const url=BIS_BASE+"/data/"+encodeURIComponent(flowRef)+"/all/all?lastNObservations=1";const payload=await get(url,BIS_DATA_ACCEPT);const observations=parseBisSdmxObservations(payload,{dataflowId:flow.id});const body={id:flow.id,name:flow.name,status:observations.length?"ready":"empty",seriesCount:new Set(observations.map(x=>x.seriesKey)).size,latestPeriod:observations.map(x=>x.period).sort().at(-1)||null,observations};if(env.JPTI_KV)try{await env.JPTI_KV.put(dataKey,JSON.stringify({cachedAt:now,body}),{expirationTtl:21600});}catch{}return body;}catch(error){return{id:flow.id,name:flow.name,status:"offline",seriesCount:0,observations:[],error:String(error?.message||error).slice(0,180)};}}));
+ const next=(start+selected.length)%Math.max(1,monitorable.length);if(cursor===null&&env.JPTI_KV){try{await env.JPTI_KV.put(cursorKey,String(next),{expirationTtl:31536000});}catch{}}
+ const result=normalizeBisMonitor({catalogue,datasets,now,totalDataflows:catalogue.length,cursor:start,nextCursor:next});
+ const progressKey="jpti:bis:scan-progress:v1";let progress={seen:[],lastCompleteAt:null};if(env.JPTI_KV){try{progress=await env.JPTI_KV.get(progressKey,"json")||progress;}catch{}}const seen=new Set([...(progress.seen||[]),...selected.map(x=>x.id)]);const cycleComplete=next===0&&selected.length>0;const coveragePct=catalogue.length?Number((Math.min(seen.size,catalogue.length)/catalogue.length*100).toFixed(2)):0;result.coveragePct=coveragePct;result.scanCoverage={observedDataflows:Math.min(seen.size,catalogue.length),totalDataflows:catalogue.length,coveragePct,lastCompleteAt:cycleComplete?new Date(now).toISOString():progress.lastCompleteAt||null,cycleComplete};if(env.JPTI_KV){try{await env.JPTI_KV.put(progressKey,JSON.stringify({seen:cycleComplete?[]:[...seen],lastCompleteAt:cycleComplete?new Date(now).toISOString():progress.lastCompleteAt||null}),{expirationTtl:31536000});}catch{}}
+ result.sources=[{name:"BIS complete dataflow catalogue",status:"live",count:catalogue.length},{name:"BIS all-dataflow observations",status:datasets.some(x=>x.status==="ready")?"live":"offline",count:result.seriesObserved},{name:"BIS SDMX v1 API",status:"live",url:"https://stats.bis.org/api-doc/v1/"}];
+ result.failures=datasets.filter(x=>x.status==="offline").map(x=>({id:x.id,error:x.error}));result.nextBatch={cursor:next,batchSize:selected.length,remaining:Math.max(0,monitorable.length-selected.length),complete:monitorable.length>0&&next===0};return result;
 }
