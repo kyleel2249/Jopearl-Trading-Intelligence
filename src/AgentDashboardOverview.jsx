@@ -23,17 +23,20 @@ async function readJson(path) {
 }
 
 export default function AgentDashboardOverview({ activeNav }) {
-  const [state, setState] = useState({ catalog: null, overview: null, loading: true, error: '', authRequired: false, updatedAt: null });
+  const [state, setState] = useState({ catalog: null, overview: null, paper: null, loading: true, error: '', authRequired: false, updatedAt: null });
   const load = useCallback(async () => {
-    const [catalogResult, overviewResult] = await Promise.allSettled([
+    const [catalogResult, overviewResult, paperResult] = await Promise.allSettled([
       readJson('/api/agents/catalog'),
-      readJson('/api/org/overview')
+      readJson('/api/org/overview'),
+      readJson('/api/paper/overview')
     ]);
     const catalog = catalogResult.status === 'fulfilled' ? catalogResult.value : null;
     const overview = overviewResult.status === 'fulfilled' ? overviewResult.value : null;
-    const failure = overviewResult.status === 'rejected' ? overviewResult.reason : catalogResult.status === 'rejected' ? catalogResult.reason : null;
+    const paper = paperResult.status === 'fulfilled' ? paperResult.value : null;
+    const failures = [overviewResult, paperResult, catalogResult].filter(result => result.status === 'rejected');
+    const failure = failures[0]?.reason || null;
     setState({
-      catalog, overview, loading: false,
+      catalog, overview, paper, loading: false,
       error: failure?.message || '',
       authRequired: failure?.status === 401 || /authori[sz]ation|token/i.test(failure?.message || ''),
       updatedAt: new Date().toISOString()
@@ -55,7 +58,10 @@ export default function AgentDashboardOverview({ activeNav }) {
   const completed = missions.filter(item => item.status === 'completed').length;
   const latestReview = [...reviews].sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')))[0];
   const roster = state.catalog?.agents || [];
-  const connected = Boolean(state.overview);
+  const paperAgents = state.paper?.agents || [];
+  const paperOpenTrades = state.paper?.openTrades || [];
+  const paperLiveReady = paperAgents.filter(agent => agent.tier === 'LIVE_READY').length;
+  const connected = Boolean(state.overview && state.paper);
 
   return <section className="glass-panel agent-overview-panel">
     <header className="agent-overview-head">
@@ -70,7 +76,8 @@ export default function AgentDashboardOverview({ activeNav }) {
       <article><BrainCircuit/><span>REGISTERED SPECIALISTS</span><b>{state.catalog ? roster.length : '—'}</b><small>Explainable research roles</small></article>
       <article><Building2/><span>DEPARTMENTS</span><b>{state.overview ? departments.length : '—'}</b><small>Research · Trading Social · Marketing</small></article>
       <article><Target/><span>MISSIONS COMPLETED</span><b>{connected ? completed : '—'}</b><small>{connected ? missions.length + ' total recorded missions' : 'Awaiting private department access'}</small></article>
-      <article><Database/><span>SHARED MEMORY</span><b>{connected ? memory.length : '—'}</b><small>{connected ? messages.length + ' interdepartment messages' : 'D1 records are not exposed without access'}</small></article>
+      <article><Database/><span>SHARED MEMORY</span><b>{state.overview ? memory.length : '—'}</b><small>{state.overview ? messages.length + ' interdepartment messages' : 'D1 records are not exposed without access'}</small></article>
+      <article><Activity/><span>PAPER AGENT FLEET</span><b>{state.paper ? paperAgents.length : '—'}</b><small>{state.paper ? paperOpenTrades.length + ' open positions · ' + paperLiveReady + ' LIVE_READY (paper-qualified only)' : 'Awaiting private paper-fleet access'}</small></article>
     </div>
 
     {state.error && <div className="agent-overview-notice" role="status">
@@ -95,6 +102,7 @@ export default function AgentDashboardOverview({ activeNav }) {
 
     <div className="agent-overview-bottom">
       <span><Activity size={13}/> {state.overview ? agents.filter(agent => agent.status === 'ready').length + ' department agents ready' : roster.length ? roster.length + ' specialist definitions available; private status pending' : 'Agent registry pending'}</span>
+      <span>{state.paper ? 'Paper fleet: ' + paperAgents.length + ' agents · ' + paperOpenTrades.length + ' open positions · live orders disabled' : 'Paper fleet status pending'}</span>
       <span>{latestReview ? 'Latest KPI review: ' + latestReview.date : 'No daily KPI review yet'}</span>
       <span>{state.updatedAt ? 'Synced ' + stamp(state.updatedAt) : 'Not synced'}</span>
     </div>
