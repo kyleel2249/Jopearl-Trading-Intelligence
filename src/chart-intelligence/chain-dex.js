@@ -32,7 +32,8 @@ export function scoreChainDexContext(context,{now=Date.now(),maxAgeMs=180000}={}
  const sourceCoverage=named?live/named:(pools.length?0.5:0);
  const freshness=clamp(1-ageMs/maxAgeMs,0,1);
  const tradeQuality=measured?clamp(measured/20,0.25,1):0.25;
- const confidence=round(clamp(sourceCoverage*0.35+freshness*0.2+poolCoverage*0.2+tradeQuality*0.25,0,1));
+ const rawConfidence=clamp(sourceCoverage*0.35+freshness*0.2+poolCoverage*0.2+tradeQuality*0.25,0,1);
+ const confidence=round(context.identityVerified===true?rawConfidence:Math.min(rawConfidence,0.65));
  const available=evidence.length>0&&(!named||live>0);
  return{status:available?'ready':'unavailable',score:available?round(score):0,confidence:available?confidence:0,ageMs,sourceCoverage:round(sourceCoverage),poolCoverage:round(poolCoverage),measuredTrades:measured,evidence:available?evidence:[],sources,poolCount:pools.length,tradeCount:trades.length,flow:{buyUsd:round(buy||0,2),sellUsd:round(sell||0,2),netUsd:round((buy||0)-(sell||0),2),imbalancePct:usdTotal?round((buy-sell)/usdTotal*100,2):buyCount+sellCount>0?round((buyCount-sellCount)/(buyCount+sellCount)*100,2):null,basis:flow.basis||'unavailable'},reason:available?null:'No live DEX evidence source is available',method:'DEX pool and swap evidence is source-attributed, timestamp-gated and excluded when stale; confidence reflects source coverage, pool coverage and actual swap sample size'};
 }
