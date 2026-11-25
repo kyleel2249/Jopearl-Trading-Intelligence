@@ -7,7 +7,9 @@ const round = (v, n = 3) => Number.isFinite(v) ? Number(v.toFixed(n)) : null;
 
 export function scoreInstitutionalContext(context, { now = Date.now(), maxAgeMs = 30 * 60 * 1000 } = {}) {
   if (!context || typeof context !== 'object') return { status: 'unavailable', score: 0, confidence: 0, evidence: [], sources: [], reason: 'No institutional context supplied' };
-  const generatedAt = Date.parse(context.generatedAt || context.observedAt || '');
+  const sourceTimestamp = context.generatedAt ?? context.observedAt;
+  const parsedTimestamp = finite(sourceTimestamp) ? Number(sourceTimestamp) : Date.parse(sourceTimestamp || '');
+  const generatedAt = Number.isFinite(parsedTimestamp) ? (parsedTimestamp > 0 && parsedTimestamp < 1e12 ? parsedTimestamp * 1000 : parsedTimestamp) : NaN;
   const ageMs = Number.isFinite(generatedAt) ? Math.max(0, now - generatedAt) : null;
   const sourceRows = Array.isArray(context.sources) ? context.sources : [];
   const liveSources = sourceRows.filter((s) => s && s.status === 'live').length;
