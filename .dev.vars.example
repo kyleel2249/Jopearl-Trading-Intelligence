@@ -17,3 +17,10 @@ JPTI_BITGET_API_PASSPHRASE=
 # Optional FRED API key for Federal Reserve yields, policy rates and bank balance-sheet data.
 # Configure this as a Cloudflare Pages secret in production; never commit a real key.
 FRED_API_KEY=
+
+# Optional BIS SDMX JSON endpoint. Supply the exact documented dataset/series URL from BIS.
+BIS_LBS_DATA_URL=
+
+# Optional verified wallet registry JSON. Keep this server-side; use evidence-backed records only.
+# Example shape: [{"chain":"ethereum","address":"0x...","claims":[{"type":"official-entity-registry","verified":true,"registryRecordId":"record-id","entityName":"Entity","entityType":"exchange","source":"Official registry","sourceUrl":"https://..."}]}]
+JPTI_VERIFIED_WALLET_REGISTRY=[]
