@@ -37,11 +37,15 @@ export function normalizeBisFlows(payload,{now=Date.now(),maxAgeMs=45*24*60*60*1
     freshness:ageMs==null?"unknown":ageMs>maxAgeMs?"stale":"fresh",ageMs,observations:observations.slice(-120),
     methodology:"BIS cross-border banking observations are low-frequency, revised macro-financial context; they are not real-time exchange order flow."};
 }
-export async function fetchBisFlows({url,fetchImpl=fetch,now=Date.now(),maxAgeMs}={}){
+export async function fetchBisFlows({url,fetchImpl=fetch,now=Date.now(),maxAgeMs,env={}}={}){
   if(!url)return{status:"not-configured",source:"BIS SDMX",reason:"Set BIS_LBS_DATA_URL to a documented BIS SDMX dataset/series query."};
+  const cacheKey="jpti:bis-sdmx:v1:"+await (async()=>{const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(String(url)));return Array.from(new Uint8Array(digest),b=>b.toString(16).padStart(2,"0")).join("");})();
+  if(env.JPTI_KV){try{const cached=await env.JPTI_KV.get(cacheKey,"json");if(cached?.body&&now-Number(cached.cachedAt||0)<3600000)return cached.body;}catch{/* live request remains available */}}
   let parsed;try{parsed=new URL(url);}catch{return{status:"invalid-config",reason:"BIS URL is invalid."};}
   if(parsed.protocol!=="https:"||parsed.hostname!==BIS_HOST)return{status:"blocked",reason:"Only HTTPS endpoints on stats.bis.org are accepted."};
   try{const response=await fetchImpl(parsed.toString(),{headers:{accept:"application/vnd.sdmx.data+json, application/json"}});if(!response.ok)throw new Error("BIS HTTP "+response.status);
-    const data=await response.json();return normalizeBisFlows(data,{now,maxAgeMs});}
+    const data=await response.json(),body=normalizeBisFlows(data,{now,maxAgeMs});
+    if(env.JPTI_KV){try{await env.JPTI_KV.put(cacheKey,JSON.stringify({cachedAt:now,body}),{expirationTtl:3600});}catch{/* optional cache */}}
+    return body;}
   catch(error){return{status:"offline",source:"BIS SDMX",reason:error.message};}
 }
