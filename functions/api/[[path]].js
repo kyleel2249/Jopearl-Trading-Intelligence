@@ -577,7 +577,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       try {
         const result = await env.JPTI_DB.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'jpti_%' ORDER BY name").all();
         const tables = (result?.results || []).map((row) => row.name);
-        const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors', 'jpti_journal_entries', 'jpti_org_departments', 'jpti_org_agents', 'jpti_intelligence_memory', 'jpti_intelligence_memory_edges', 'jpti_agent_tasks', 'jpti_agent_messages', 'jpti_agent_scorecards', 'jpti_strategy_registry', 'jpti_strategy_experiments', 'jpti_risk_policies', 'jpti_risk_events', 'jpti_trade_intelligence'];
+        const requiredTables = ['jpti_events', 'jpti_outbox', 'jpti_scheduler_leases', 'jpti_schema_migrations', 'jpti_sync_cursors', 'jpti_journal_entries'];
         const missingTables = requiredTables.filter((name) => !tables.includes(name));
         const snapshotIndex = await env.JPTI_DB.prepare(
           "SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?"
