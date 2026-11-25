@@ -243,7 +243,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   const query='(bitcoin OR cryptocurrency OR financial markets OR banking) AND (war OR sanctions OR conflict OR tariff OR central bank OR inflation OR interest rate OR bank failure OR regulation)';
   const url='https://api.gdeltproject.org/api/v2/doc/doc?query='+encodeURIComponent(query)+'&mode=ArtList&format=json&maxrecords=20&timespan=24h&sort=DateDesc';
   const p=await safeJson(url),rows=Array.isArray(p.articles)?p.articles:[];
-  const parseSeen=value=>{const raw=String(value||''),m=raw.match(/^(\\d{4})(\\d{2})(\\d{2})T(\\d{2})(\\d{2})(\\d{2})Z$/);return m?m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'Z':raw;};
+  const parseSeen=value=>{const raw=String(value||''),m=raw.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z$/);return m?m[1]+'-'+m[2]+'-'+m[3]+'T'+m[4]+':'+m[5]+':'+m[6]+'Z':raw;};
   const articles=rows.map(x=>({title:String(x.title||'').slice(0,260),url:x.url||null,domain:x.domain||null,sourceCountry:x.sourcecountry||null,tone:Number.isFinite(Number(x.tone))?Number(x.tone):null,publishedAt:parseSeen(x.seendate),source:'GDELT'})).filter(x=>x.title&&x.url);
   const riskTerms=/(war|invasion|missile|attack|sanction|tariff|emergency|default|bank failure|capital control|fomc|rate decision|inflation shock|exchange halt|cyberattack)/i;
   const highImpact=articles.filter(x=>riskTerms.test(x.title)&&Number.isFinite(Date.parse(x.publishedAt))&&Date.parse(generatedAt)-Date.parse(x.publishedAt)>=-60000&&Date.parse(generatedAt)-Date.parse(x.publishedAt)<=6*3600000);
