@@ -163,7 +163,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
   const gainzAlpha = useMemo(() => analyzeGainzAlphaInspired(candles.slice(0, -1), { symbol, timeframe, historicalOutcomes: sessionMemory, now: sessionClock }), [candles, symbol, timeframe, sessionMemory, sessionClock]);
   const [gaOverlaysMounted, setGaOverlaysMounted] = useState(false);
   const ga = useGainzAlpha({ exchange, symbol, timeframe, candles });
-  const ci = useChartIntelligence({ exchange, symbol, timeframe, marketType, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, crossExchangeFlows: marketContext?.crossExchangeFlows || null, bisFlows: marketContext?.bisFlows || null, walletAttributionContext: marketContext?.walletAttribution || null, eventImpact: marketContext?.eventImpact || null, clock: sessionClock });
+  const ci = useChartIntelligence({ exchange, symbol, timeframe, marketType, candles, ga, externalLevels: alphaLevels, institutionalContext: marketContext, chainDexContext: marketContext?.chainDex || null, sessionContext: sessionDecisionContext, crossExchangeFlows: marketContext?.crossExchangeFlows || null, bisFlows: marketContext?.bisFlows || null, walletAttributionContext: marketContext?.walletAttribution || null, eventImpact: marketContext?.eventImpact || null, smtDivergence: marketContext?.smtDivergence || null, clock: sessionClock });
   const ciReady = Boolean(ci.settings.enabled && ci.result && ci.result.status === 'ready');
   const [ciOverlaysMounted, setCiOverlaysMounted] = useState(false);
   const [compactChart, setCompactChart] = useState(() => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(max-width: 600px)').matches : false));
@@ -761,6 +761,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         <span>Verified wallet swaps: <b>{marketContext?.walletAttribution?.flows?.verifiedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
         <span>BIS banking data: <b>{marketContext?.bisFlows?.status || 'not configured'}</b> · {marketContext?.bisFlows?.latest?.period || 'no observation'}</span>
         <span>Event impact: <b>{marketContext?.eventImpact?.risk || 'unavailable'}</b> · score {marketContext?.eventImpact?.impactScore ?? '—'}/100</span>
+        <span>SMT divergence: <b>{marketContext?.smtDivergence?.direction || 'neutral'}</b> · {marketContext?.smtDivergence?.primarySymbol || symbol} vs {marketContext?.smtDivergence?.correlatedSymbol || 'correlated market'} · confidence {marketContext?.smtDivergence?.confidence ?? '—'}</span>
       </div>
       {(marketContext?.eventImpact?.events || []).slice(0,3).map(event=><div className="market-context-evidence" key={event.id}>
         <span>{event.title}</span><small>{event.importance} · {event.minutesFromNow} min · {event.impactScore}/100 · Direction neutral</small>
