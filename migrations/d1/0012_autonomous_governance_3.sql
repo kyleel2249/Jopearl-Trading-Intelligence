@@ -46,3 +46,6 @@ CREATE TRIGGER IF NOT EXISTS jpti_governance_policy_version_immutable
 BEFORE UPDATE ON jpti_governance_policies
 WHEN NEW.policy_name<>OLD.policy_name OR NEW.policy_version<>OLD.policy_version OR NEW.rules_json<>OLD.rules_json OR NEW.created_by<>OLD.created_by OR NEW.created_at<>OLD.created_at
 BEGIN SELECT RAISE(ABORT,'governance policy versions are immutable'); END;
+
+ALTER TABLE jpti_agent_capabilities ADD COLUMN expires_at TEXT;
+CREATE INDEX IF NOT EXISTS jpti_agent_capabilities_expiry ON jpti_agent_capabilities(enabled,expires_at);
