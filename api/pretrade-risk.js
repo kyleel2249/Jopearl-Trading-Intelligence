@@ -2,6 +2,7 @@ import express from 'express';
 import { randomUUID } from 'node:crypto';
 import { appendStoredEvent } from './storage.js';
 import { requirePrivateApiAuth } from './policy.js';
+import { evaluateFuturesRisk } from '../src/lib/futures-risk.js';
 export const pretradeRouter=express.Router();
 const n=v=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
 const positive=v=>{const x=n(v);return x!==null&&x>0?x:null;};
@@ -44,4 +45,12 @@ export function evaluatePretradeRisk(input={},now=Date.now()){
 pretradeRouter.post('/preflight',async(req,res)=>{
  try{requirePrivateApiAuth(req);const result=evaluatePretradeRisk(req.body||{});await appendStoredEvent({kind:'pretrade-risk-assessment',source:'jpti-pretrade-risk',eventType:'preflight',externalId:result.id,occurredAt:result.generatedAt,payload:result});res.json({...result,persisted:true});}
  catch(error){res.status(error.status||400).json({error:error.message||'Pre-trade assessment failed.'});}
+});
+
+pretradeRouter.post('/futures-gate', (req,res) => {
+ try {
+  const result=evaluateFuturesRisk(req.body||{});
+  const eligible=result.decision==='eligible';
+  res.json({...result,permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,ordersCreated:0},note:'Futures risk assessment only. No exchange order is created or authorized.'});
+ } catch(error) { res.status(400).json({decision:'blocked',error:error.message||'Futures risk assessment failed.',permissions:{liveExecutionAuthorized:false,ordersCreated:0}}); }
 });

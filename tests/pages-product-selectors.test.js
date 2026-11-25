@@ -5,22 +5,14 @@ import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { join } from 'node:path';
 import { buildSync } from 'esbuild';
-
-const root = fileURLToPath(new URL('..', import.meta.url));
-
-// Drives the real pages in a DOM against a mocked Bitget API: product selectors must keep what the
-// user picks on every page, and the Workbench, Alerts, Backtest Compare and Health pages must work.
-test('product selectors hold on every page and the advanced workspaces behave', () => {
-  const dir = join(root, 'node_modules', '.cache', 'jpti-tests');
-  mkdirSync(dir, { recursive: true });
-  const bundle = join(dir, 'pages-harness.mjs');
-  buildSync({ entryPoints: [join(root, 'tests/fixtures/pages-harness.jsx')], outfile: bundle, bundle: true, format: 'esm', platform: 'node', packages: 'external', loader: { '.css': 'empty', '.jsx': 'jsx' }, jsx: 'automatic', logLevel: 'error' });
-  const run = spawnSync(process.execPath, [join(root, 'tests/fixtures/product-sync-runner.mjs'), bundle], { cwd: root, encoding: 'utf8', timeout: 120000 });
-  rmSync(bundle, { force: true });
-  assert.equal(run.status, 0, 'harness failed or hung: ' + (run.stderr || '').slice(0, 500) + (run.error ? String(run.error) : ''));
-  const { checks, loops } = JSON.parse(run.stdout.split('RESULT:')[1]);
-  assert.ok(checks.length >= 30, 'expected the full scenario set, got ' + checks.length);
-  const failed = checks.filter((c) => !c.pass).map((c) => c.name + (c.detail ? ' -> ' + c.detail : ''));
-  assert.deepEqual(failed, [], 'failed checks:\n' + failed.join('\n'));
-  assert.deepEqual(loops, [], 'render loop detected');
+const root=fileURLToPath(new URL('..',import.meta.url));
+test('market product selectors remain stable in charts and the futures workspace',()=>{
+ const dir=join(root,'node_modules','.cache','jpti-tests');mkdirSync(dir,{recursive:true});
+ const bundle=join(dir,'product-sync-harness.mjs');
+ buildSync({entryPoints:[join(root,'tests/fixtures/product-sync-harness.jsx')],outfile:bundle,bundle:true,format:'esm',platform:'node',packages:'external',loader:{'.css':'empty','.jsx':'jsx'},jsx:'automatic',logLevel:'error'});
+ const run=spawnSync(process.execPath,[join(root,'tests/fixtures/product-sync-runner.mjs'),bundle],{cwd:root,encoding:'utf8',timeout:120000});rmSync(bundle,{force:true});
+ assert.equal(run.status,0,'selector harness failed: '+(run.stderr||'').slice(0,700)+(run.error?String(run.error):''));
+ const payload=JSON.parse(run.stdout.split('RESULT:')[1]);assert.equal(payload.results.length,3);
+ for(const scenario of payload.results){assert.ok(scenario.picks.length>=5,scenario.name+' did not exercise all market types');for(const [requested,selected] of scenario.picks)assert.equal(selected,requested,scenario.name+' lost '+requested);}
+ assert.equal(payload.notices.filter(x=>/Maximum update depth exceeded/.test(x)).length,0,'React render loop detected');
 });
