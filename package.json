@@ -17,7 +17,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "check": "node scripts/apply-tbots-adapter.mjs && node scripts/check-syntax.mjs",
     "check:syntax": "node scripts/check-syntax.mjs",
-    "test": "node --test",
+    "test": "node --test && npm run verify:institutional-intelligence",
     "backtest:walkforward": "node scripts/walk-forward.mjs",
     "desktop:dev": "npm run build && electron .",
     "desktop:pack": "npm run build && electron-builder --dir",
