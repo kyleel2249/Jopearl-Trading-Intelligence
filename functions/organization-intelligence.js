@@ -156,10 +156,11 @@ async function createMission(db, env, body, fetchImpl) {
   }
 }
 async function getOverview(db) {
-  const [agents, missions, memory, messages, reviews, goals] = await Promise.all([
+  const [agents, missions, memory, foundationMemory, messages, reviews, goals] = await Promise.all([
     db.prepare('SELECT a.agent_id, a.department_id, a.name, a.role, a.status, a.goal, a.kpi_json, a.updated_at, COALESCE(m.completed_missions, 0) AS completed_missions, COALESCE(m.contributions, 0) AS contributions, COALESCE(m.evidence_linked, 0) AS evidence_linked FROM jpti_org_agents a LEFT JOIN jpti_org_agent_metrics m ON m.agent_id = a.agent_id AND m.metric_date = ? ORDER BY a.department_id, a.name').bind(dayKey()).all(),
     db.prepare('SELECT mission_id, department_id, title, objective, priority, assigned_agents_json, status, result_json, created_at, completed_at FROM jpti_org_missions ORDER BY created_at DESC LIMIT 60').all(),
     db.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 80').all(),
+    db.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, tags_json, created_at FROM jpti_intelligence_memory WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 80').bind(stamp()).all(),
     db.prepare('SELECT message_id, from_department, to_department, subject, body, priority, status, mission_id, created_at FROM jpti_org_messages ORDER BY created_at DESC LIMIT 80').all(),
     db.prepare('SELECT review_date, department_id, score, summary, metrics_json, created_at FROM jpti_org_reviews ORDER BY review_date DESC, department_id').all(),
     db.prepare('SELECT department_id, goals_json FROM jpti_org_departments').all()
@@ -169,7 +170,7 @@ async function getOverview(db) {
     generatedAt: stamp(), departments: DEPARTMENTS,
     agents: mapRows(agents, row => ({ id: row.agent_id, departmentId: row.department_id, name: row.name, role: row.role, status: row.status, goal: row.goal, kpis: parse(row.kpi_json, {}), todayMetrics: { completedMissions: row.completed_missions, contributions: row.contributions, evidenceLinked: row.evidence_linked }, updatedAt: row.updated_at })),
     missions: mapRows(missions, row => ({ id: row.mission_id, departmentId: row.department_id, title: row.title, objective: row.objective, priority: row.priority, assignedAgents: parse(row.assigned_agents_json, []), status: row.status, result: parse(row.result_json), createdAt: row.created_at, completedAt: row.completed_at })),
-    memory: mapRows(memory, row => ({ id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at })),
+    memory: [...new Map([...(memory.results || []), ...(foundationMemory.results || [])].map(row => [row.memory_id, { id: row.memory_id, departmentId: row.department_id, kind: row.kind, title: row.title, content: row.content, source: row.source, confidence: row.confidence, tags: parse(row.tags_json, []), createdAt: row.created_at }])).values()].sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt))),
     messages: mapRows(messages, row => ({ id: row.message_id, from: row.from_department, to: row.to_department, subject: row.subject, body: row.body, priority: row.priority, status: row.status, missionId: row.mission_id, createdAt: row.created_at })),
     reviews: mapRows(reviews, row => ({ date: row.review_date, departmentId: row.department_id, score: row.score, summary: row.summary, metrics: parse(row.metrics_json, {}), createdAt: row.created_at })),
     goals: mapRows(goals, row => ({ departmentId: row.department_id, goals: parse(row.goals_json, []) }))
@@ -180,7 +181,7 @@ async function dailyReview(db, departmentId) {
   const date = dayKey();
   const [missions, memories, messages] = await Promise.all([
     db.prepare("SELECT COUNT(*) AS n FROM jpti_org_missions WHERE department_id = ? AND status = 'completed' AND substr(completed_at, 1, 10) = ?").bind(departmentId, date).first(),
-    db.prepare("SELECT COUNT(*) AS n FROM jpti_org_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ?").bind(departmentId, date).first(),
+    db.prepare('SELECT COUNT(*) AS n FROM (SELECT memory_id FROM jpti_org_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ? UNION SELECT memory_id FROM jpti_intelligence_memory WHERE department_id = ? AND substr(created_at, 1, 10) = ?)').bind(departmentId, date, departmentId, date).first(),
     db.prepare("SELECT COUNT(*) AS n FROM jpti_org_messages WHERE from_department = ? AND substr(created_at, 1, 10) = ?").bind(departmentId, date).first()
   ]);
   const department = DEPARTMENTS.find(item => item.id === departmentId);
