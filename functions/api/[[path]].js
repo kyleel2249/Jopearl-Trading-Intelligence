@@ -178,10 +178,10 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
     const ageDays=reportDate?Math.max(0,(Date.parse(generatedAt)-Date.parse(reportDate))/86400000):null;
     const cftcStatus=hasPositionData&&oi>0&&ageDays!==null&&ageDays<=14?'live':'stale';
     out.cftc={status:cftcStatus,reportName:'Traders in Financial Futures · Futures Only',market:cohort.slice(0,4).map(x=>x.market_and_exchange_names).join(' · '),contracts:cohort.length,reportDate,openInterest:oi,dealer,assetManager,leveragedMoney,otherReportables,nonReportables,netBias,ageDays};
-    source('CFTC weekly leveraged-money positioning',cftcStatus,'https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
-   }else{out.cftc.status='no-match';source('CFTC weekly leveraged-money positioning','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
-  }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly leveraged-money positioning','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
- }else{out.cftc.status='unsupported';source('CFTC weekly leveraged-money positioning','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
+    source('CFTC weekly futures positioning cohorts',cftcStatus,'https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
+   }else{out.cftc.status='no-match';source('CFTC weekly futures positioning cohorts','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
+  }catch(error){out.cftc.status='offline';out.cftc.error=String(error?.message||error).slice(0,160);source('CFTC weekly futures positioning cohorts','offline','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{error:out.cftc.error});}
+ }else{out.cftc.status='unsupported';source('CFTC weekly futures positioning cohorts','unsupported','https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm');}
  // FRED: Treasury yields, broad dollar and policy rate. A user-provided key remains server-side only.
  const fredSeries=['DGS10','DTWEXBGS','DFF','WALCL','DPSACBW027SBOG','BUSLOANS','TOTBKCR'];
  if(env.FRED_API_KEY){
