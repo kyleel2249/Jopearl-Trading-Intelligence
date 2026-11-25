@@ -84,3 +84,11 @@ export function scoreAgentDisagreement(assessments=[]){
  const counts=valid.reduce((a,x)=>(a[x]=(a[x]||0)+1,a),{}),rank=Object.entries(counts).sort((a,b)=>b[1]-a[1]),agreement=rank[0][1]/valid.length;
  return{status:'available',count:valid.length,counts,consensus:rank[0][0],agreementPct:agreement*100,disagreement:agreement>=.8?'low':agreement>=.6?'moderate':'high',note:'Consensus measures directional agreement only; it is not evidence of accuracy or calibrated probability.'};
 }
+
+export function auditMarketData(input,nowMs=Date.now()){
+ const raw=Array.isArray(input)?input:[],valid=candlesOf(raw),timestamps=raw.map(r=>Array.isArray(r)?Number(r[0]):NaN).filter(Number.isFinite),unique=new Set(timestamps),sorted=[...timestamps].sort((a,b)=>a-b),deltas=sorted.slice(1).map((x,i)=>x-sorted[i]).filter(x=>x>0),interval=mean(deltas),gaps=deltas.filter(x=>interval&&x>interval*1.5).length,last=valid.at(-1),age=last?Math.max(0,nowMs-last[0]):null,invalid=raw.length-valid.length,duplicates=timestamps.length-unique.size,stale=Boolean(interval&&age>interval*3),warnings=[];
+ if(!raw.length)warnings.push('No candles supplied.');if(invalid)warnings.push(invalid+' malformed or invalid candles were discarded.');if(duplicates)warnings.push(duplicates+' duplicate candle timestamps detected.');if(gaps)warnings.push(gaps+' missing-interval gaps detected.');if(stale)warnings.push('Latest candle is stale relative to the observed interval.');
+ const status=!valid.length||invalid/raw.length>.1||stale?'degraded':invalid||duplicates||gaps?'warning':'healthy';
+ const signature=last?[valid.length,valid[0][0],last[0],valid[0][4],last[4]].join('|'):'empty';
+ return{status,rawCandles:raw.length,validCandles:valid.length,invalidCandles:invalid,duplicateTimestamps:duplicates,missingIntervals:gaps,estimatedIntervalMs:interval,latestCandleAt:last?new Date(last[0]).toISOString():null,latestCandleAgeMs:age,stale,signature,warnings};
+}
