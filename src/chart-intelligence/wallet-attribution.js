@@ -21,6 +21,20 @@ export function assessWalletAttribution({chain,address,claims=[]}={}){
     evidence:evidence.map(x=>({type:x.type,source:x.source,sourceUrl:x.sourceUrl,verifiedAt:x.verifiedAt||null,recordId:x.registryRecordId||null})),
     reason:verified?"Attribution supported by explicit verified evidence.":"No qualifying ownership proof; address remains unattributed."};
 }
+export function aggregateAttributedWalletSwapFlows(trades,attributions,{now=Date.now(),maxAgeMs=24*60*60*1000}={}){
+  const map=new Map((attributions||[]).filter(a=>a.verified).map(a=>[String(a.chain).toLowerCase()+":"+String(a.address).toLowerCase(),a]));
+  const rows=(trades||[]).filter(t=>t&&t.trader&&Number.isFinite(Number(t.timestamp))&&now-Number(t.timestamp)<=maxAgeMs);
+  let buyUsd=0,sellUsd=0,verifiedTrades=0;const entities=new Map();
+  for(const t of rows){const attribution=map.get(String(t.chainId||t.chain).toLowerCase()+":"+String(t.trader).toLowerCase());if(!attribution?.verified)continue;
+    const amount=Math.max(0,Number(t.amountUsd)||0);if(t.side==="buy")buyUsd+=amount;else if(t.side==="sell")sellUsd+=amount;else continue;
+    verifiedTrades++;const key=attribution.entity||attribution.address;entities.set(key,(entities.get(key)||0)+(t.side==="buy"?amount:-amount));
+  }
+  const total=buyUsd+sellUsd,netflowUsd=buyUsd-sellUsd;
+  return{status:verifiedTrades?"ready":"unavailable",basis:"verified-wallet-geckoterminal-swap-sample",buyUsd,sellUsd,netflowUsd,
+    score:total?Number((netflowUsd/total).toFixed(4)):0,verifiedTrades,entities:[...entities].map(([entity,netflowUsd])=>({entity,netflowUsd})).sort((a,b)=>Math.abs(b.netflowUsd)-Math.abs(a.netflowUsd)).slice(0,25),
+    coverage:{sampledTrades:rows.length,verifiedTrades},caveat:"Only swaps from explicitly verified wallet addresses are included. Sampled pools and provider coverage are incomplete; a verified address does not establish that all activity is institutional."};
+}
+
 export function aggregateAttributedWalletFlows(transfers,attributions,{asset=null,now=Date.now(),maxAgeMs=24*60*60*1000}={}){
   const map=new Map((attributions||[]).map(a=>[String(a.chain).toLowerCase()+":"+String(a.address).toLowerCase(),a]));
   const rows=(transfers||[]).filter(t=>t&&Number.isFinite(Number(t.timestamp))&&now-Number(t.timestamp)<=maxAgeMs&&(!asset||String(t.asset).toUpperCase()===String(asset).toUpperCase()));
