@@ -168,9 +168,9 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
    const rows=await safeJson('https://publicreporting.cftc.gov/resource/gpe5-46if.json?'+query.toString());
    const row=(Array.isArray(rows)?rows:[]).find(x=>Number(x.open_interest_all)>0);
    if(row){
-    const long=Number(row.lev_money_positions_long_all||0),short=Number(row.lev_money_positions_short_all||0),oi=Number(row.open_interest_all||0),net=long-short,reportDate=String(row.report_date_as_yyyy_mm_dd||'').slice(0,10);
+    const long=Number(row.lev_money_positions_long_all??row.lev_money_positions_long??row.leveraged_money_positions_long_all),short=Number(row.lev_money_positions_short_all??row.lev_money_positions_short??row.leveraged_money_positions_short_all),oi=Number(row.open_interest_all||0),net=long-short,reportDate=String(row.report_date_as_yyyy_mm_dd||'').slice(0,10);
     const ageDays=reportDate?Math.max(0,(Date.parse(generatedAt)-Date.parse(reportDate))/86400000):null;
-    const cftcStatus=ageDays!==null&&ageDays<=14?'live':'stale';
+    const cftcStatus=Number.isFinite(long)&&Number.isFinite(short)&&oi>0&&ageDays!==null&&ageDays<=14?'live':'stale';
     out.cftc={status:cftcStatus,reportName:'Traders in Financial Futures · Futures Only',market:row.market_and_exchange_names,reportDate,openInterest:oi,leveragedMoneyLong:long,leveragedMoneyShort:short,netPosition:net,netBias:Math.max(-1,Math.min(1,net/oi/.25)),longShortRatio:short?long/short:null,ageDays};
     source('CFTC weekly leveraged-money positioning',cftcStatus,'https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if',{reportDate});
    }else{out.cftc.status='no-match';source('CFTC weekly leveraged-money positioning','no-match','https://publicreporting.cftc.gov/Commitments-of-Traders/TFF-Futures-Only/gpe5-46if');}
@@ -239,7 +239,7 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
  const key='jpti:microstructure:v1:'+exchange+':'+symbol+':'+marketType;
  if(env.JPTI_KV){try{const hit=await env.JPTI_KV.get(key,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<15000)return hit.body;}catch{/* continue to public exchange */}}
  const out={orderBookImbalancePct:null,fundingRate:null,sources:[],generatedAt};
- const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),derivative=!['spot','margin','cfd'].includes(String(marketType||'spot').toLowerCase());
+ const baseSymbol=String(symbol||'').replace(/[/-]/g,'').toUpperCase(),type=String(marketType||'spot').toLowerCase(),derivative=!['spot','margin','cfd'].includes(type),coinMargined=type.includes('coin');
  const get=async url=>{const r=await fetchImpl(url,{headers:{accept:'application/json'}});if(!r.ok)throw new Error('HTTP '+r.status);return r.json();};
  let bookUrl=null,fundingUrl=null;
  if(exchange==='bitget'&&marketType!=='cfd'){
@@ -247,15 +247,15 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
   bookUrl=derivative?'https://api.bitget.com/api/v2/mix/market/merge-depth?productType='+productType+'&symbol='+baseSymbol+'&limit=20':'https://api.bitget.com/api/v2/spot/market/orderbook?symbol='+baseSymbol+'&type=step0&limit=20';
   if(derivative)fundingUrl='https://api.bitget.com/api/v2/mix/market/current-fund-rate?productType='+productType+'&symbol='+baseSymbol;
  }else if(exchange==='binance'){
-  bookUrl=(derivative?'https://fapi.binance.com/fapi/v1/depth?symbol=':'https://api.binance.com/api/v3/depth?symbol=')+baseSymbol+'&limit=20';
-  if(derivative)fundingUrl='https://fapi.binance.com/fapi/v1/premiumIndex?symbol='+baseSymbol;
+  bookUrl=(derivative?(coinMargined?'https://dapi.binance.com/dapi/v1/depth?symbol=':'https://fapi.binance.com/fapi/v1/depth?symbol='):'https://api.binance.com/api/v3/depth?symbol=')+baseSymbol+'&limit=20';
+  if(derivative)fundingUrl=(coinMargined?'https://dapi.binance.com/dapi/v1/premiumIndex?symbol=':'https://fapi.binance.com/fapi/v1/premiumIndex?symbol=')+baseSymbol;
  }else if(exchange==='bybit'){
   const category=derivative?(String(marketType).includes('coin')?'inverse':'linear'):'spot';
   bookUrl='https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+baseSymbol+'&limit=25';
   if(derivative)fundingUrl='https://api.bybit.com/v5/market/tickers?category='+category+'&symbol='+baseSymbol;
  }else if(exchange==='okx'){
-  const pair=String(symbol||'').replace('/', '-').replace('-', '-');
-  const inst=derivative?pair+'-SWAP':pair;
+  const pair=String(symbol||'').replace('/', '-');
+  const inst=derivative?(coinMargined?pair.split('-')[0]+'-USD-SWAP':pair+'-SWAP'):pair;
   bookUrl='https://www.okx.com/api/v5/market/books?instId='+encodeURIComponent(inst)+'&sz=20';
   if(derivative)fundingUrl='https://www.okx.com/api/v5/public/funding-rate?instId='+encodeURIComponent(inst);
  }
@@ -270,7 +270,7 @@ async function fetchExchangeMicrostructure(exchange,symbol,marketType,fetchImpl=
  if(fundingUrl){
   try{
    const p=await get(fundingUrl),d=exchange==='bybit'?p.result?.list?.[0]:(exchange==='okx'?p.data?.[0]:(Array.isArray(p.data)?p.data[0]:p.data||p));
-   const rate=Number(d?.fundingRate??d?.funding_rate??d?.fundingRate);
+   const rate=Number(d?.fundingRate??d?.funding_rate??d?.lastFundingRate);
    out.fundingRate=Number.isFinite(rate)?rate:null;
    out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:out.fundingRate==null?'empty':'live',retrievedAt:generatedAt});
   }catch(error){out.sources.push({name:exchange.toUpperCase()+' perpetual funding',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,140)});}
@@ -1062,8 +1062,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         context.body.multiTimeframe = [...(context.body.multiTimeframe || []), ...(multiTimeframe.timeframes || [])];
         context.body.sources = (context.body.sources || []).filter(x => !['Order book depth','Perpetual funding','Global market context'].includes(x.name));
         context.body.sources = [...context.body.sources, ...(microstructure.sources || []), ...(globalContext.sources || []), ...(multiTimeframe.sources || [])];
-        const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt, env);
-        const institutionalSources = await fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt);
+        const [chainDex, institutionalSources] = await Promise.all([
+          fetchChainDexContext(symbol, fetchImpl, generatedAt, env),
+          fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt)
+        ]);
         context.body.institutionalSources = institutionalSources;
         context.body.sources = [...(context.body.sources || []), ...(institutionalSources.sources || [])];
         context.body.limitations = [...(context.body.limitations || []), ...(institutionalSources.limitations || [])];
