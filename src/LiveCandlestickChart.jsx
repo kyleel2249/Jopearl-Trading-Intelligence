@@ -759,8 +759,8 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       </div>)}
       <div className="market-context-evidence">
         <span>Cross-exchange flow: <b>{marketContext?.crossExchangeFlows?.bias || 'unavailable'}</b> · {marketContext?.crossExchangeFlows?.venueCount ?? 0} venues · confidence {marketContext?.crossExchangeFlows?.confidence ?? '—'}</span>
-        <span>Verified wallet swaps: <b>{marketContext?.walletAttribution?.flows?.verifiedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
-        <span>BIS banking data: <b>{marketContext?.bisFlows?.status || 'not configured'}</b> · {marketContext?.bisFlows?.latest?.period || 'no observation'}</span>
+        <span>Verified wallets {marketContext?.walletAttribution?.verifiedWallets?.length ?? 0} · swaps <b>{marketContext?.walletAttribution?.flows?.verifiedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
+        <span>BIS banking data: <b>{marketContext?.bisFlows?.status || 'not configured'}</b> · {marketContext?.bisFlows?.latest?.period || 'no observation'} · Source: BIS</span>
         <span>Event impact: <b>{marketContext?.eventImpact?.risk || 'unavailable'}</b> · score {marketContext?.eventImpact?.impactScore ?? '—'}/100</span>
         <span>SMT divergence: <b>{marketContext?.smtDivergence?.direction || 'neutral'}</b> · {marketContext?.smtDivergence?.primarySymbol || symbol} vs {marketContext?.smtDivergence?.correlatedSymbol || 'correlated market'} · confidence {marketContext?.smtDivergence?.confidence ?? '—'}</span>
       </div>
