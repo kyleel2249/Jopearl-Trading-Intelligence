@@ -1098,7 +1098,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const [chainDex, institutionalSources, bisFlows, venueMicrostructure] = await Promise.all([
           fetchChainDexContext(symbol, fetchImpl, generatedAt, env),
           fetchInstitutionalSources(symbol, env, fetchImpl, generatedAt),
-          fetchBisFlows({ url: env.BIS_LBS_DATA_URL, fetchImpl, now: Date.parse(generatedAt) }),
+          fetchBisFlows({ url: env.BIS_LBS_DATA_URL, fetchImpl, now: Date.parse(generatedAt), env }),
           Promise.all(['binance','bybit','okx','bitget'].map(async venue => ({ venue, data: await fetchExchangeMicrostructure(venue, symbol, 'futures', fetchImpl, env, generatedAt) })))
         ]);
         context.body.institutionalSources = institutionalSources;
