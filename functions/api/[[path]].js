@@ -123,19 +123,20 @@ async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date(
   result.pools=selected.map(({p,baseIsTarget})=>{const tx=p.txns?.h24||{},buys=Number(tx.buys||0),sells=Number(tx.sells||0),volume=Number(p.volume?.h24||0),total=buys+sells;if(total>0){const buy=volume*buys/total,sell=volume*sells/total;if(baseIsTarget){estBuy+=buy;estSell+=sell;}else{estBuy+=sell;estSell+=buy;}buyCount+=baseIsTarget?buys:sells;sellCount+=baseIsTarget?sells:buys;}return{chainId:p.chainId,dexId:p.dexId,pairAddress:p.pairAddress,pairUrl:p.url,baseToken:p.baseToken,quoteToken:p.quoteToken,baseIsTarget,priceUsd:baseIsTarget?(Number(p.priceUsd||0)||null):null,liquidityUsd:Number(p.liquidity?.usd||0)||0,volume24hUsd:volume,priceChange24hPct:baseIsTarget?Number(p.priceChange?.h24||0):(Number(p.priceChange?.h24||0)>-99?((1/(1+Number(p.priceChange?.h24||0)/100)-1)*100):null),buys,sells,tokenAddress:baseIsTarget?p.baseToken?.address:p.quoteToken?.address,identityVerified:false,identityMethod:'symbol-alias-match-unverified',pairCreatedAt:p.pairCreatedAt||null};});
   result.flow={buyUsd:estBuy,sellUsd:estSell,buys:buyCount,sells:sellCount,basis:'dexscreener-count-weighted-estimate'};
   result.sources.push({name:'DexScreener multi-chain pool and 24h transaction aggregates',status:'live',retrievedAt:generatedAt});
-  const best=selected[0],network=DEX_NETWORK_MAP[String(best.p.chainId||'').toLowerCase()];
-  if(network){
-   try{
-    const url='https://api.geckoterminal.com/api/v2/networks/'+encodeURIComponent(network)+'/pools/'+encodeURIComponent(best.p.pairAddress)+'/trades?trade_volume_in_usd_greater_than=0';
-    const gr=await fetchImpl(url,{headers:{accept:'application/json;version=20230203'}});
-    if(!gr.ok)throw new Error('GeckoTerminal HTTP '+gr.status);
-    const gp=await gr.json(),raw=Array.isArray(gp.data)?gp.data:[];
-    const trades=raw.map(x=>normaliseDexTrade(x,{baseIsTarget:best.baseIsTarget,chainId:best.p.chainId,poolAddress:best.p.pairAddress,dexId:best.p.dexId})).filter(Boolean).filter(t=>Date.parse(generatedAt)-t.timestamp>=-60000&&Date.parse(generatedAt)-t.timestamp<=24*60*60*1000).sort((a,b)=>b.timestamp-a.timestamp).slice(0,60);
-    result.trades=trades;
-    if(trades.length){const buy=trades.filter(t=>t.side==='buy').reduce((a,t)=>a+t.amountUsd,0),sell=trades.filter(t=>t.side==='sell').reduce((a,t)=>a+t.amountUsd,0);result.flow={buyUsd:buy,sellUsd:sell,buys:trades.filter(t=>t.side==='buy').length,sells:trades.filter(t=>t.side==='sell').length,basis:'geckoterminal-confirmed-swap-sample'};}
-    result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'live',retrievedAt:generatedAt,network,poolAddress:best.p.pairAddress});
-   }catch(error){result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,160)});result.limitations.push('Confirmed swap sampling was unavailable; DEX aggregate buy/sell counts are retained as an explicitly estimated fallback.');}
-  }else{result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'unsupported',retrievedAt:generatedAt});result.limitations.push('The highest-liquidity DEX chain has no configured GeckoTerminal network mapping.');}
+  const tradePools=[];const seenNetworks=new Set();
+  for(const candidate of selected){const network=DEX_NETWORK_MAP[String(candidate.p.chainId||'').toLowerCase()];if(network&&!seenNetworks.has(network)){tradePools.push({...candidate,network});seenNetworks.add(network);}if(tradePools.length>=2)break;}
+  const sampled=await Promise.all(tradePools.map(async candidate=>{try{
+   const url='https://api.geckoterminal.com/api/v2/networks/'+encodeURIComponent(candidate.network)+'/pools/'+encodeURIComponent(candidate.p.pairAddress)+'/trades?trade_volume_in_usd_greater_than=0';
+   const gr=await fetchImpl(url,{headers:{accept:'application/json;version=20230203'}});if(!gr.ok)throw new Error('GeckoTerminal HTTP '+gr.status);
+   const gp=await gr.json(),raw=Array.isArray(gp.data)?gp.data:[];
+   const trades=raw.map(x=>normaliseDexTrade(x,{baseIsTarget:candidate.baseIsTarget,chainId:candidate.p.chainId,poolAddress:candidate.p.pairAddress,dexId:candidate.p.dexId})).filter(Boolean).filter(t=>Date.parse(generatedAt)-t.timestamp>=-60000&&Date.parse(generatedAt)-t.timestamp<=24*60*60*1000).sort((a,b)=>b.timestamp-a.timestamp).slice(0,60);
+   return{trades,source:{name:'GeckoTerminal confirmed pool swaps · '+candidate.p.chainId,status:'live',retrievedAt:generatedAt,network:candidate.network,poolAddress:candidate.p.pairAddress}};
+  }catch(error){return{trades:[],source:{name:'GeckoTerminal confirmed pool swaps · '+candidate.p.chainId,status:'offline',retrievedAt:generatedAt,error:String(error?.message||error).slice(0,160)}};}}));
+  result.trades=sampled.flatMap(x=>x.trades).sort((a,b)=>b.timestamp-a.timestamp).slice(0,120);
+  result.sources.push(...sampled.map(x=>x.source));
+  if(result.trades.length){const buy=result.trades.filter(t=>t.side==='buy').reduce((a,t)=>a+t.amountUsd,0),sell=result.trades.filter(t=>t.side==='sell').reduce((a,t)=>a+t.amountUsd,0);result.flow={buyUsd:buy,sellUsd:sell,buys:result.trades.filter(t=>t.side==='buy').length,sells:result.trades.filter(t=>t.side==='sell').length,basis:'geckoterminal-confirmed-swap-sample'};}
+  if(!tradePools.length){result.sources.push({name:'GeckoTerminal confirmed pool swaps',status:'unsupported',retrievedAt:generatedAt});result.limitations.push('No supported GeckoTerminal network was found for the highest-liquidity pools.');}
+  if(!result.trades.length)result.limitations.push('Confirmed swap sampling returned no usable trades; DEX aggregate buy/sell counts remain an explicitly estimated fallback.');
   result.transactionsBasis=result.trades.length?'confirmed-swap-sample':'24h-aggregate-only';
   result.limitations.push('DEX pool coverage is a symbol-based discovery sample, not every pool or every blockchain transaction. Token identity must be checked before using low-liquidity or similarly named assets.');
  }catch(error){result.error=String(error?.message||error).slice(0,200);result.sources.push({name:'DexScreener pair discovery',status:'offline',retrievedAt:generatedAt,error:result.error});}
