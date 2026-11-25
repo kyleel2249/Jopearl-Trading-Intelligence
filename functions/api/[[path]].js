@@ -104,8 +104,10 @@ async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
 const DEX_NETWORK_MAP={ethereum:'eth',eth:'eth',bsc:'bsc',polygon:'polygon_pos',polygon_pos:'polygon_pos',arbitrum:'arbitrum',optimism:'optimism',base:'base',solana:'solana',avalanche:'avax',avax:'avax',fantom:'ftm',ftm:'ftm',cronos:'cro',linea:'linea',zksync:'zksync',sui:'sui',ton:'ton'};
 const DEX_TOKEN_ALIASES={BTC:['BTC','WBTC'],ETH:['ETH','WETH'],BNB:['BNB','WBNB'],AVAX:['AVAX','WAVAX'],MATIC:['MATIC','WMATIC','POL'],SOL:['SOL'],DOGE:['DOGE'],XRP:['XRP'],LINK:['LINK'],UNI:['UNI'],AAVE:['AAVE'],ARB:['ARB'],OP:['OP']};
 const STABLE_QUOTES=new Set(['USDT','USDC','DAI','FDUSD','USDE','BUSD','USD']);
-async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date().toISOString()){
+async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date().toISOString(),env={}){
  const target=String(symbol||'').split(/[/-]/)[0].toUpperCase(),aliases=new Set(DEX_TOKEN_ALIASES[target]||[target]);
+ const dexCacheKey='jpti:dex-context:v1:'+target;
+ if(env.JPTI_KV&&/^[A-Z0-9]{2,16}$/.test(target)){try{const hit=await env.JPTI_KV.get(dexCacheKey,'json');if(hit?.body&&Date.now()-Date.parse(hit.cachedAt||'')<60000)return hit.body;}catch{/* live discovery remains available if KV is down */}}
  if(!/^[A-Z0-9]{2,16}$/.test(target))return{status:'unavailable',reason:'Unsupported market symbol for DEX discovery',generatedAt,pools:[],trades:[],sources:[],flow:{basis:'unavailable'}};
  const result={status:'unavailable',symbol:target,generatedAt,pools:[],trades:[],sources:[],flow:{buyUsd:0,sellUsd:0,buys:0,sells:0,basis:'unavailable'},coverage:{chains:0,pools:0},limitations:[]};
  try{
@@ -115,7 +117,7 @@ async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date(
   const matches=all.filter(p=>{const bs=String(p.baseToken?.symbol||'').toUpperCase(),qs=String(p.quoteToken?.symbol||'').toUpperCase();return aliases.has(bs)||aliases.has(qs);});
   const ranked=matches.map(p=>{const baseIsTarget=aliases.has(String(p.baseToken?.symbol||'').toUpperCase()),quote=String(p.quoteToken?.symbol||'').toUpperCase(),liq=Number(p.liquidity?.usd||0),vol=Number(p.volume?.h24||0);return{p,baseIsTarget,liq,vol,rank:liq*(STABLE_QUOTES.has(quote)?1.35:1)*(baseIsTarget?1.05:0.95)};}).filter(x=>x.liq>0).sort((a,b)=>b.rank-a.rank);
   const selected=ranked.slice(0,5);
-  if(!selected.length){result.limitations.push('No exact token-symbol match with measurable DEX pool liquidity was returned.');result.sources.push({name:'DexScreener pair discovery',status:'live',retrievedAt:generatedAt});return result;}
+  if(!selected.length){result.limitations.push('No exact token-symbol match with measurable DEX pool liquidity was returned.');result.sources.push({name:'DexScreener pair discovery',status:'live',retrievedAt:generatedAt});if(env.JPTI_KV){try{await env.JPTI_KV.put(dexCacheKey,JSON.stringify({cachedAt:generatedAt,body:result}),{expirationTtl:60});}catch{/* best effort */}}return result;}
   result.status='ready';result.coverage={chains:new Set(selected.map(x=>x.p.chainId)).size,pools:selected.length};
   let estBuy=0,estSell=0,buyCount=0,sellCount=0;
   result.pools=selected.map(({p,baseIsTarget})=>{const tx=p.txns?.h24||{},buys=Number(tx.buys||0),sells=Number(tx.sells||0),volume=Number(p.volume?.h24||0),total=buys+sells;if(total>0){const buy=volume*buys/total,sell=volume*sells/total;if(baseIsTarget){estBuy+=buy;estSell+=sell;}else{estBuy+=sell;estSell+=buy;}buyCount+=baseIsTarget?buys:sells;sellCount+=baseIsTarget?sells:buys;}return{chainId:p.chainId,dexId:p.dexId,pairAddress:p.pairAddress,pairUrl:p.url,baseToken:p.baseToken,quoteToken:p.quoteToken,baseIsTarget,priceUsd:Number(p.priceUsd||0)||null,liquidityUsd:Number(p.liquidity?.usd||0)||0,volume24hUsd:volume,priceChange24hPct:Number(p.priceChange?.h24||0),buys,sells,pairCreatedAt:p.pairCreatedAt||null};});
@@ -137,7 +139,13 @@ async function fetchChainDexContext(symbol,fetchImpl=fetch,generatedAt=new Date(
   result.transactionsBasis=result.trades.length?'confirmed-swap-sample':'24h-aggregate-only';
   result.limitations.push('DEX pool coverage is a symbol-based discovery sample, not every pool or every blockchain transaction. Token identity must be checked before using low-liquidity or similarly named assets.');
  }catch(error){result.error=String(error?.message||error).slice(0,200);result.sources.push({name:'DexScreener pair discovery',status:'offline',retrievedAt:generatedAt,error:result.error});}
+ if(env.JPTI_KV){try{await env.JPTI_KV.put(dexCacheKey,JSON.stringify({cachedAt:generatedAt,body:result}),{expirationTtl:60});}catch{/* best effort */}}
  return result;
+}
+async function readDexTransactions(env,symbol,limit=60){
+ if(!env.JPTI_DB)return{transactions:[],storage:'unavailable',reason:'JPTI_DB binding unavailable'};
+ try{const rows=await env.JPTI_DB.prepare("SELECT payload FROM jpti_events WHERE kind='dex-swap' AND symbol=? ORDER BY occurred_at DESC LIMIT ?").bind(String(symbol||'').slice(0,40),Math.min(100,Math.max(1,Number(limit)||60))).all();const transactions=(rows.results||[]).map(row=>{try{return typeof row.payload==='string'?JSON.parse(row.payload):row.payload;}catch{return null;}}).filter(Boolean);return{transactions,storage:'cloudflare-d1',count:transactions.length};}
+ catch(error){return{transactions:[],storage:'degraded',reason:String(error?.message||error).slice(0,160)};}
 }
 async function persistDexTransactions(env,symbol,trades){
  if(!env.JPTI_DB)return{persisted:false,count:0,reason:'JPTI_DB binding unavailable'};
@@ -892,9 +900,10 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       const generatedAt = now().toISOString();
       const context = buildCandleContext(exchange, symbol, timeframe, candlesResult.body?.candles, generatedAt);
       if (context.status === 200) {
-        const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt);
-        const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol, chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
-        context.body.chainDex = { ...chainDex, persistence: persisted };
+        const chainDex = await fetchChainDexContext(symbol, fetchImpl, generatedAt, env);
+        const persisted = chainDex.trades?.length ? await persistDexTransactions(env, symbol.replace('-', '/'), chainDex.trades) : { persisted: false, count: 0, reason: 'No confirmed swap sample to persist' };
+        const history = await readDexTransactions(env, symbol.replace('-', '/'), 80);
+        context.body.chainDex = { ...chainDex, persistence: persisted, history };
         await cacheMarketResponse(env, marketRouteKey, context.status, context.body, generatedAt);
       }
       return json(context.status, context.body, request, { 'x-jpti-cache': 'miss' });
