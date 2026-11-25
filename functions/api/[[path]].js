@@ -1195,7 +1195,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         let walletRegistry = [];
         try { const parsed = JSON.parse(String(env.JPTI_VERIFIED_WALLET_REGISTRY || '[]')); walletRegistry = Array.isArray(parsed) ? parsed : []; } catch { walletRegistry = []; }
         const manualWalletAttributions = walletRegistry.map(item => assessWalletAttribution(item));
-        const providerWalletLabels = await fetchBitqueryWalletLabels(chainDex.trades || [], { apiToken: env.BITQUERY_ACCESS_TOKEN, fetchImpl, maxAddresses: 400 });
+        const providerWalletLabels = await fetchBitqueryWalletLabels(chainDex.trades || [], { apiToken: env.BITQUERY_ACCESS_TOKEN, fetchImpl, maxAddresses: 400, env });
         const walletAttributions = [...manualWalletAttributions, ...(providerWalletLabels.labels || [])];
         const walletFlows = aggregateAttributedWalletSwapFlows(chainDex.trades || [], walletAttributions, { now:Date.parse(generatedAt) });
         context.body.walletAttribution = { status:walletAttributions.some(x=>x.verified||x.providerAttributed)?'ready':providerWalletLabels.status, verifiedWallets:walletAttributions.filter(x=>x.verified), providerAttributedWallets:walletAttributions.filter(x=>x.providerAttributed), unverifiedCount:manualWalletAttributions.filter(x=>!x.verified).length, provider:providerWalletLabels, flows:walletFlows, basis:'manual-evidence-registry-plus-provider-labels-plus-sampled-dex-swaps' };
