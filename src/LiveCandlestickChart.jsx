@@ -657,6 +657,19 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />
     <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} instrumentId={marketInstrumentId} candles={candles} />
     <div className="market-context-panel">
+      <div className="market-context-heading"><b>INSTITUTIONAL DECISION INPUT</b><span>{ci.result?.institutional?.status === 'ready' ? 'FED INTO CHART CONFLUENCE' : ci.result?.institutional?.status === 'stale' ? 'STALE · EXCLUDED' : 'AWAITING VERIFIED INPUT'}</span></div>
+      <div className="market-context-summary">
+        <strong className={ci.result?.institutional?.score > 0 ? 'up' : ci.result?.institutional?.score < 0 ? 'down' : ''}>{ci.result?.institutional?.status === 'ready' ? (ci.result.institutional.score > 0 ? 'BULLISH' : ci.result.institutional.score < 0 ? 'BEARISH' : 'NEUTRAL') : 'UNAVAILABLE'}</strong>
+        <span>Institutional score {ci.result?.institutional?.score ?? '—'}</span>
+        <span>Evidence confidence {ci.result?.institutional?.confidence ?? '—'}</span>
+        <span>Source coverage {ci.result?.institutional?.sourceCoverage == null ? '—' : (ci.result.institutional.sourceCoverage * 100).toFixed(0) + '%'}</span>
+        <span>Chart confluence {ci.result?.confluence?.score ?? '—'}</span>
+        <span>Institutional contribution {ci.result?.confluence?.components?.find(x => x.key === 'institutional')?.contribution ?? '0'}</span>
+      </div>
+      <div className="market-context-evidence">{(ci.result?.institutional?.evidence || []).map(item => <span key={item.factor}>{item.factor}: <b>{item.contribution > 0 ? '+' : ''}{item.contribution}</b></span>)}</div>
+      {ci.result?.conflicts?.some(x => x.id === 'institutional-context-opposes') && <p className="quote-error">Independent institutional evidence conflicts with the active chart signal. Setup quality is reduced; review the evidence before acting.</p>}
+    </div>
+    <div className="market-context-panel">
       <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
       {marketContext ? <>
         <div className="market-context-summary"><strong className={marketContext.score.score > 0 ? 'up' : marketContext.score.score < 0 ? 'down' : ''}>{marketContext.score.direction.toUpperCase()}</strong><span>Evidence score {marketContext.score.score}</span><span>Confidence: {marketContext.score.confidence}</span><span>20-bar momentum: {marketContext.market.priceChangePct}%</span><span>Relative volume: {marketContext.market.volumeChangePct == null ? '—' : marketContext.market.volumeChangePct + '%'}</span><span>Global crypto market 24h: {marketContext.broadContext.globalMarketCapChange24hPct == null ? '—' : marketContext.broadContext.globalMarketCapChange24hPct.toFixed(2) + '%'}</span><span>Order-book imbalance: {marketContext.market.orderBookImbalancePct == null ? 'Not supported' : marketContext.market.orderBookImbalancePct + '%'}</span><span>Funding: {marketContext.market.fundingRate == null ? 'Not supported' : (marketContext.market.fundingRate * 100).toFixed(4) + '%'}</span></div>
