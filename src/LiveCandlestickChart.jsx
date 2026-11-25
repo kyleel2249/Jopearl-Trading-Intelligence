@@ -759,15 +759,15 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
       </div>)}
       <div className="market-context-evidence">
         <span>Cross-exchange flow: <b>{marketContext?.crossExchangeFlows?.bias || 'unavailable'}</b> · {marketContext?.crossExchangeFlows?.venueCount ?? 0} venues · confidence {marketContext?.crossExchangeFlows?.confidence ?? '—'}</span>
-        <span>Verified wallets {marketContext?.walletAttribution?.verifiedWallets?.length ?? 0} · swaps <b>{marketContext?.walletAttribution?.flows?.verifiedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
-        <span>BIS banking data: <b>{marketContext?.bisFlows?.status || 'not configured'}</b> · {marketContext?.bisFlows?.latest?.period || 'no observation'} · Source: BIS</span>
-        <span>Event impact: <b>{marketContext?.eventImpact?.risk || 'unavailable'}</b> · score {marketContext?.eventImpact?.impactScore ?? '—'}/100</span>
+        <span>Wallets: verified <b>{marketContext?.walletAttribution?.verifiedWallets?.length ?? 0}</b> · provider-labelled <b>{marketContext?.walletAttribution?.providerAttributedWallets?.length ?? 0}</b> · attributed swaps <b>{marketContext?.walletAttribution?.flows?.attributedTrades ?? 0}</b> · net {marketContext?.walletAttribution?.flows?.netflowUsd == null ? '—' : Number(marketContext.walletAttribution.flows.netflowUsd).toLocaleString()}</span>
+        <span>BIS catalogue: <b>{marketContext?.bisFlows?.catalogueStatus || marketContext?.bisFlows?.status || 'loading'}</b> · {marketContext?.bisFlows?.financialDataflows ?? 0} financial dataflows · {marketContext?.bisFlows?.seriesObserved ?? 0} series scanned · {marketContext?.bisFlows?.coveragePct ?? 0}% scan coverage</span>
+        <span>Event impact: <b>{marketContext?.eventImpact?.risk || 'unavailable'}</b> · score {marketContext?.eventImpact?.impactScore ?? '—'}/100 · {marketContext?.eventCalendar?.eventCount ?? 0} calendar events</span>
         <span>SMT divergence: <b>{marketContext?.smtDivergence?.direction || 'neutral'}</b> · {marketContext?.smtDivergence?.primarySymbol || symbol} vs {marketContext?.smtDivergence?.correlatedSymbol || 'correlated market'} · confidence {marketContext?.smtDivergence?.confidence ?? '—'}</span>
       </div>
-      {(marketContext?.eventImpact?.events || []).slice(0,3).map(event=><div className="market-context-evidence" key={event.id}>
+      {(marketContext?.eventImpact?.events || []).slice(0,6).map(event=><div className="market-context-evidence" key={event.id}>
         <span>{event.title}</span><small>{event.importance} · {event.minutesFromNow} min · {event.impactScore}/100 · Direction neutral</small>
       </div>)}
-      <p>FVG + Liquidity scores rank linked sweep, displacement, structure and imbalance evidence. Cross-exchange data is public order-book/funding proxy; wallet attribution is shown only for explicitly verified addresses. BIS observations are macro context, not tick-level flows.</p>
+      <p>FVG + Liquidity scores rank linked sweep, displacement, structure and imbalance evidence. Cross-exchange data is public order-book/funding proxy; wallet identities distinguish proof-verified entries from third-party provider labels; unknown addresses remain unattributed. BIS scans rotate across all financially relevant dataflows and retain observation frequency.</p>
     </div>
     <div className="smc-event-strip">
       <div><small>FVG zones</small><strong>{smartMoney.fairValueGaps.length}</strong></div>
