@@ -15,6 +15,7 @@ const AssetIntelligence = lazy(() => import('./AssetIntelligence.jsx'));
 const ResearchCouncil = lazy(() => import('./ResearchCouncil.jsx'));
 const PortfolioAllocation = lazy(() => import('./PortfolioAllocation.jsx'));
 const MarketStream = lazy(() => import('./MarketStream.jsx'));
+const OpportunityRadar = lazy(() => import('./OpportunityRadar.jsx'));
 const Phase15To21Workspaces = lazy(() => import('./Phase15To21Workspaces.jsx'));
 const AlphaSignalEngine = lazy(() => import('./AlphaSignalEngine.jsx'));
 const SignalIntelligenceDashboard = lazy(() => import('../dashboard/app/DashboardApp.jsx'));
@@ -65,6 +66,7 @@ const navigation = [
   { label: 'Asset Intelligence', icon: Network, group: 'MARKETS' },
   { label: 'AI Intelligence', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Institutional Market Intelligence', icon: Network, group: 'INTELLIGENCE' },
+  { label: 'Opportunity Radar', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Market Scanner', icon: Search, group: 'INTELLIGENCE' },
   { label: 'SOPH Pair Scanner', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Financial & On-chain', icon: Blocks, group: 'INTELLIGENCE' },
@@ -444,6 +446,7 @@ function App() {
     'AI Intelligence': 'Signal evidence, market context and explainable analysis.',
     'AI Agent Command Center': 'Ten explainable specialist agents, multi-agent debate, risk vetoes and persistent research memory.',
     'Institutional Market Intelligence': 'Shared chart-linked market evidence, regime, structure, liquidity, flow and scenarios.',
+    'Opportunity Radar': 'Rank a liquid multi-asset watchlist using explainable evidence and synchronized cross-market return correlations.',
     'Market Scanner': 'Configure market watchlists for scheduled live ticker monitoring.',
     'Financial & On-chain': 'Macro, digital-asset, provider and wallet intelligence.',
     'News & Events': 'News discovery and event context from connected sources.',
@@ -530,6 +533,7 @@ function App() {
     if (page === 'Signal Intelligence') return <SignalIntelligenceDashboard initialSymbol={symbol}/>;
     if (page === 'Alpha Signal Engine') return <AlphaSignalEngine/>;
     if (page === 'Institutional Market Intelligence') return <InstitutionalMarketIntelligence exchange={forecastExchange} onExchangeChange={setForecastExchange} symbol={symbol} onSymbolChange={setSymbol} timeframe={forecastTimeframe} onTimeframeChange={setForecastTimeframe}/>;
+    if (page === 'Opportunity Radar') return <OpportunityRadar exchange={forecastExchange} timeframe={forecastTimeframe}/>;
     if (['Portfolio Stress','Pre-trade Gate','Strategy Registry','Market Replay','System Diagnostics','Production Readiness'].includes(page)) return <Phase15To21Workspaces key={page} page={page}/>;
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
