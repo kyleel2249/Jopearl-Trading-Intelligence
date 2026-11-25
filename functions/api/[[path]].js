@@ -251,6 +251,7 @@ async function fetchInstitutionalSources(symbol,env={},fetchImpl=fetch,generated
   out.eventRisk={status:'live',active:highImpact.length>0,severity:highImpact.some(x=>/(war|invasion|missile|attack|emergency|default|bank failure|cyberattack)/i.test(x.title))?2:highImpact.length?1:0,count:highImpact.length,headlines:highImpact.slice(0,5).map(x=>({title:x.title,url:x.url,publishedAt:x.publishedAt,source:x.source}))};
   source('GDELT geopolitical and financial news','live',url,{articles:articles.length,eventRiskCount:highImpact.length});
  }catch(error){out.eventRisk={status:'offline',active:false,severity:0,count:0,headlines:[]};source('GDELT geopolitical and financial news','offline','https://api.gdeltproject.org/api/v2/doc/doc',{error:String(error?.message||error).slice(0,140)});}
+ out.status=out.sources.some(x=>x.status==='live')?'partial':'unavailable';
  out.limitations.push('CFTC positioning is weekly and lagged; it represents reported futures positions, not live bank orders or spot-wallet flows.');
  out.limitations.push('Treasury, ECB and FRED observations are macro context with their own publication schedules, not intraday trade triggers.');
  out.limitations.push('Private bank, prime-broker, dealer client-flow and paid institutional datasets are not connected without licensed provider access.');
