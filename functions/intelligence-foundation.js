@@ -39,15 +39,15 @@ async function attestTaskAuthorization(db,env,task,agent){
    }
   }
  }
- const taskFingerprint=await sha256Hex(JSON.stringify({taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,title:task.title,objective:task.objective}));
- const payload={attestationId,taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,capability,policyId:activePolicy?.policy_id||null,policyVersion:Number(activePolicy?.policy_version)||null,decision,reason,taskFingerprint,createdAt};
+ const taskRow=await db.prepare('SELECT input_json FROM jpti_agent_tasks WHERE task_id=?').bind(task.id).first(),inputHash=await sha256Hex(String(taskRow?.input_json||'{}')),taskFingerprint=await sha256Hex(JSON.stringify({taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,title:task.title,objective:task.objective,inputHash}));
+ const payload={attestationId,taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,capability,policyId:activePolicy?.policy_id||null,policyVersion:Number(activePolicy?.policy_version)||null,decision,reason,inputHash,taskFingerprint,createdAt};
  const payloadJson=JSON.stringify(payload),signature=await signGovernancePayload(env,payloadJson);
  await db.prepare('INSERT INTO jpti_agent_task_attestations(attestation_id,task_id,agent_id,department_id,capability,policy_id,policy_version,decision,reason,task_fingerprint,payload_json,signature,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(attestationId,task.id,task.agentId||null,task.departmentId||null,capability,activePolicy?.policy_id||null,Number(activePolicy?.policy_version)||null,decision,reason,taskFingerprint,payloadJson,signature,createdAt).run();
  return{allowed:decision==='authorized',attestationId,decision,reason,taskFingerprint};
 }
 async function executeTask(db,env,task){
  const startedAt=Date.now();
- let assigned=null;if(task.agentId){assigned=await db.prepare('SELECT name,role,goal,status FROM jpti_org_agents WHERE agent_id=?').bind(task.agentId).first();if(!assigned)throw Object.assign(new Error('Assigned agent no longer exists.'),{status:404});await ensureAgentBaseline(db,task.agentId);}
+ let assigned=null;if(task.agentId){assigned=await db.prepare('SELECT name,role,goal,status FROM jpti_org_agents WHERE agent_id=?').bind(task.agentId).first();if(assigned)await ensureAgentBaseline(db,task.agentId);}
  const authorization=await attestTaskAuthorization(db,env,task,assigned);if(!authorization.allowed)throw Object.assign(new Error('Governance authorization denied: '+authorization.reason+' Attestation '+authorization.attestationId),{status:403,attestationId:authorization.attestationId});
  if(task.agentId)await recordAgentHeartbeat(db,task.agentId,'busy',{taskId:task.id,title:task.title,attestationId:authorization.attestationId});
  if(!env.AI||typeof env.AI.run!=='function')throw Object.assign(new Error('Workers AI binding AI is unavailable. Task remains queued for retry.'),{status:503});
