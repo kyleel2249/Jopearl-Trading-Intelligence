@@ -340,12 +340,7 @@ export default function ProDashboard({ symbol, onSymbolChange, health, operation
     <TopBar activeNav={activeNav} now={now} live={live} direct={direct} refresh={refresh} navigation={navigation}/>
     <SessionStrip snapshot={snapshot} symbol={symbol} ticker={ticker}/>
     <div className="dp-grid">
-      <div className="dp-col dp-left" role="complementary" aria-label="Market context">
-        <MarketIntelPanel symbol={symbol} pools={pools} orderbook={orderbook} derivs={derivs} calendarEvents={calendarEvents} now={now} news={news} watchlist={watchlist} activeNav={activeNav}/>
-        <MacroPanel macro={macro} calendarEvents={calendarEvents} now={now} activeNav={activeNav}/>
-        <CalendarPanel calendar={calendar} now={now} activeNav={activeNav}/>
-      </div>
-      <section className="dp-col dp-center" aria-label="Live chart">
+      <section className="dp-col dp-center dp-expanded-chart-column" aria-label="Live chart">
         <section className="dp-chart">
           <div className="dp-chart-bar">
             <div className="dp-chart-title"><b>{symbol}</b><small>{String(exchange).toUpperCase()} · analytics on 15m candles</small></div>
@@ -362,6 +357,7 @@ export default function ProDashboard({ symbol, onSymbolChange, health, operation
         <SessionAnalytics rows={sessionRows} activeNav={activeNav}/>
         <VolatilityPanel regime={regime} atr={atr} atrPercent={atr != null && last ? atr / last * 100 : null} spread={spreadPercent(ticker.data)} rvol={rvol} risk={risk} ratio={ratio}/>
         <TradingControls last={last} symbol={symbol} activeNav={activeNav}/>
+        <CalendarPanel calendar={calendar} now={now} activeNav={activeNav}/>
       </div>
     </div>
     <BottomRow snapshot={snapshot} pools={pools} regime={regime} ratio={ratio} risk={risk} sweep={sweep} calendarEvents={calendarEvents} calendar={calendar} news={news} now={now} performanceData={performanceData} performanceError={performanceError} loadTradePerformance={loadTradePerformance} systems={systems} activeNav={activeNav} symbol={symbol}/>
