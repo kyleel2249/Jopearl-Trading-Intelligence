@@ -1,0 +1,9 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {runAgentDebate,auditDecision} from './multi-agent-debate-engine.js';
+const make=(overrides={})=>({status:'ready',scores:{directionalBias:'bullish'},domains:{structure:{bias:'bullish',rangePositionPercent:35},regime:{label:'bullish trend'},flow:{relativeVolume:1.5}},evidence:[{domain:'Momentum',score:72},{domain:'Flow proxy',score:68}],conflicts:[],dataQuality:{missingDomains:['macro','derivatives'],notes:['Same candle source.']},...overrides});
+test('weighted specialist agreement remains a paper-review candidate only',()=>{const d=runAgentDebate(make(),{liquidity:{visibleDepth:{imbalancePct:12}}});assert.equal(d.consensus,'LONG');assert.equal(d.decision,'PAPER_REVIEW_CANDIDATE');assert.ok(d.votes.length>=5);assert.match(d.methodology,/not independent AI models/);});
+test('high volatility applies a veto even when trend votes agree',()=>{const d=runAgentDebate(make({domains:{structure:{bias:'bullish'},regime:{label:'high-volatility'},flow:{relativeVolume:2}}}));assert.ok(d.riskVetoes.includes('HIGH_VOLATILITY_REGIME'));assert.equal(d.decision,'WATCH_ONLY');});
+test('insufficient evidence withholds debate',()=>{const d=runAgentDebate({status:'insufficient'});assert.equal(d.status,'INSUFFICIENT_DATA');assert.equal(d.decision,'NO_EDGE');});
+test('conflicting specialists cannot produce a paper-review candidate',()=>{const d=runAgentDebate(make({domains:{structure:{bias:'bearish',rangePositionPercent:90},regime:{label:'bullish trend'},flow:{relativeVolume:1.5}},scores:{directionalBias:'bullish'}}));assert.notEqual(d.decision,'PAPER_REVIEW_CANDIDATE');});
+test('audit preserves data gaps and evidence notes',()=>{const a=auditDecision(make());assert.deepEqual(a.integrity.missingDomains,['macro','derivatives']);assert.ok(a.warnings.includes('Same candle source.'));});
