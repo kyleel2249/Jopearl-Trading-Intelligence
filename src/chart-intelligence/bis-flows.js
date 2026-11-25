@@ -7,6 +7,7 @@ const BIS_STRUCTURE_ACCEPT="application/vnd.sdmx.structure+json;version=1.0.0";
 const FINANCE_TERMS=/bank|credit|debt|liquid|rate|interest|policy|exchange|currency|foreign|fx|capital|securit|bond|derivative|financial|fund|portfolio|property|house|mortgage|payment|reserve|money|monetary|global|cross.border|lending|loan|leverage|bis|macro|yield|risk|stress|claim|deposit|asset|liabilit|equity|market|price|commodity|consumer|inflation|trade/i;
 const num=v=>v!==null&&v!==undefined&&v!==""&&Number.isFinite(Number(v))?Number(v):null;
 const periodTimestamp=period=>{const p=String(period||"");if(/^\d{4}-\d{2}$/.test(p)){const[y,m]=p.split("-").map(Number);return Date.UTC(y,m,0,23,59,59);}if(/^\d{4}-Q[1-4]$/i.test(p)){const m=p.match(/^(\d{4})-Q([1-4])$/i);return Date.UTC(Number(m[1]),Number(m[2])*3,0,23,59,59);}if(/^\d{4}$/.test(p))return Date.UTC(Number(p),11,31,23,59,59);const t=Date.parse(p);return Number.isFinite(t)?t:null;};
+const observationAge=(period,now)=>{const ts=periodTimestamp(period);return ts===null?null:Math.max(0,now-ts);};
 function values(dims,key){return String(key||"").split(":").map((n,i)=>dims[i]?.values?.[Number(n)]?.id||dims[i]?.values?.[Number(n)]?.name||null);}
 export function parseBisDataflows(payload){
  const candidates=[];
