@@ -150,7 +150,7 @@ async function readDexTransactions(env,symbol,limit=60){
 async function persistDexTransactions(env,symbol,trades){
  if(!env.JPTI_DB)return{persisted:false,count:0,reason:'JPTI_DB binding unavailable'};
  let count=0;
- try{for(const t of trades){await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?,'dex-swap','geckoterminal',?,?,?,?)").bind('dex-swap:'+t.id,t.txHash,String(symbol||'').slice(0,40),t.occurredAt,JSON.stringify(t)).run();count++;}return{persisted:true,count};}
+ try{for(const t of trades){const saved=await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_events (id,kind,source,external_id,symbol,occurred_at,payload) VALUES (?,'dex-swap','geckoterminal',?,?,?,?)").bind('dex-swap:'+t.id,t.txHash,String(symbol||'').slice(0,40),t.occurredAt,JSON.stringify(t)).run();count+=Number(saved?.meta?.changes||0);}return{persisted:true,count};}
  catch(error){return{persisted:false,count,reason:String(error?.message||error).slice(0,180)};}
 }
 
