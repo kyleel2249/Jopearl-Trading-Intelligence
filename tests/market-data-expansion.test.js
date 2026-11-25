@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {parseBisDataflows,parseBisSdmxObservations,normalizeBisMonitor} from "../src/chart-intelligence/bis-flows.js";
 import {normalizeBitqueryWalletLabels,fetchBitqueryWalletLabels,aggregateAttributedWalletSwapFlows} from "../src/chart-intelligence/wallet-attribution.js";
 import {parseFomcCalendar,parseBoeMpcCalendar,parseEcbCalendar,parseBojCalendar,parseEiaReleaseSchedule} from "../src/chart-intelligence/event-calendars.js";
+import {predictEventImpact} from "../src/chart-intelligence/event-impact.js";
 
 test("BIS catalogue discovers all dataflows and flags financial datasets",()=>{
  const rows=parseBisDataflows({structure:{dataflows:[{id:"WS_CBPOL",agencyID:"BIS",version:"1.0",name:[{lang:"en","#text":"Central bank policy rates"}]},{id:"WS_LBS_D_PUB",agencyID:"BIS",version:"1.0",name:[{lang:"en","#text":"Locational banking statistics"}]},{id:"OTHER",agencyID:"BIS",version:"1.0",name:[{lang:"en","#text":"General demographic statistics"}]}]}});
@@ -14,7 +15,7 @@ test("BIS SDMX observations preserve time, series, reporter and counterparty dim
 });
 test("BIS monitor reports catalogue coverage and scanned series",()=>{
  const result=normalizeBisMonitor({catalogue:[{id:"A",relevance:"financial-context"},{id:"B",relevance:"financial-context"},{id:"C",relevance:"general-statistics"}],datasets:[{id:"A",status:"ready",seriesCount:5,observations:[]}],now:Date.UTC(2026,0,1)});
- assert.equal(result.totalDataflows,3);assert.equal(result.financialDataflows,2);assert.equal(result.seriesObserved,5);assert.equal(result.coveragePct,50);
+ assert.equal(result.totalDataflows,3);assert.equal(result.financialDataflows,2);assert.equal(result.seriesObserved,5);assert.equal(result.coveragePct,33.33);
 });
 test("Bitquery labels are provider-attributed, never upgraded to verified",()=>{
  const labels=normalizeBitqueryWalletLabels([{Address:"0x1111111111111111111111111111111111111111",Chain:"ethereum",Label:{Type:"cex-hot-wallet",Value:"Example Exchange hot wallet"},RecordedAt:"2026-11-25T00:00:00Z"}]);
@@ -37,4 +38,9 @@ test("ECB and BoJ calendar parsers retain official meeting source",()=>{
 test("EIA release schedule uses alternate release date and time columns",()=>{
  const html="<table><tr><th>Week ending</th><th>Alternate release date</th><th>Release day</th><th>Release time</th></tr><tr><td>January 16, 2026</td><td>January 22, 2026</td><td>Thursday</td><td>12:00 p.m.</td></tr></table>";
  const rows=parseEiaReleaseSchedule(html,{now:Date.UTC(2026,0,1)});assert.equal(rows.length,1);assert.equal(rows[0].category,"energy");
+});
+
+test("event impact preserves country, asset and token unlock evidence",()=>{
+ const now=Date.UTC(2026,10,25),result=predictEventImpact({now,horizonMinutes:1440,events:[{id:"unlock-1",title:"Example token unlock",time:new Date(now+3600000).toISOString(),importance:"critical",category:"tokenomics",providerImpactScore:92,country:"Global",assets:["EXAMPLE","crypto market"],unlockValueUsd:12000000,valueToMarketCapPct:3.2,source:"Tokenomist"}]});
+ assert.equal(result.events[0].country,"Global");assert.equal(result.events[0].assets[0],"EXAMPLE");assert.equal(result.events[0].unlockValueUsd,12000000);assert.ok(result.impactScore>=80);
 });
