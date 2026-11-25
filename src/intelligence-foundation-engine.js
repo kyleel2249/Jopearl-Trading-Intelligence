@@ -33,7 +33,7 @@ export function adaptivePositionSize(input={},policy={}){
  return{allowed:finalQuantity>0,riskPercent:Number(riskPercent.toFixed(4)),riskAmount:Number((finalQuantity*distance).toFixed(8)),quantity:finalQuantity,notional:finalNotional,regimeFactor,confidenceFactor,correlationFactor,stopDistancePercent:distance/entry*100,cappedByNotional:finalNotional<notional,liveExecutionAuthorized:false};
 }
 export function updateDynamicStop(input={}){
- const long=String(input.direction||'LONG').toUpperCase()==='LONG',entry=Number(input.entryPrice),current=Number(input.currentPrice),old=Number(input.stopPrice),risk=Math.abs(entry-old),r=risk>0?(current-entry)*(long?1:-1)/risk:0;
+ const long=String(input.direction||'LONG').toUpperCase()==='LONG',entry=Number(input.entryPrice),current=Number(input.currentPrice),old=Number(input.stopPrice),risk=Number(input.initialRiskDistance)||Math.abs(entry-old),r=risk>0?(current-entry)*(long?1:-1)/risk:0;
  if(!(entry>0&&current>0&&old>0&&risk>0))return{updated:false,reason:'Valid entry, price and initial stop are required.'};
  const breakEvenAt=Number(input.breakEvenAtR)||1,trailAt=Number(input.trailAtR)||1.5,atr=Number(input.atr)||0,trailDistance=atr>0?atr*(Number(input.atrMultiplier)||2):current*(Number(input.trailPercent)||.004),candidate=r>=trailAt?(long?current-trailDistance:current+trailDistance):r>=breakEvenAt?entry:old,stop=long?Math.max(old,candidate):Math.min(old,candidate);
  return{updated:Math.abs(stop-old)>1e-12,stopPrice:stop,openProfitR:Number(r.toFixed(3)),breakEvenActive:r>=breakEvenAt,trailingActive:r>=trailAt,neverLoosened:long?stop>=old:stop<=old};
