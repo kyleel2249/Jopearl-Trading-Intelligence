@@ -116,3 +116,77 @@ test('Pages API does not claim derivative support for other direct-only exchange
   assert.equal(response.status, 501);
   assert.equal((await response.json()).code, 'EXCHANGE_PRODUCT_TYPE_UNAVAILABLE');
 });
+
+// Minimal in-memory Workers KV stand-in that records every put() so TTL options can be asserted.
+function createFakeKv() {
+  const store = new Map();
+  const puts = [];
+  return {
+    puts,
+    async get(key, type) {
+      const value = store.get(key);
+      if (value === undefined) return null;
+      return type === 'json' ? JSON.parse(value) : value;
+    },
+    async put(key, value, options = {}) {
+      puts.push({ key, options });
+      store.set(key, value);
+    }
+  };
+}
+
+test('Pages API writes market cache entries with a Workers KV compliant TTL and serves them while fresh', async () => {
+  const kv = createFakeKv();
+  let upstreamCalls = 0;
+  const handler = createPagesApiHandler({ marketProvider: { request: async () => {
+    upstreamCalls += 1;
+    return { status: 200, body: { exchange: 'binance', symbol: 'BTC/USDT', last: 100 } };
+  } } });
+  const env = { JPTI_KV: kv };
+  const makeRequest = () => new Request('https://jpti.pages.dev/api/exchanges/binance/ticker/BTC-USDT');
+  const first = await handler({ request: makeRequest(), env });
+  assert.equal(first.status, 200);
+  assert.equal(first.headers.get('x-jpti-cache'), 'miss');
+  assert.ok(kv.puts.length > 0, 'the response should be written to KV');
+  for (const { options } of kv.puts) {
+    assert.ok(options.expirationTtl >= 60, 'Workers KV rejects expirationTtl below 60 seconds, received ' + options.expirationTtl);
+  }
+  const second = await handler({ request: makeRequest(), env });
+  assert.equal(second.headers.get('x-jpti-cache'), 'hit');
+  assert.equal(upstreamCalls, 1);
+});
+
+test('Pages API ignores KV market entries older than their intended freshness window', async () => {
+  const kv = createFakeKv();
+  let upstreamCalls = 0;
+  // Entries are stamped one minute in the past, far older than the 8 second ticker window.
+  const handler = createPagesApiHandler({ now: () => new Date(Date.now() - 60000), marketProvider: { request: async () => {
+    upstreamCalls += 1;
+    return { status: 200, body: { exchange: 'binance', symbol: 'BTC/USDT', last: 100 } };
+  } } });
+  const env = { JPTI_KV: kv };
+  const makeRequest = () => new Request('https://jpti.pages.dev/api/exchanges/binance/ticker/BTC-USDT');
+  await handler({ request: makeRequest(), env });
+  const second = await handler({ request: makeRequest(), env });
+  assert.equal(second.headers.get('x-jpti-cache'), 'miss');
+  assert.equal(upstreamCalls, 2);
+});
+
+test('Pages API keeps multi-timeframe context separate for each requested timeframe', async () => {
+  const kv = createFakeKv();
+  const candles = Array.from({ length: 30 }, (_, index) => [1700000000000 + index * 3600000, 100 + index, 102 + index, 99 + index, 101 + index, 10 + index]);
+  const offlineFetch = async () => ({ ok: false, status: 503, json: async () => ({}), text: async () => '' });
+  const handler = createPagesApiHandler({
+    fetchImpl: offlineFetch,
+    marketProvider: { request: async () => ({ status: 200, body: { exchange: 'binance', symbol: 'BTC/USDT', candles } }) }
+  });
+  const env = { JPTI_KV: kv };
+  const timeframesFor = async (timeframe) => {
+    const response = await handler({ request: new Request('https://jpti.pages.dev/api/intelligence/market/binance/BTC-USDT/context?timeframe=' + timeframe), env });
+    assert.equal(response.status, 200);
+    return (await response.json()).multiTimeframe.map((item) => item.timeframe);
+  };
+  assert.deepEqual(await timeframesFor('1h'), ['1h', '4h', '1d', '1w']);
+  // Requested straight after 1h on the same KV: it must not receive the 1h request's cached frames.
+  assert.deepEqual(await timeframesFor('4h'), ['4h', '1d', '1w', '1h']);
+});
