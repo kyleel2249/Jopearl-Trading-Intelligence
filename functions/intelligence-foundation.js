@@ -13,9 +13,43 @@ async function createTask(db,x){const title=clean(x.title,180),objective=clean(x
 const BASELINE_AGENT_CAPABILITIES=['market-data-read','shared-memory-read','research-run','report-generate','risk-read'];
 async function recordAgentHeartbeat(db,agentId,status,details={},latencyMs=null,errorCount=0){if(!agentId)return;const t=now();await db.prepare('INSERT INTO jpti_agent_heartbeats(agent_id,status,last_seen,latency_ms,error_count,details_json) VALUES(?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status,last_seen=excluded.last_seen,latency_ms=excluded.latency_ms,error_count=excluded.error_count,details_json=excluded.details_json').bind(agentId,status,t,latencyMs,Math.max(0,Math.min(100000,errorCount)),JSON.stringify(details||{})).run();}
 async function ensureAgentBaseline(db,agentId){for(const capability of BASELINE_AGENT_CAPABILITIES){const t=now();await db.prepare('INSERT OR IGNORE INTO jpti_agent_capabilities(capability_id,agent_id,capability,enabled,approval_required,constraints_json,granted_by,granted_at,updated_at) VALUES(?,?,?,1,0,?,?,?,?)').bind(crypto.randomUUID(),agentId,capability,'{}','system-baseline',t,t).run();}const row=await db.prepare("SELECT enabled FROM jpti_agent_capabilities WHERE agent_id=? AND capability='research-run' AND (expires_at IS NULL OR expires_at>?)").bind(agentId,now()).first();if(!row||Number(row.enabled)!==1)throw Object.assign(new Error('Agent is not permitted to execute research tasks.'),{status:403});}
+
+async function sha256Hex(value){const digest=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(value));return[...new Uint8Array(digest)].map(v=>v.toString(16).padStart(2,'0')).join('');}
+async function signGovernancePayload(env,payload){const secret=String(env.JPTI_GOVERNANCE_SIGNING_KEY||env.JPTI_JOURNAL_TOKEN||env.JPTI_API_TOKEN||'');if(!secret)throw Object.assign(new Error('Governance signing key is unavailable; task execution fails closed.'),{status:503});const key=await crypto.subtle.importKey('raw',new TextEncoder().encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);const sig=await crypto.subtle.sign('HMAC',key,new TextEncoder().encode(payload));return[...new Uint8Array(sig)].map(v=>v.toString(16).padStart(2,'0')).join('');}
+async function attestTaskAuthorization(db,env,task,agent){
+ const createdAt=now(),attestationId=crypto.randomUUID(),capability=task.agentId?'research-run':'system-managed-task';
+ const activePolicy=await db.prepare('SELECT policy_id,policy_version,rules_json FROM jpti_governance_policies WHERE enabled=1 ORDER BY policy_version DESC LIMIT 1').first().catch(()=>null),rules=parse(activePolicy?.rules_json,{}),maxRisk=Number.isFinite(Number(rules.maxBehaviourRisk))?Math.max(0,Math.min(100,Number(rules.maxBehaviourRisk))):80;
+ let decision='authorized',reason=task.agentId?'Agent research capability is enabled and current.':'Unassigned system-managed task; no autonomous agent identity asserted.';
+ if(task.agentId){
+  if(!agent) {decision='denied';reason='Assigned agent identity does not exist.';}
+  else if(['paused','disabled','offline'].includes(String(agent.status||'').toLowerCase())){decision='denied';reason='Agent is paused or unavailable.';}
+  else{
+   const grant=await db.prepare("SELECT enabled,expires_at FROM jpti_agent_capabilities WHERE agent_id=? AND capability=?").bind(task.agentId,capability).first();
+   if(!grant||Number(grant.enabled)!==1){decision='denied';reason='Required research-run capability is not enabled.';}
+   else if(grant.expires_at&&Date.parse(grant.expires_at)<=Date.now()){decision='denied';reason='Required research-run capability grant has expired.';}
+   else{
+    const since=new Date(Date.now()-24*60*60*1000).toISOString();
+    const [behaviour,incident]=await Promise.all([
+     db.prepare('SELECT MAX(risk_score) max_risk,MAX(CASE WHEN severity=\'critical\' THEN 1 ELSE 0 END) critical FROM jpti_agent_behavior_events WHERE agent_id=? AND observed_at>=?').bind(task.agentId,since).first(),
+     db.prepare("SELECT incident_id,severity,status FROM jpti_governance_incidents WHERE agent_id=? AND status IN ('open','investigating','contained') AND severity='critical' ORDER BY detected_at DESC LIMIT 1").bind(task.agentId).first()
+    ]);
+    if(incident){decision='denied';reason='An unresolved critical governance incident blocks agent task execution.';}
+    else if(Number(behaviour?.critical)===1){decision='denied';reason='A critical behaviour event in the last 24 hours blocks agent task execution.';}
+    else if(Number(behaviour?.max_risk||0)>=maxRisk){decision='denied';reason='Recent agent behaviour risk meets or exceeds the active governance policy threshold.';}
+   }
+  }
+ }
+ const taskFingerprint=await sha256Hex(JSON.stringify({taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,title:task.title,objective:task.objective}));
+ const payload={attestationId,taskId:task.id,agentId:task.agentId||null,departmentId:task.departmentId||null,capability,policyId:activePolicy?.policy_id||null,policyVersion:Number(activePolicy?.policy_version)||null,decision,reason,taskFingerprint,createdAt};
+ const payloadJson=JSON.stringify(payload),signature=await signGovernancePayload(env,payloadJson);
+ await db.prepare('INSERT INTO jpti_agent_task_attestations(attestation_id,task_id,agent_id,department_id,capability,policy_id,policy_version,decision,reason,task_fingerprint,payload_json,signature,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(attestationId,task.id,task.agentId||null,task.departmentId||null,capability,activePolicy?.policy_id||null,Number(activePolicy?.policy_version)||null,decision,reason,taskFingerprint,payloadJson,signature,createdAt).run();
+ return{allowed:decision==='authorized',attestationId,decision,reason,taskFingerprint};
+}
 async function executeTask(db,env,task){
  const startedAt=Date.now();
- if(task.agentId){const assigned=await db.prepare('SELECT name,role,goal,status FROM jpti_org_agents WHERE agent_id=?').bind(task.agentId).first();if(!assigned)throw Object.assign(new Error('Assigned agent no longer exists.'),{status:404});if(['paused','disabled','offline'].includes(String(assigned.status||'').toLowerCase()))throw Object.assign(new Error('Agent is paused or unavailable; task execution denied.'),{status:403});await ensureAgentBaseline(db,task.agentId);await recordAgentHeartbeat(db,task.agentId,'busy',{taskId:task.id,title:task.title});}
+ let assigned=null;if(task.agentId){assigned=await db.prepare('SELECT name,role,goal,status FROM jpti_org_agents WHERE agent_id=?').bind(task.agentId).first();if(!assigned)throw Object.assign(new Error('Assigned agent no longer exists.'),{status:404});await ensureAgentBaseline(db,task.agentId);}
+ const authorization=await attestTaskAuthorization(db,env,task,assigned);if(!authorization.allowed)throw Object.assign(new Error('Governance authorization denied: '+authorization.reason+' Attestation '+authorization.attestationId),{status:403,attestationId:authorization.attestationId});
+ if(task.agentId)await recordAgentHeartbeat(db,task.agentId,'busy',{taskId:task.id,title:task.title,attestationId:authorization.attestationId});
  if(!env.AI||typeof env.AI.run!=='function')throw Object.assign(new Error('Workers AI binding AI is unavailable. Task remains queued for retry.'),{status:503});
  const agent=task.agentId?await db.prepare('SELECT name,role,goal,status FROM jpti_org_agents WHERE agent_id=?').bind(task.agentId).first():null,context=await memories(db,task.objective,12);
  const result=await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast',{messages:[
