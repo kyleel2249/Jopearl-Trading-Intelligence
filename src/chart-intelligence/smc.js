@@ -58,9 +58,9 @@ export function analyzeSmc(rows, { swingLen = 3, majorLen = 6, maxAgeBars = 220 
     if (g.index < start) continue;
     let inverted = false, invIdx = -1;
     for (let j = g.index + 1; j <= last; j++) { if (g.direction === 'bullish' ? rows[j][4] < g.bottom : rows[j][4] > g.top) { inverted = true; invIdx = j; break; } }
-    // Keep the original FVG formation visible after mitigation; filled zones must not disappear from chart history.
-    const dir = inverted ? (g.direction === 'bullish' ? 'bearish' : 'bullish') : g.direction;
-    add({ id: [inverted ? 'IFVG' : 'FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: inverted ? 'IFVG' : 'FVG', direction: dir, ts: g.ts, endTs: inverted ? rows[invIdx][0] : null, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: inverted ? 'IFVG' : 'FVG', status: inverted ? 'inverted' : g.status, fillPct: g.fillPct, strength: inverted ? 0.55 : clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src(inverted ? 'fvg-closed-through' : 'three-candle-imbalance', { minGapAtr: 0.1 }) });
+    // Preserve the immutable FVG formation and record a separate IFVG event if a later close invalidates it.
+    add({ id: ['FVG', g.ts, g.direction].join('|'), layer: 'fvg', kind: 'FVG', direction: g.direction, ts: g.ts, top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: 'FVG', status: g.status, fillPct: g.fillPct, strength: clamp(0.7 - g.fillPct / 200, 0.3, 0.7), source: src('three-candle-imbalance', { minGapAtr: 0.1, fillPct: g.fillPct }) });
+    if (inverted) add({ id: ['IFVG', rows[invIdx][0], g.direction].join('|'), layer: 'fvg', kind: 'IFVG', direction: g.direction === 'bullish' ? 'bearish' : 'bullish', ts: rows[invIdx][0], top: r8(g.top), bottom: r8(g.bottom), price: r8((g.top + g.bottom) / 2), label: 'IFVG', status: 'active', fillPct: g.fillPct, strength: 0.55, source: src('fvg-closed-through', { originalFvg: g.ts, inversionAt: rows[invIdx][0] }) });
   }
 
   // --- Displacement: closed-candle impulse with range/body and relative-volume evidence -------------------
