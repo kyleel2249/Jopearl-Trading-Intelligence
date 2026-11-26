@@ -18,12 +18,12 @@ export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',li
  const bitgetSymbol=base+quote, okxSpot=base+'-'+quote, okxSwap=base+'-'+(marketType==='coin-m'?base:quote)+'-SWAP';
  const derivative=marketType!=='spot';
  if(exchange==='binance'){
-  const sym=base+quote;
-  if(kind==='orderbook')return 'https://'+(derivative?'fapi.binance.com':'api.binance.com')+(derivative?'/fapi/v1/depth':'/api/v3/depth')+'?symbol='+sym+'&limit='+limit;
-  if(kind==='trade')return 'https://'+(derivative?'fapi.binance.com':'api.binance.com')+(derivative?'/fapi/v1/aggTrades':'/api/v3/aggTrades')+'?symbol='+sym+'&limit='+limit;
-  if(kind==='funding')return 'https://fapi.binance.com/fapi/v1/fundingRate?symbol='+sym+'&limit=20';
-  if(kind==='open_interest')return 'https://fapi.binance.com/fapi/v1/openInterest?symbol='+sym;
-  if(kind==='liquidation')return 'https://fapi.binance.com/fapi/v1/forceOrders?symbol='+sym+'&limit=20';
+  const sym=base+quote,host=marketType==='coin-m'?'dapi.binance.com':derivative?'fapi.binance.com':'api.binance.com',prefix=marketType==='coin-m'?'/dapi/v1/':derivative?'/fapi/v1/':'/api/v3/';
+  if(kind==='orderbook')return 'https://'+host+prefix+'depth'+'?symbol='+sym+'&limit='+limit;
+  if(kind==='trade')return 'https://'+host+prefix+'aggTrades'+'?symbol='+sym+'&limit='+limit;
+  if(kind==='funding')return 'https://'+host+prefix+'fundingRate?symbol='+sym+'&limit=20';
+  if(kind==='open_interest')return 'https://'+host+prefix+'openInterest?symbol='+sym;
+  if(kind==='liquidation')return null;
  }
  if(exchange==='bybit'){
   const category=derivative?(marketType==='coin-m'?'inverse':'linear'):'spot',sym=base+quote;
@@ -49,13 +49,13 @@ export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',li
  }
  return null;
 }
-function rowsOf(payload){if(Array.isArray(payload))return payload;if(Array.isArray(payload?.data))return payload.data;if(Array.isArray(payload?.result?.list))return payload.result.list;if(Array.isArray(payload?.result))return payload.result;return [];}
+function rowsOf(payload){if(Array.isArray(payload))return payload;if(Array.isArray(payload?.data)){if(payload.data[0]?.details&&Array.isArray(payload.data[0].details))return payload.data.flatMap(x=>x.details);return payload.data;}if(Array.isArray(payload?.result?.list))return payload.result.list;if(Array.isArray(payload?.result))return payload.result;if(payload?.data&&typeof payload.data==='object')return [payload.data];if(payload?.result&&typeof payload.result==='object')return [payload.result];return [payload];}
 export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,payload,receivedAt=Date.now()}){
  if(!payload||typeof payload!=='object')return [];
  const stamp=iso(receivedAt),out=[];
  const push=(id,observedAt,data,quality={})=>{const at=iso(observedAt)||stamp;out.push({exchange,symbol,marketType,kind,eventId:String(id??at),observedAt:at,receivedAt:stamp,payload:data,quality});};
  if(kind==='orderbook'){
-  const data=payload.result||payload.data||payload;
+  const raw=payload.result||payload.data||payload;const data=Array.isArray(raw)?raw[0]||{}:raw;
   const bids=data.b||data.bids||data.asks&&data.bids||[],asks=data.a||data.asks||[];
   const clean=levels=>(Array.isArray(levels)?levels:[]).slice(0,100).map(x=>[n(x[0]??x.price),n(x[1]??x.size??x.qty)]).filter(x=>x[0]>0&&x[1]>=0);
   const bid=clean(bids),ask=clean(asks),bestBid=bid.length?Math.max(...bid.map(x=>x[0])):null,bestAsk=ask.length?Math.min(...ask.map(x=>x[0])):null;
@@ -65,7 +65,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
    let id,time,data;
    if(kind==='trade'){
     id=row.execId||row.tradeId||row.id||row.ts+'-'+row.price+'-'+row.size;time=row.time||row.ts||row.T||row.timestamp;
-    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q)};
+    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q||row.sz),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q)};
     if(!(data.price>0&&data.quantity>0))continue;
    }else if(kind==='funding'){
     id=row.fundingRateTimestamp||row.fundingTime||row.fundingRateTime||row.ts||row.id;time=id;
@@ -73,7 +73,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
     if(data.rate===null)continue;
    }else if(kind==='open_interest'){
     id=row.timestamp||row.ts||row.time||row.symbol||receivedAt;time=row.timestamp||row.ts||row.time;
-    data={openInterest:n(row.openInterest??row.openInterestValue??row.oi),openInterestValue:n(row.openInterestValue),unit:row.unit||null,symbol:row.symbol||symbol};
+    data={openInterest:n(row.openInterest??row.openInterestValue??row.oi??row.openInterestList?.[0]?.openInterest),openInterestValue:n(row.openInterestValue),unit:row.unit||null,symbol:row.symbol||symbol};
     if(data.openInterest===null)continue;
    }else if(kind==='liquidation'){
     id=row.orderId||row.ts+'-'+row.price+'-'+row.size;time=row.updatedTime||row.ts||row.time;
