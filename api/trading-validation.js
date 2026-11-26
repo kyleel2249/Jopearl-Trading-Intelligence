@@ -31,6 +31,17 @@ validationRouter.post('/assess', async (req, res) => {
     res.status(error.status || 400).json({ error: error.message || 'Validation assessment failed.' });
   }
 });
+validationRouter.get('/latest/:subjectId', async (req, res) => {
+  try {
+    requirePrivateApiAuth(req);
+    const subjectId = String(req.params.subjectId || '').slice(0, 120);
+    const rows = await readStoredEvents(10000, 'trading-validation-assessment');
+    const latest = rows.slice().reverse().map(row => row.payload).find(item => item?.subjectId === subjectId);
+    res.set('Cache-Control', 'no-store');
+    if (!latest) return res.status(404).json({ error: 'No validation evidence has been submitted for this strategy or agent.', paperTrialEligible: false, liveExecutionAuthorized: false });
+    res.json({ ...latest, paperTrialEligible: latest.assessment?.paperTrialEligible === true, liveExecutionAuthorized: false });
+  } catch (error) { res.status(error.status || 500).json({ error: error.message || 'Latest validation status unavailable.', paperTrialEligible: false, liveExecutionAuthorized: false }); }
+});
 validationRouter.get('/history', async (req, res) => {
   try {
     requirePrivateApiAuth(req);
