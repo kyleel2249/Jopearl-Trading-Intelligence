@@ -81,11 +81,25 @@ test('live paper context consumes fresh spot and derivatives streams from every 
 });
 
 test('stream rotation starts the replacement futures batch before stopping the previous batch',async()=>{
- const calls=[];const result=await startMarketStreamCollector({
-  MARKET_STREAMS:{idFromName(name){return name;},get(id){return{async fetch(url){calls.push({id,url});return new Response(JSON.stringify({status:url.endsWith('/stop')?'stopped':'connected'}),{status:200,headers:{'content-type':'application/json'}});}}},
-  JPTI_DB:{prepare(){return{async all(){return{results:[]};}};}}
- },['BTCUSDT'],['ETHUSDT']);
+ const calls=[];
+ const MARKET_STREAMS={
+  idFromName(name){return name;},
+  get(id){
+   return {
+    async fetch(url){
+     calls.push({id,url});
+     const status=url.endsWith('/stop')?'stopped':'connected';
+     return new Response(JSON.stringify({status}),{status:200,headers:{'content-type':'application/json'}});
+    }
+   };
+  }
+ };
+ const JPTI_DB={prepare(){return {async all(){return {results:[]};}};}};
+ const result=await startMarketStreamCollector({MARKET_STREAMS,JPTI_DB},['BTCUSDT'],['ETHUSDT']);
  const firstStop=calls.findIndex(x=>x.url.endsWith('/stop'));
  const lastStart=calls.map(x=>x.url).lastIndexOf('https://stream-hub/start');
- assert.equal(result.requested,4);assert.equal(result.started,4);assert.equal(result.stopped,4);assert.ok(firstStop>lastStart);
+ assert.equal(result.requested,4);
+ assert.equal(result.started,4);
+ assert.equal(result.stopped,4);
+ assert.ok(firstStop>lastStart);
 });
