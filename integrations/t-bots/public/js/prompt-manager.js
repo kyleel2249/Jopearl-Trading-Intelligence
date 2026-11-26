@@ -15,7 +15,7 @@ export const ROLES = ['SCANNER', 'RUG', 'SIZER', 'EXECUTOR', 'LOGGER', 'EQUITY']
 const ROLE_MAP = {
   SCANNER: { agent: 'SCANNER', sections: ['UNIVERSE', 'JPTI SHARED INTELLIGENCE'], rules: [/SCANNER flags/i] },
   RUG: { agent: 'RUG CHECK', sections: ['JPTI SHARED INTELLIGENCE'], rules: [/RUG CHECK passes/i] },
-  SIZER: { agent: 'SIZER', sections: ['JPTI SHARED INTELLIGENCE'], rules: [/compound/i, /drawdown/i] },
+  SIZER: { agent: 'SIZER', sections: ['JPTI SHARED INTELLIGENCE'], rules: [/compound/i, /drawdown/i, /no-chase pullback/i, /pause new entries/i, /re-entry cooldown/i, /session loss limit/i, /consecutive losses/i, /maximum drawdown triggers/i] },
   EXECUTOR: { agent: 'EXECUTOR', sections: ['JPTI SHARED INTELLIGENCE'], rules: [/no chasing/i] },
   LOGGER: { agent: 'LOGGER', sections: ['OUTPUT', 'JPTI SHARED INTELLIGENCE'], rules: [] },
   EQUITY: { agent: 'EQUITY', sections: ['OUTPUT', 'JPTI SHARED INTELLIGENCE'], rules: [/drawdown/i] },
