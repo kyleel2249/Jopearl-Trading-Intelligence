@@ -143,6 +143,35 @@ const MARKET_PARSERS = {
 };
 
 export const parsers = { ticker: TICKER_PARSERS, candles: CANDLE_PARSERS, markets: MARKET_PARSERS };
+const BITGET_V2_CATALOG_PATHS = Object.freeze({
+  SPOT: '/api/v2/spot/public/symbols',
+  MARGIN: '/api/v2/margin/currencies',
+  'USDT-FUTURES': '/api/v2/mix/market/contracts?productType=USDT-FUTURES',
+  'COIN-FUTURES': '/api/v2/mix/market/contracts?productType=COIN-FUTURES',
+  'USDC-FUTURES': '/api/v2/mix/market/contracts?productType=USDC-FUTURES'
+});
+async function fetchBitgetInstrumentCategory(category, options) {
+  const primary = HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category);
+  try {
+    const payload = await getJson(primary, options);
+    if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget v3 instruments failed for ' + category + '.', 502);
+    return { payload, apiVersion: 'v3' };
+  } catch (primaryError) {
+    const fallbackPath = BITGET_V2_CATALOG_PATHS[category];
+    if (!fallbackPath) throw primaryError;
+    try {
+      const payload = await getJson(HOSTS.bitget + fallbackPath, options);
+      if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget v2 catalog fallback failed for ' + category + '.', 502);
+      return { payload, apiVersion: 'v2' };
+    } catch (fallbackError) {
+      throw new DirectError(
+        'Bitget ' + category + ' catalogue failed on v3 (' + String(primaryError?.message || primaryError).slice(0, 100) +
+        ') and v2 fallback (' + String(fallbackError?.message || fallbackError).slice(0, 120) + ').',
+        fallbackError?.status || primaryError?.status || 502
+      );
+    }
+  }
+}
 
 // ---------------------------------------------------------------------------
 // URL builders
@@ -405,27 +434,32 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           if (id !== 'bitget') return MARKET_PARSERS[id](await getJson(marketsUrl(id), { ...opts, timeoutMs: 15000 })).map((m) => ({ symbol: m.base + '/' + m.quote, id: m.id, base: m.base, quote: m.quote, settle: null, active: true, type: 'spot', categories: ['spot'], spot: true, margin: false, swap: false, future: false, option: false, cfd: false, contract: false, linear: null, inverse: null, precision: null, limits: null }));
           const categories = ['SPOT', 'MARGIN', 'USDT-FUTURES', 'COIN-FUTURES', 'USDC-FUTURES'];
           const categoryResults = await Promise.allSettled(categories.map(async (category) => {
-            const payload = await getJson(HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category), { ...opts, timeoutMs: 15000 });
-            if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget instrument catalogue failed for ' + category + '.', 502);
-            return { category, markets: (payload.data || []).filter((market) => market.status === 'online').map((market) => {
+            const { payload, apiVersion } = await fetchBitgetInstrumentCategory(category, { ...opts, timeoutMs: 15000 });
+            const markets = (payload.data || []).filter((market) => {
+              const status = String(market.status ?? market.symbolStatus ?? '').toLowerCase();
+              return category === 'MARGIN' ? ['1','online','normal'].includes(status) : ['online','normal'].includes(status);
+            }).map((market) => {
               const isSpot = category === 'SPOT', isMargin = category === 'MARGIN';
               const isCoin = category === 'COIN-FUTURES';
               const isContract = !isSpot && !isMargin;
-              const settle = isContract ? (market.settleCoin || (isCoin ? market.baseCoin : market.quoteCoin)) : null;
+              const contractType = String(market.type || market.symbolType || '').toLowerCase();
+              const perpetual = isContract && (contractType.includes('perpetual') || (!market.deliveryTime || market.deliveryTime === '-1'));
+              const marginCoins = Array.isArray(market.supportMarginCoins) ? market.supportMarginCoins : [];
+              const settle = isContract ? (market.settleCoin || (isCoin ? market.baseCoin : (marginCoins[0] || market.quoteCoin))) : null;
               const symbol = market.baseCoin + '/' + market.quoteCoin + (isContract ? ':' + settle : '');
-              const contractType = String(market.type || '').toLowerCase();
-              const perpetual = isContract && contractType === 'perpetual';
               return {
                 symbol, id: market.symbol, base: market.baseCoin, quote: market.quoteCoin, settle,
                 active: true, type: isSpot ? 'spot' : isMargin ? 'margin' : perpetual ? 'perpetual' : 'futures',
                 categories: [isSpot ? 'spot' : isMargin ? 'margin' : perpetual ? 'perpetual' : 'futures'],
                 spot: isSpot, margin: isMargin, swap: perpetual, future: isContract && !perpetual,
                 option: false, cfd: false, contract: isContract, linear: !isCoin, inverse: isCoin,
-                precision: { price: Number(market.pricePrecision), amount: Number(market.quantityPrecision) },
-                limits: { amount: { min: Number(market.minOrderQty) || null }, leverage: { max: Number(market.maxLeverage) || null } },
-                productCategory: category, contractType: market.type || null, instrumentType: market.instrumentType || 'crypto'
+                precision: { price: Number(market.pricePrecision ?? market.pricePlace), amount: Number(market.quantityPrecision ?? market.volumePlace) },
+                limits: { amount: { min: Number(market.minOrderQty ?? market.minTradeNum ?? market.minTradeAmount) || null }, leverage: { max: Number(market.maxLeverage ?? market.maxLever) || null } },
+                productCategory: category, contractType: market.type || market.symbolType || null,
+                instrumentType: market.instrumentType || 'crypto', catalogueApiVersion: apiVersion
               };
-            }) };
+            });
+            return { category, apiVersion, markets };
           }));
           const successful = categoryResults.filter((result) => result.status === 'fulfilled').map((result) => result.value);
           const failedCategories = categoryResults
