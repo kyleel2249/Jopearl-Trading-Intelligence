@@ -78,7 +78,7 @@ export function evaluateShortTermAgents(input = {}, options = {}) {
     const expectedMove = Number(evidence.expectedMoveBps);
     const costEdgePassed = costBps !== null && finite(expectedMove) && expectedMove > costBps * Number(options.minimumNetEdgeMultiple ?? 1.5);
     const sessionAllowed = evidence.sessionOpen === true && evidence.venueCalendarVerified === true;
-    const eventAllowed = evidence.highImpactEvent !== true && !(finite(evidence.minutesToEvent) && Number(evidence.minutesToEvent) <= Number(options.eventBufferMinutes ?? 5));
+    const eventAllowed = evidence.eventSourceVerified === true && evidence.highImpactEvent === false && !(finite(evidence.minutesToEvent) && Number(evidence.minutesToEvent) <= Number(options.eventBufferMinutes ?? 5));
     const riskInputs = ['equityUsd','riskPct','stopDistancePct','drawdownPct'].every(key => finite(evidence[key]));
     const riskAllowed = riskInputs && Number(evidence.equityUsd) > 0 && Number(evidence.riskPct) > 0 && Number(evidence.riskPct) <= Number(options.maxRiskPct ?? .5) && Number(evidence.drawdownPct) < Number(options.maxDrawdownPct ?? 8) && Number(evidence.stopDistancePct) > 0;
     const sampleAllowed = evidence.strategyQualified === true && evidence.forwardValidationPassed === true;
