@@ -26,7 +26,7 @@ export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',li
  }
  if(exchange==='bybit'){
   const category=derivative?(marketType==='coin-m'?'inverse':'linear'):'spot',sym=base+quote;
-  if(kind==='orderbook')return 'https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+sym+'&limit='+Math.min(50,limit);
+  if(kind==='orderbook')return 'https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+sym+'&limit=50';
   if(kind==='trade')return 'https://api.bybit.com/v5/market/recent-trade?category='+category+'&symbol='+sym+'&limit='+Math.min(100,limit);
   if(kind==='funding')return 'https://api.bybit.com/v5/market/funding/history?category='+category+'&symbol='+sym+'&limit=20';
   if(kind==='open_interest')return 'https://api.bybit.com/v5/market/open-interest?category='+category+'&symbol='+sym+'&intervalTime=5min&limit=20';
