@@ -3,7 +3,7 @@ import { Activity, AlertTriangle, BookOpen, Brain, CalendarDays, CheckCircle2, C
 import { apiFetch, setApiToken } from './lib/api.js';
 import { analyzeTimeframe, buildTradingDevelopmentAssessment, buildReflectiveReport } from './trading-development-engine.js';
 import './ReflectiveJournal.css';
-import { humanizeAgentOutput } from './lib/agent-report.js';
+import AgentReport from './AgentReport.jsx';
 
 const STORAGE_KEY = 'jpti.reflective-journal.v1';
 const INITIAL_ENTRY = {
@@ -318,7 +318,7 @@ export default function ReflectiveJournal() {
             {marketState === "live" && market && <div className="rj-live-result"><b>Technical assessment completed · {market.exchange.toUpperCase()}</b><span>Checked {new Date(market.checkedAt).toLocaleString()} · {market.symbol}</span>
               <div className="rj-timeframe-grid">{Object.entries(market.timeframes).map(([tf, result]) => <div key={tf}><small>{tf}</small><b className={result.bias === "bullish" ? "positive" : result.bias === "bearish" ? "negative" : ""}>{result.bias}</b><span>Score {result.score ?? "—"} · RSI {result.rsi14?.toFixed?.(1) ?? "—"}</span><span>Trend {result.trend || "—"}</span></div>)}</div>
               {assessment && <div className="rj-callout warn"><AlertTriangle size={17}/><div><b>Engine assessment: {assessment.decision.status.toUpperCase()}</b><p>Multi-timeframe bias: {assessment.market.bias}. Evidence status: {assessment.status}. Deterministic research assessment, not a probability or order instruction.</p></div></div>}
-              <pre className="agent-readable">{humanizeAgentOutput({ market: assessment?.market, process: assessment?.process, risk: assessment?.risk, coaching: assessment?.coaching }).slice(0, 3200)}</pre>
+              <AgentReport content={{ market: assessment?.market, process: assessment?.process, risk: assessment?.risk, coaching: assessment?.coaching }} title="technical-assessment" maxChars={3200} />
             </div>}
             {marketState === "unavailable" && <p className="rj-footnote">{marketError}. No missing market values have been invented.</p>}
             {marketState === "not-checked" && <p className="rj-footnote">Select the actual execution venue first. The current Cloudflare futures adapter supports Bitget for this multi-timeframe check. This fetches public candles; it does not verify your private order or liquidation price.</p>}
@@ -384,7 +384,7 @@ export default function ReflectiveJournal() {
         <p className="rj-lead">The AI review researches the pair through public asset and news sources, then assesses your journal, technical evidence, risk and behaviour. It must identify source conflicts and missing evidence.</p>
         <div className="rj-ai-actions"><button className="rj-primary" onClick={runMentorReview} disabled={mentorState === 'loading'}><Brain size={15}/>{mentorState === 'loading' ? 'Researching and reviewing…' : 'Run full AI mentor review'}</button><span className="rj-footnote">{mentorState === 'complete' ? 'Review saved to this trade record.' : 'Requires Cloudflare D1 connection and the Workers AI binding.'}</span></div>
         {mentorError && <div className="rj-callout danger"><AlertTriangle size={17}/><div>{mentorError}</div></div>}
-        {(mentorReview || active.mentorReview) && <div className="rj-ai-report"><div className="rj-panel-title"><b>Latest AI mentor report</b><span className="rj-footnote">{active.aiReviewAt ? new Date(active.aiReviewAt).toLocaleString() : ''}</span></div><pre className="agent-readable">{humanizeAgentOutput(mentorReview || active.mentorReview)}</pre></div>}
+        {(mentorReview || active.mentorReview) && <div className="rj-ai-report"><div className="rj-panel-title"><b>Latest AI mentor report</b><span className="rj-footnote">{active.aiReviewAt ? new Date(active.aiReviewAt).toLocaleString() : ''}</span></div><AgentReport content={mentorReview || active.mentorReview} title="ai-mentor-report" /></div>}
         <div className="rj-divider"/>
         <span className="rj-eyebrow">RULES-BASED PROFILE · LOW CONFIDENCE</span><h2>What this first decision suggests</h2>
         <div className="rj-callout warn"><Brain size={18}/><div><b>Honest capability boundary</b><p>This workspace currently provides deterministic, rules-based coaching and a structured journal. It does not contain a connected generative AI model, and it will not pretend to perform autonomous research or exchange actions. The conversational research, writing, mentoring and pair-specific analysis will be supplied here and recorded in the journal as you share updates.</p></div></div>

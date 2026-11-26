@@ -182,3 +182,15 @@ export function summarizeInline(value, limit = 160) {
   const text = humanizeAgentOutput(value).split('\n').map((line) => line.replace(/^\s*•\s*/, '').trim()).filter(Boolean).join(' · ');
   return text.length > limit ? text.slice(0, limit - 1) + '…' : text;
 }
+
+// Markdown form of an agent report for rich rendering, copying and export. Section titles
+// become headings and bullets use Markdown syntax; prose that is already Markdown (for
+// example the mentor review) is returned unchanged.
+export function agentReportToMarkdown(input) {
+  const text = humanizeAgentOutput(input);
+  const titles = new Set(SECTION_TITLES.map(([, title]) => title));
+  return text.split('\n').map((line) => {
+    if (titles.has(line.trim())) return '## ' + line.trim();
+    return line.replace(/^(\s*)•\s?/, '$1- ');
+  }).join('\n');
+}

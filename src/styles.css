@@ -338,3 +338,16 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
 pre.agent-readable{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;line-height:1.55;max-height:520px;overflow:auto}
 details.agent-raw{margin-top:10px}
 details.agent-raw>summary{cursor:pointer;font-size:12px;opacity:.75}
+
+/* AgentReport: rendered Markdown with copy/export actions */
+.agent-report{border:1px solid rgba(148,163,184,.25);border-radius:10px;overflow:hidden}
+.agent-report-actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid rgba(148,163,184,.2)}
+.agent-report-actions button{font-size:12px;padding:4px 10px;border-radius:6px;cursor:pointer}
+.agent-report-status{font-size:12px;opacity:.8;min-height:1em}
+.agent-report-body{padding:10px 14px;max-height:520px;overflow:auto;line-height:1.6;overflow-wrap:anywhere}
+.agent-report-body h3,.agent-report-body h4,.agent-report-body h5,.agent-report-body h6{margin:14px 0 6px}
+.agent-report-body p{margin:6px 0}
+.agent-report-body ul,.agent-report-body ol{margin:6px 0;padding-left:20px}
+.agent-report-body code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
+.agent-report-body pre{white-space:pre-wrap;overflow-x:auto}
+.agent-report-body blockquote{margin:8px 0;padding-left:10px;border-left:3px solid rgba(148,163,184,.5)}
