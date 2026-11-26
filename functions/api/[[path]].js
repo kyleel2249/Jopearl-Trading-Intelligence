@@ -112,7 +112,7 @@ async function readStoredMarketSnapshot(env, routeKey) {
 
 async function readReplicatedCandles(env, url) {
   if (!env.JPTI_DB) return null;
-  const match = url.pathname.match(/^\\/api\\/exchanges\\/([a-z0-9_]+)\\/ohlcv\\/([^/]+)$/i);
+  const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/ohlcv\/([^/]+)$/i);
   if (!match) return null;
   let symbol;
   try { symbol = decodeURIComponent(match[2]).toUpperCase(); } catch { return null; }
