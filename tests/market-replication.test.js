@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  normalizeReplicationPlan, marketTypesForExchange, selectReplicationMarkets,
+  normalizeReplicationPlan, boundReplicationPlanToSubrequestBudget, marketTypesForExchange, selectReplicationMarkets,
   normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey,
   detectCandleGaps, buildCrossExchangeConsensus
 } from '../src/market-replication-engine.js';
@@ -69,6 +69,14 @@ test('replication plan bounds symbols, exchanges, market categories and timefram
   assert.deepEqual(plan.marketTypes, ['spot', 'coin-m']);
   assert.deepEqual(plan.timeframes, ['1m']);
   assert.equal(plan.limit, 20);
+});
+
+test('replication planner stays within Cloudflare subrequest budget for all venue categories', () => {
+  const plan = normalizeReplicationPlan({ exchanges: ['binance', 'bybit', 'okx', 'bitget'], timeframes: ['1m', '5m', '15m', '1h'], marketLimit: 10 });
+  const bounded = boundReplicationPlanToSubrequestBudget(plan, 8, 45);
+  assert.equal(bounded.limit, 1);
+  assert.equal(bounded.timeframes.length, 3);
+  assert.ok(bounded.requestBudget.estimatedSubrequests <= 45);
 });
 
 test('only Bitget receives the five supported public product categories', () => {
