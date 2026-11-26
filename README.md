@@ -139,3 +139,25 @@ For local Pages development, copy `.dev.vars.example` to `.dev.vars`. Set `FRED_
 ## Sequence-aware market streams and strategy validation
 
 JPTI now includes a Durable Object WebSocket collector with sequence-aware order-book reconstruction, durable event history, gap records and reconnect recovery. Deploy it with `npm run deploy:market-streams` after applying migrations 0016, 0017 and 0018. The existing scheduled paper Worker starts the collector through a cross-Worker Durable Object binding, so no extra Cron Trigger or shared API token is required. Pages reaches the collector through the `JPTI_MARKET_STREAM` service binding; the scheduler auto-discovers recent replicated markets (up to 40 streams) unless `JPTI_STREAMS_CONFIG` overrides it. Unified read access to persisted ticker, candle, microstructure and stream data is available at `/api/market-data/live`. Strategy backtests and forward qualification use the private `/api/paper/validation` endpoint; see [Backtest and Forward Validation](docs/BACKTEST_AND_FORWARD_VALIDATION.md). Run `npm run validate:strategy` to request a server-side validation preview, or add `--submit` to persist the recomputed evidence.
+
+
+## Scalping and Day-Trading Specialist Desks
+
+The canonical closed-candle chart engine now runs two specialist desks: a Scalping Desk and a Day-Trading Desk. Each desk contains eight independent, deterministic specialist roles covering structure, liquidity/FVG, momentum, regime, multi-timeframe alignment, order flow, execution quality and capital protection. Their votes, evidence, hard blockers, consensus and risk policy are exposed on every chart through the shared live-chart component.
+
+The desks do not create a second BUY/SELL signal. GainzAlpha remains the sole signal authority. A desk can only label a fully gated candidate as **paper-review**; it cannot submit orders or grant live authorization. Missing spread/slippage assumptions, unsupported timeframes, insufficient net reward/risk, stale higher-timeframe evidence, severe conflicts, event risk and unsuitable regime conditions cause abstention or a hard block.
+
+Additional strategy presets are available for liquidity-sweep scalping, momentum-continuation scalping, trend-day trading, range-rotation day trading and compression-breakout day trading. They retain closed-candle confirmation, cooldowns, stop-distance bounds, session restrictions and explicit transaction-cost assumptions.
+
+### Live chart execution map
+
+All live candlestick charts now display:
+- Buy-side and sell-side liquidity as visible ATR-scaled bands, with the underlying liquidity level retained as a price line.
+- Fair Value Gap and order-block zones with their existing mitigation/invalidation states.
+- The canonical entry zone and optional optimal-entry marker.
+- Separate TP1, TP2 and TP3 target bands, target price lines, reward/risk labels and reached-state styling.
+- Existing stop-loss, invalidation and trailing-stop markings.
+
+Target bands are visual tolerances around engine-derived target prices, not guaranteed fill ranges. Liquidity bands are visual tolerances around observed/derived liquidity levels, not exchange resting-order maps. All annotations retain the source and evidence limitations of their underlying layer.
+
+Verification: `npm run verify:trading-desk`.
