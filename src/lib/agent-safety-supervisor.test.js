@@ -15,6 +15,9 @@ test('global kill switch, circuit breaker and quarantine veto entries',()=>{
 test('loss, drawdown, loss-streak and session limits veto entries',()=>{
  for(const input of [{dailyLossPct:2},{drawdownPct:5},{consecutiveLosses:4},{sessionAllowed:false}])assert.equal(evaluateAgentSafety({...healthy,...input}).allowed,false);
 });
+test('missing persistent safety state blocks new entries',()=>{
+ const result=evaluateAgentSafety({...healthy,safetyStorageReady:false});assert.equal(result.allowed,false);assert.ok(result.reasons.some(x=>x.code==='SAFETY_STORAGE_UNAVAILABLE'));
+});
 test('critical security and policy anomalies quarantine the agent',()=>{
  const result=evaluateAgentSafety({...healthy,anomalies:[{type:'policy-bypass',summary:'attempted risk override'}]});assert.equal(result.allowed,false);assert.equal(result.quarantine,true);assert.equal(result.status,'QUARANTINED');
 });
