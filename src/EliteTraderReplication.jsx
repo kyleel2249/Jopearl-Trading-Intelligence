@@ -2,7 +2,7 @@ import React,{useCallback,useEffect,useState} from 'react';
 import {Activity,RefreshCw,ShieldCheck,Users,Target,AlertTriangle,Lock} from 'lucide-react';
 import {apiFetch} from './lib/api.js';
 
-const example={candidates:[{traderId:'REPLACE_WITH_REAL_ID',displayName:'Real provider trader',source:'verified-provider-export',sourceUrl:'https://www.bitget.com/copy-trading',retrievedAt:new Date().toISOString(),totalTrades:150,historyDays:120,averageHoldingHours:6,maxLeverage:3,windows:{'7d':{roiPct:1,winRatePct:58,maxDrawdownPct:4,copierPnlUsd:20},'30d':{roiPct:4,winRatePct:60,maxDrawdownPct:7,copierPnlUsd:80},'90d':{roiPct:9,winRatePct:59,maxDrawdownPct:9,copierPnlUsd:180,sharpe:1.2,sortino:1.5,calmar:1.1},'180d':{roiPct:14,winRatePct:58,maxDrawdownPct:11,copierPnlUsd:260}}}]};
+const example={candidates:[{traderId:'REPLACE_WITH_REAL_ID',displayName:'Real provider trader',source:'verified-provider-export',sourceAttested:false,sourceUrl:'https://www.bitget.com/copy-trading',retrievedAt:new Date().toISOString(),totalTrades:150,historyDays:120,averageHoldingHours:6,maxLeverage:3,windows:{'7d':{roiPct:1,winRatePct:58,maxDrawdownPct:4,copierPnlUsd:20},'30d':{roiPct:4,winRatePct:60,maxDrawdownPct:7,copierPnlUsd:80},'90d':{roiPct:9,winRatePct:59,maxDrawdownPct:9,copierPnlUsd:180,sharpe:1.2,sortino:1.5,calmar:1.1},'180d':{roiPct:14,winRatePct:58,maxDrawdownPct:11,copierPnlUsd:260}}}]};
 const number=(v,d=1)=>v==null?'—':Number(v).toFixed(d);
 export default function EliteTraderReplication(){
  const [status,setStatus]=useState(null),[ranking,setRanking]=useState(null),[history,setHistory]=useState([]);
