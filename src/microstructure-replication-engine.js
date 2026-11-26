@@ -3,7 +3,6 @@ export const MICROSTRUCTURE_KINDS = Object.freeze(['orderbook','trade','funding'
 const SYMBOL_RE=/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
 const n=v=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
 const iso=v=>{const x=n(v);if(!(x>0))return null;const d=new Date(x<1e12?x*1000:x);return Number.isNaN(d.getTime())?null:d.toISOString();};
-const enc=encodeURIComponent;
 export function normalizeMicrostructurePlan(input={}){
  const exchanges=[...new Set((Array.isArray(input.exchanges)?input.exchanges:MICROSTRUCTURE_EXCHANGES).map(x=>String(x).toLowerCase()).filter(x=>MICROSTRUCTURE_EXCHANGES.includes(x)))].slice(0,4);
  const symbols=[...new Set((Array.isArray(input.symbols)?input.symbols:['BTC/USDT','ETH/USDT']).map(x=>String(x).trim().toUpperCase()).filter(x=>SYMBOL_RE.test(x)))].slice(0,8);
@@ -53,13 +52,13 @@ function rowsOf(payload){if(Array.isArray(payload))return payload;if(Array.isArr
 export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,payload,receivedAt=Date.now()}){
  if(!payload||typeof payload!=='object')return [];
  const stamp=iso(receivedAt),out=[];
- const push=(id,observedAt,data,quality={})=>{const at=iso(observedAt)||stamp;out.push({exchange,symbol,marketType,kind,eventId:String(id??at),observedAt:at,receivedAt:stamp,payload:data,quality});};
+ const push=(id,observedAt,data,quality={})=>{const sourceTime=iso(observedAt),at=sourceTime||stamp;out.push({exchange,symbol,marketType,kind,eventId:String(id??at),observedAt:at,receivedAt:stamp,payload:data,quality:{...quality,sourceTimestampPresent:!!sourceTime}});};
  if(kind==='orderbook'){
   const raw=payload.result||payload.data||payload;const data=Array.isArray(raw)?raw[0]||{}:raw;
   const bids=data.b||data.bids||data.asks&&data.bids||[],asks=data.a||data.asks||[];
   const clean=levels=>(Array.isArray(levels)?levels:[]).slice(0,100).map(x=>[n(x[0]??x.price),n(x[1]??x.size??x.qty)]).filter(x=>x[0]>0&&x[1]>=0);
   const bid=clean(bids),ask=clean(asks),bestBid=bid.length?Math.max(...bid.map(x=>x[0])):null,bestAsk=ask.length?Math.min(...ask.map(x=>x[0])):null;
-  if(bid.length||ask.length){const bidQty=bid.reduce((s,x)=>s+x[1],0),askQty=ask.reduce((s,x)=>s+x[1],0),bidNotional=bid.reduce((s,x)=>s+x[0]*x[1],0),askNotional=ask.reduce((s,x)=>s+x[0]*x[1],0),spread=bestBid&&bestAsk?bestAsk-bestBid:null,midPrice=bestBid&&bestAsk?(bestBid+bestAsk)/2:null;push(data.ts||data.timestamp||payload.ts||receivedAt,'',{bids:bid,asks:ask,bestBid,bestAsk,spread,midPrice,spreadBps:spread!==null&&midPrice>0?spread/midPrice*10000:null,bidQty,askQty,bidNotional,askNotional,depth:bid.length+ask.length,depthImbalance:bidQty+askQty?(bidQty-askQty)/(bidQty+askQty):null,notionalImbalance:bidNotional+askNotional?(bidNotional-askNotional)/(bidNotional+askNotional):null},{validLevels:true,crossed:!!(bestBid&&bestAsk&&bestBid>=bestAsk)});}
+  if(bid.length||ask.length){const bidQty=bid.reduce((s,x)=>s+x[1],0),askQty=ask.reduce((s,x)=>s+x[1],0),bidNotional=bid.reduce((s,x)=>s+x[0]*x[1],0),askNotional=ask.reduce((s,x)=>s+x[0]*x[1],0),spread=bestBid&&bestAsk?bestAsk-bestBid:null,midPrice=bestBid&&bestAsk?(bestBid+bestAsk)/2:null;push(data.ts||data.timestamp||payload.ts||null,'',{bids:bid,asks:ask,bestBid,bestAsk,spread,midPrice,spreadBps:spread!==null&&midPrice>0?spread/midPrice*10000:null,bidQty,askQty,bidNotional,askNotional,depth:bid.length+ask.length,depthImbalance:bidQty+askQty?(bidQty-askQty)/(bidQty+askQty):null,notionalImbalance:bidNotional+askNotional?(bidNotional-askNotional)/(bidNotional+askNotional):null},{validLevels:true,crossed:!!(bestBid&&bestAsk&&bestBid>=bestAsk)});}
  }else{
   for(const row of rowsOf(payload)){
    let id,time,data;
@@ -73,7 +72,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
     if(data.rate===null)continue;
    }else if(kind==='open_interest'){
     id=row.timestamp||row.ts||row.time||row.symbol||receivedAt;time=row.timestamp||row.ts||row.time;
-    data={openInterest:n(row.openInterest??row.openInterestValue??row.oi??row.openInterestList?.[0]?.openInterest),openInterestValue:n(row.openInterestValue),unit:row.unit||null,symbol:row.symbol||symbol};
+    data={openInterest:n(row.openInterest??row.openInterestValue??row.oi??row.openInterestList?.[0]?.openInterest??row.openInterestList?.[0]?.size??row.openInterestList?.[0]?.amount),openInterestValue:n(row.openInterestValue),unit:row.unit||null,symbol:row.symbol||symbol};
     if(data.openInterest===null)continue;
    }else if(kind==='liquidation'){
     id=row.orderId||row.ts+'-'+row.price+'-'+row.size;time=row.updatedTime||row.ts||row.time;
@@ -96,7 +95,7 @@ export function summarizeMicrostructureObservations(observations=[]){
   if(row.kind==='trade'){const x=trades.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,trades:0,buyVolume:0,sellVolume:0,buyNotional:0,sellNotional:0};const qty=Number(p.quantity)||0,notional=Number(p.quoteQuantity)||Number(p.price)*qty;x.trades++;if(p.side==='buy'){x.buyVolume+=qty;x.buyNotional+=notional;}else if(p.side==='sell'){x.sellVolume+=qty;x.sellNotional+=notional;}trades.set(k,x);}
   if(row.kind==='funding'){const x=funding.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,rates:[]};if(Number.isFinite(Number(p.rate)))x.rates.push(Number(p.rate));funding.set(k,x);}
   if(row.kind==='open_interest')interest.set(k,{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,openInterest:p.openInterest,observedAt:row.observedAt});
-  if(row.kind==='liquidation'){const x=liquidations.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,events:0,longNotional:0,shortNotional:0};x.events++;if(p.side==='sell')x.longNotional+=Number(p.notional)||0;else if(p.side==='buy')x.shortNotional+=Number(p.notional)||0;liquidations.set(k,x);}
+  if(row.kind==='liquidation'){const x=liquidations.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,events:0,sellSideNotional:0,buySideNotional:0};x.events++;if(p.side==='sell')x.sellSideNotional+=Number(p.notional)||0;else if(p.side==='buy')x.buySideNotional+=Number(p.notional)||0;liquidations.set(k,x);}
  }
  return {orderBooks:[...books.values()],tradeFlow:[...trades.values()].map(x=>({...x,netAggressorNotional:x.buyNotional-x.sellNotional,imbalance:x.buyNotional+x.sellNotional?(x.buyNotional-x.sellNotional)/(x.buyNotional+x.sellNotional):null})),funding:[...funding.values()].map(x=>({...x,meanRate:x.rates.length?x.rates.reduce((a,b)=>a+b,0)/x.rates.length:null,samples:x.rates.length})),openInterest:[...interest.values()],liquidations:[...liquidations.values()]};
 }
