@@ -62,7 +62,8 @@ export async function onRequest({request,env}){
   const body=raw?JSON.parse(raw):{},query=normalizeQuery(body),candles=await loadCandles(env.JPTI_DB,query);
   if(candles.length<60)return json(409,{error:'Insufficient persisted OHLCV history for a defensible replay.',availableCandles:candles.length,requiredCandles:60,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const from=new Date(candles[0][0]).toISOString(),to=new Date(candles.at(-1)[0]).toISOString();
-  const marketEvents=await loadHistoricalMarketEvents(env.JPTI_DB,query,from,to,env),marketDataAt=createMarketDataAt(marketEvents,TIMEFRAME_MS[query.timeframe]);
+  const [marketEvents,timeframes]=await Promise.all([loadHistoricalMarketEvents(env.JPTI_DB,query,from,to,env),loadTimeframes(env.JPTI_DB,query)]);
+  const marketDataAt=createMarketDataAt(marketEvents,TIMEFRAME_MS[query.timeframe]),timeframesAt=createTimeframesAt(timeframes);
   const replay=replayStrategy({candles,strategyId:query.strategyId,startingEquity:10000,riskPerTradePct:.25,feeRate:.0006,slippageBps:5,spreadBps:3,maxDrawdownPct:PAPER_POLICY.maxDrawdownPct,monteCarloIterations:1000,marketDataAt,timeframesAt,riskPolicy:await loadRiskPolicy(env.JPTI_DB)});
   if(replay.status!=='completed')return json(409,{error:'Historical replay could not complete.',replay,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const forward=await loadForward(env.JPTI_DB,query.strategyId);
