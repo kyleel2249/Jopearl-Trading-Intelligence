@@ -319,7 +319,6 @@ test('JPTI bridge sends fresh token evidence and rechecks governance on every en
   let payload=null;
   globalThis.fetch=async (url,options={})=>{
     calls++;
-    if(String(url).includes('/validation/latest/')) return {ok:true,status:200,json:async()=>({paperTrialEligible:true,assessment:{failedChecks:[]}})};
     payload=JSON.parse(options.body);
     return {ok:true,status:200,json:async()=>({allowed:true,decision:'paper_candidate',reasons:[]})};
   };
@@ -332,7 +331,7 @@ test('JPTI bridge sends fresh token evidence and rechecks governance on every en
     const second=await bridge.preflightEntry({token,profileId:'meme_new_pair',securityPassed:true});
     assert.equal(first.allowed,true);
     assert.equal(second.allowed,true);
-    assert.equal(calls,4);
+    assert.equal(calls,2);
     assert.equal(payload.profileId,'meme_new_pair');
     assert.equal(payload.securityStatus,'passed');
     assert.equal(payload.evidence.relativeVolume,2);
@@ -342,7 +341,7 @@ test('JPTI bridge sends fresh token evidence and rechecks governance on every en
 
 test('JPTI bridge fails closed when the paper preflight service is unavailable', async () => {
   const originalFetch=globalThis.fetch;
-  globalThis.fetch=async(url)=>{if(String(url).includes('/validation/latest/'))return{ok:true,status:200,json:async()=>({paperTrialEligible:true,assessment:{failedChecks:[]}})};throw new Error('offline');};
+  globalThis.fetch=async()=>{throw new Error('offline');};
   try {
     const bridge=new JptiBridge();
     bridge.setToken('test-local-token');
@@ -356,10 +355,10 @@ test('JPTI bridge fails closed when the paper preflight service is unavailable',
 
 test('JPTI preflight is requested on every entry and approvals are not cached', async () => {
   let calls=0;
-  const bridge=new JptiBridge({fetchImpl:async(url)=>{calls++;return{ok:true,json:async()=>String(url).includes('/validation/latest/')?({paperTrialEligible:true,assessment:{failedChecks:[]}}):({allowed:true,maxEntrySizePct:1})};},storage:{getItem:()=>null,setItem:()=>{}}});
+  const bridge=new JptiBridge({fetchImpl:async()=>{calls++;return{ok:true,json:async()=>({allowed:true,maxEntrySizePct:1})};},storage:{getItem:()=>null,setItem:()=>{}}});
   bridge.setToken('test-token');
   const token={id:'governance-test',symbol:'TEST',change1hPct:5,volume5mUsd:2000,volume5mAvgUsd:1000,liquidityUsd:50000,fetchedAt:new Date().toISOString()};
   const first=await bridge.preflightEntry({token,profileId:'meme_new_pair',securityPassed:true});
   const second=await bridge.preflightEntry({token,profileId:'meme_new_pair',securityPassed:true});
-  assert.equal(first.allowed,true);assert.equal(second.allowed,true);assert.equal(calls,4);
+  assert.equal(first.allowed,true);assert.equal(second.allowed,true);assert.equal(calls,2);
 });
