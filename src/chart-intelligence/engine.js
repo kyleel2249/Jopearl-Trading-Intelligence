@@ -14,10 +14,11 @@ import { detectRegime, adaptiveConfig, mtfBias, scoreComponents, detectConflicts
 import { scoreInstitutionalContext } from './institutional.js';
 import { scoreChainDexContext } from './chain-dex.js';
 import { analyzeFvgLiquidity, scoreFvgLiquidityForConfluence } from './fvg-liquidity.js';
+import { analyzeCandleFormation } from './candle-formation.js';
 
-export const MODULE_VERSION = 'chart-intelligence-1.1.0';
-export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
-export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, volumeNodes: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: true, vwap: true };
+export const MODULE_VERSION = 'chart-intelligence-1.2.0';
+export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap', 'candlePatterns'];
+export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, volumeNodes: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: true, vwap: true, candlePatterns: true };
 const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
 
 export function createMemoryLedger() {
@@ -144,6 +145,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
 
   const profile = profileLevels(work, { timeframe, atr, anchors }), volume = volumeProfile(work.slice(-300), { bins: 64, valueAreaPct: 0.7 }), sr = supportResistance(work, { atr });
   const smc = analyzeSmc(work), of = analyzeOrderFlow(work, { flow }), liq = analyzeLiquidation(work, { feed: liquidationFeed });
+  const candleFormation = analyzeCandleFormation(work, { atrSeries: atrS, lookback: 120 });
   const regime = detectRegime(work, atrS), rcfg = adaptiveConfig(regime), mtf = mtfBias(higherTimeframes, now);
   const institutional = scoreInstitutionalContext(institutionalContext, { now });
   const chainDex = scoreChainDexContext(chainDexContext, { now });
@@ -206,6 +208,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
     { id:'SESSION|'+x.id+'|LOW',layer:'liquidity',kind:'SESSION_FORECAST_LOW',direction:'sell-side',ts:work[last][0],price:x.forecast?.low,label:x.name+' forecast low',strength:.35,source:{module:'session-liquidity-engine',method:'historical-session-range-forecast',basis:'estimated-model',inputs:{confidence:x.confidence,samples:x.historySamples}} }
   ].filter(z=>Number.isFinite(z.price)));
   const L = {
+    candlePatterns: (candleFormation.patterns || []).map(p => ({ id: 'CANDLE|' + p.id, layer: 'candlePatterns', kind: p.kind, direction: p.direction, ts: p.ts, price: work.find(c => c[0] === p.ts)?.[4], label: p.kind.replaceAll('_',' '), strength: p.score / 100, score: p.score, detail: p.detail, source: p.source })),
     signals: trades.slice(-40).map((t) => ({ id: 'SIG|' + t.id, layer: 'signals', kind: t.signal, direction: t.signal === 'BUY' ? 'bullish' : 'bearish', ts: t.ts, price: t.signal === 'BUY' ? work.find((c) => c[0] === t.ts)?.[3] : work.find((c) => c[0] === t.ts)?.[2], label: t.signal + ' ' + t.confidence, confidence: t.confidence, outcome: t.trade.state, strength: t.confidence / 100, source: { module: 'gainz-alpha/engine', method: t.kind || 'confluence', basis: 'engine', inputs: { score: t.score, setupId: t.setupId } } })),
     profile: mergeNearLevels(profileS.filter((i) => !['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)), atr), volumeNodes: [], vwap: profileS.filter((i) => ['VWAP', 'VWAP_BAND', 'AVWAP'].includes(i.kind)),
     sr: sr, liquidation: liq.items || [], orderflow: cap(of.items || [], 24),
@@ -242,7 +245,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   return {
     status: 'ready', module: MODULE_VERSION, symbol, timeframe, exchange, asOf: lastTs, forming: forming ? forming[0] : null, atr: r8(atr), price,
     layers: L, volumeProfile: volume ? { poc: r8(volume.poc), vah: r8(volume.vah), val: r8(volume.val), totalVolume: r8(volume.totalVolume), low: r8(volume.low), high: r8(volume.high), bins: volume.bins.map((b) => ({ price: r8(b.price), volume: r8(b.volume) })) } : null, signals: trades, active: active ? { ...active, grade, display } : null, display, plan, grade, conflicts: cf.conflicts, conflictSeverity: cf.severity,
-    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, chainDex, fvgLiquidity, crossExchangeFlows, bisFlows, walletAttribution: walletAttributionContext, eventImpact, smtDivergence, sessionForecast: sessionContext, entryAssessment, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
+    confluence: { score: conf.score, direction: scoreDir, minScore: rcfg.minScore, agreeing, total, components: conf.components }, institutional, chainDex, fvgLiquidity, crossExchangeFlows, bisFlows, walletAttribution: walletAttributionContext, eventImpact, smtDivergence, sessionForecast: sessionContext, entryAssessment, candleFormation, regime, adaptive: rcfg, mtf, smc: { trend: smc.trend, dealingRange: smc.dealingRange, magnets: smc.liquidity.magnets }, orderFlow: of.summary ? { ...of.summary, basis: of.basis } : null,
     liquidation: { basis: liq.basis, cascade: liq.cascade, heatmap: liq.heatmap }, expectancy, gainzStatus: gz ? { signal: gz.signal, confidence: gz.confidence, stage: gz.stage } : null, alerts, provenance, bases,
     method: 'Closed-candle analysis; signals frozen in a ledger so history never repaints. Estimated layers are labelled in provenance.'
   };
