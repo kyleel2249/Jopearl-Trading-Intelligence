@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import { Activity, AlertTriangle, CheckCircle2, FlaskConical, Play, RefreshCw, ShieldCheck, XCircle } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import LiveCandlestickChart from './LiveCandlestickChart.jsx';
@@ -12,7 +13,7 @@ export default function AlphaSignalEngine(){
  const [exchange,setExchange]=useState('binance'),[symbol,setSymbol]=useState('BTC/USDT'),[timeframe,setTimeframe]=useState('1h'),[marketType,setMarketType]=useState('spot'),[productNote,setProductNote]=useState('');
  const support=productSupport({exchange,mode:'direct',cfdReady:false});
  const selectProduct=value=>{const choice=resolveProductChoice({exchange,requested:value,mode:'direct',cfdReady:false});if(!choice.ok){setProductNote(choice.notice);return;}setExchange(choice.exchange);setMarketType(choice.marketType);setProductNote(choice.notice);};
- const [equity,setEquity]=useState('10000'),[dailyPnl,setDailyPnl]=useState('0'),[riskPercent,setRiskPercent]=useState('0.5'),[maxNotional,setMaxNotional]=useState('2000'),[apiToken,setApiToken]=useState(''),[inventoryConfirmed,setInventoryConfirmed]=useState(false),[exposuresJson,setExposuresJson]=useState('');
+ const [equity,setEquity]=useState('10000'),[dailyPnl,setDailyPnl]=useState('0'),[riskPercent,setRiskPercent]=useState('0.5'),[maxNotional,setMaxNotional]=useState('2000'),[apiToken,setApiToken]=useSessionToken(),[inventoryConfirmed,setInventoryConfirmed]=useState(false),[exposuresJson,setExposuresJson]=useState('');
  const [result,setResult]=useState(null),[replay,setReplay]=useState(null),[ledger,setLedger]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[paperBusy,setPaperBusy]=useState(false),[markBusy,setMarkBusy]=useState(false),[promotion,setPromotion]=useState(null),[promotionBusy,setPromotionBusy]=useState(false);
  const headers=()=>apiToken?{'x-jpti-api-token':apiToken}:{};
  const loadLedger=useCallback(async()=>{try{const r=await apiFetch('/api/alpha/paper/ledger',{headers:headers(),cache:'no-store'});const d=await r.json();if(r.ok)setLedger(d);}catch{}},[apiToken]);

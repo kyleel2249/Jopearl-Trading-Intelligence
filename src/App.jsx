@@ -1,4 +1,5 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 const MultiChartWorkstation = lazy(() => import('./MultiChartWorkstation.jsx'));
 const Dashboard = lazy(() => import('./Dashboard.jsx'));
 const AgentDashboardOverview = lazy(() => import('./AgentDashboardOverview.jsx'));
@@ -247,7 +248,7 @@ function App() {
   const [labTrainBars, setLabTrainBars] = useState(300);
   const [labTestBars, setLabTestBars] = useState(100);
   const [streamData, setStreamData] = useState(null);
-  const [portfolioToken, setPortfolioToken] = useState('');
+  const [portfolioToken,setPortfolioToken]=useSessionToken();
   const [portfolioData, setPortfolioData] = useState(null);
   const [performanceData, setPerformanceData] = useState(null);
   const [performanceError, setPerformanceError] = useState('');

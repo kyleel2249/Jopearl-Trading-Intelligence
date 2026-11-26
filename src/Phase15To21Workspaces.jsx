@@ -1,4 +1,5 @@
 import React,{useMemo,useState}from'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import AgentReport from './AgentReport.jsx';
 import{apiFetch}from'./lib/api.js';
 const examples={
@@ -10,7 +11,7 @@ const examples={
  'Production Readiness':{endpoint:'/api/governance/readiness',method:'GET'}
 };
 export default function Phase15To21Workspaces({page}){
- const config=examples[page], [token,setToken]=useState(''),[payload,setPayload]=useState(()=>config?.payload?JSON.stringify(config.payload,null,2):'{}'),[result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reviewMode,setReviewMode]=useState(false);
+ const config=examples[page], [token,setToken]=useSessionToken(),[payload,setPayload]=useState(()=>config?.payload?JSON.stringify(config.payload,null,2):'{}'),[result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false),[reviewMode,setReviewMode]=useState(false);
  const endpoint=page==='Strategy Registry'&&reviewMode?'/api/strategies/promotion-review':config?.endpoint;
  const method=page==='Strategy Registry'&&reviewMode?'POST':config?.method;
  const description=useMemo(()=>({

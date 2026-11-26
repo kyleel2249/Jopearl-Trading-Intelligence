@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Activity, BrainCircuit, Building2, Database, RefreshCw, ShieldCheck, Target } from 'lucide-react';
-import { apiFetch } from './lib/api.js';
+import { apiFetch, getApiToken } from './lib/api.js';
+import { describePrivateFailure } from './lib/private-access.js';
+import { useApiConfigChange } from './lib/useSessionToken.js';
 import './AgentDashboardOverview.css';
 
 const DEPARTMENT_NAMES = {
@@ -15,8 +17,9 @@ async function readJson(path) {
   const response = await apiFetch(path, { cache: 'no-store' });
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(payload.error || 'Request failed (HTTP ' + response.status + ')');
-    error.status = response.status;
+    const failure = describePrivateFailure(response.status, payload, Boolean(getApiToken()));
+    const error = new Error(failure.message);
+    error.needsSettings = failure.needsSettings;
     throw error;
   }
   return payload;
@@ -38,10 +41,12 @@ export default function AgentDashboardOverview({ activeNav }) {
     setState({
       catalog, overview, paper, loading: false,
       error: failure?.message || '',
-      authRequired: failure?.status === 401 || /authori[sz]ation|token/i.test(failure?.message || ''),
+      authRequired: Boolean(failure?.needsSettings),
       updatedAt: new Date().toISOString()
     });
   }, []);
+
+  useApiConfigChange(load);
 
   useEffect(() => {
     load();
@@ -81,7 +86,7 @@ export default function AgentDashboardOverview({ activeNav }) {
     </div>
 
     {state.error && <div className="agent-overview-notice" role="status">
-      <ShieldCheck size={15}/><span>{state.error}{state.authRequired ? ' Enter the existing JPTI_JOURNAL_TOKEN in Connection Settings and choose Verify access token, then refresh this panel.' : ''}</span>
+      <ShieldCheck size={15}/><span>{state.error}</span>
       {state.authRequired && <button type="button" onClick={() => activeNav('Connection Settings')}>Open settings</button>}
     </div>}
 

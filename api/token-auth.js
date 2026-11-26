@@ -3,6 +3,9 @@ import { timingSafeEqual } from 'node:crypto';
 // Constant-time comparison so response timing cannot be used to recover the API token.
 export function tokensMatch(expected, provided) {
   if (typeof expected !== 'string' || !expected || typeof provided !== 'string') return false;
+  // Secrets pasted into env files often carry a trailing newline that HTTP headers cannot send.
+  expected = expected.trim();
+  if (!expected) return false;
   const a = Buffer.from(expected, 'utf8');
   const b = Buffer.from(provided, 'utf8');
   if (a.length !== b.length) {

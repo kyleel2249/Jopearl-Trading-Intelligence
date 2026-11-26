@@ -1,6 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Activity, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, Play, RefreshCw, Search, ShieldCheck, Sparkles, Target, Users } from 'lucide-react';
-import { apiFetch } from './lib/api.js';
+import { apiFetch, getApiToken } from './lib/api.js';
+import { describePrivateFailure } from './lib/private-access.js';
+import { useApiConfigChange } from './lib/useSessionToken.js';
 import './AutonomousDepartments.css';
 import AgentReport from './AgentReport.jsx';
 import ReportCompare from './ReportCompare.jsx';
@@ -32,10 +34,10 @@ export default function AutonomousDepartments({ onOpenSettings = () => {} }) {
       const result = await apiFetch('/api/org/overview', { cache: 'no-store' });
       const payload = await result.json();
       if (!result.ok) {
-        if (result.status === 401) setAuthIssue('rejected');
-        else if (result.status === 409) setAuthIssue('unconfigured');
-        else if (result.status === 503) setAuthIssue('service-unavailable');
-        throw new Error(payload.error || 'Could not load JPTI department intelligence.');
+        const failure = describePrivateFailure(result.status, payload, Boolean(getApiToken()));
+        if (result.status === 401) setAuthIssue(failure.kind);
+        else if (failure.kind === 'unconfigured') setAuthIssue('unconfigured');
+        throw new Error(result.status === 401 && failure.kind === 'rejected' ? payload.error || failure.message : failure.message);
       }
       setData(payload);
     } catch (cause) {
@@ -56,6 +58,7 @@ export default function AutonomousDepartments({ onOpenSettings = () => {} }) {
   }, [load]);
 
   useEffect(() => { load(); }, [load]);
+  useApiConfigChange(load);
   useEffect(() => {
     if (!data || pulseAttempted.current) return;
     pulseAttempted.current = true;
@@ -127,7 +130,7 @@ export default function AutonomousDepartments({ onOpenSettings = () => {} }) {
       <div><span className="eyebrow">JPTI AUTONOMOUS ORGANISATION</span><h2>AI Department Headquarters</h2><p>Three autonomous workforces, one shared institutional memory, measurable goals and daily accountability.</p></div>
       <div className="org-hero-actions"><span className="org-live"><i/> SHARED MEMORY ONLINE</span><button className="refresh-button" onClick={runPulse} disabled={pulseBusy}><RefreshCw size={14} className={pulseBusy ? 'org-spin' : ''}/>{pulseBusy ? 'Running daily pulse…' : 'Run autonomous daily pulse'}</button></div>
     </div>
-    {error && <div className="org-alert" role="alert"><CircleAlert size={15}/><span>{authIssue === 'rejected' ? 'The server has a configured private secret, but this browser session did not present a matching token. ' : authIssue === 'unconfigured' ? 'The server has not been configured with its private department secret. ' : ''}{error}</span>{authIssue === 'rejected' && <button type="button" className="org-auth-settings" onClick={onOpenSettings}>Open Connection Settings</button>}</div>}
+    {error && <div className="org-alert" role="alert"><CircleAlert size={15}/><span>{authIssue === 'rejected' ? 'The server has a configured private secret, but this browser session did not present a matching token. ' : authIssue === 'unconfigured' ? 'The server has not been configured with its private department secret. ' : ''}{error}</span>{(authIssue === 'rejected' || authIssue === 'missing') && <button type="button" className="org-auth-settings" onClick={onOpenSettings}>Open Connection Settings</button>}</div>}
     {notice && <div className="org-notice"><CheckCircle2 size={15}/>{notice}</div>}
     <div className="org-department-grid">
       {(data?.departments || []).map(item => {

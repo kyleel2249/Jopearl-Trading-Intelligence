@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import { Activity, AudioLines, Command, CornerDownLeft, Gauge, Radio, RefreshCw, ShieldCheck, TerminalSquare, TrendingUp, X } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import { parseTerminalCommand } from './terminalCommands.js';
@@ -18,7 +19,7 @@ export default function InstitutionalTerminal({currentSymbol='BTC/USDT',onSymbol
   const [history,setHistory]=useState([{kind:'system',text:'JPTI institutional terminal initialized. Type HELP to inspect available commands.'}]);
   const [apiState,setApiState]=useState({gateway:'checking',mode:'paper',scheduler:'unknown',jobs:0});
   const [activeTab,setActiveTab]=useState('COMMAND');
-  const [apiToken,setApiToken]=useState('');
+  const [apiToken,setApiToken]=useSessionToken();
   const [risk,setRisk]=useState(null);
   const [riskStatus,setRiskStatus]=useState('not-run');
   const inputRef=useRef(null);

@@ -49,7 +49,7 @@ For runtime variables not covered by the allowlist, add a repository variable na
 }
 ```
 
-The workflow also automatically syncs allowlisted `JPTI_ALERT_*`, `JPTI_CORS_*`, `JPTI_EVENT_RISK_*`, `JPTI_ENABLE_*`, `JPTI_CROSS_VENUE_*`, `JPTI_TRADING_MODE`, and `JPTI_TRUST_PROXY` variables.
+The workflow also syncs the `JPTI_ALERT_*`, `JPTI_CORS_*`, `JPTI_EVENT_RISK_*`, `JPTI_ENABLE_*`, `JPTI_CROSS_VENUE_*`, `JPTI_TRADING_MODE` and `JPTI_TRUST_PROXY` variables that are listed by name in `.github/workflows/cloudflare-pages.yml`. They are listed individually because passing `toJSON(vars)` prints every repository variable in the job log. Anything not listed goes in `JPTI_CLOUDFLARE_VARS_JSON`. Webhook URLs and secrets belong in `JPTI_CLOUDFLARE_SECRETS_JSON`, as does any URL that embeds an API key.
 
 ## What the workflow does
 

@@ -37,7 +37,30 @@ jobs:
         run: node scripts/sync-cloudflare-env.mjs
         env:
           CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jpti' }}
-          GITHUB_REPOSITORY_VARIABLES_JSON: ${{ toJSON(vars) }}
+          # Listed one by one on purpose: toJSON(vars) prints every repository variable in the log.
+          # Add any other runtime variable to JPTI_CLOUDFLARE_VARS_JSON.
+          VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
+          VITE_APP_ENV: ${{ vars.VITE_APP_ENV }}
+          VITE_API_BASE_URL: ${{ vars.VITE_API_BASE_URL }}
+          VITE_WS_URL: ${{ vars.VITE_WS_URL }}
+          VITE_ENABLE_ANALYTICS: ${{ vars.VITE_ENABLE_ANALYTICS }}
+          VITE_ENABLE_CRASH_REPORTING: ${{ vars.VITE_ENABLE_CRASH_REPORTING }}
+          VITE_ENABLE_PERFORMANCE_MONITORING: ${{ vars.VITE_ENABLE_PERFORMANCE_MONITORING }}
+          VITE_ENABLE_CONFIG_DIAGNOSTICS: ${{ vars.VITE_ENABLE_CONFIG_DIAGNOSTICS }}
+          JPTI_TRADING_MODE: ${{ vars.JPTI_TRADING_MODE }}
+          JPTI_ENABLE_LIVE_TRADING: ${{ vars.JPTI_ENABLE_LIVE_TRADING }}
+          JPTI_ENABLE_BITGET_CONSENSUS: ${{ vars.JPTI_ENABLE_BITGET_CONSENSUS }}
+          JPTI_ENABLE_ALPHAVANTAGE_CONSENSUS: ${{ vars.JPTI_ENABLE_ALPHAVANTAGE_CONSENSUS }}
+          JPTI_ALERT_MIN_SEVERITY: ${{ vars.JPTI_ALERT_MIN_SEVERITY }}
+          JPTI_ALERT_ON_WATCH: ${{ vars.JPTI_ALERT_ON_WATCH }}
+          JPTI_ALERT_MAX_CONSECUTIVE_LOSSES: ${{ vars.JPTI_ALERT_MAX_CONSECUTIVE_LOSSES }}
+          JPTI_ALERT_DAILY_LOSS_R: ${{ vars.JPTI_ALERT_DAILY_LOSS_R }}
+          JPTI_ALERT_DRAWDOWN_R: ${{ vars.JPTI_ALERT_DRAWDOWN_R }}
+          JPTI_CORS_ORIGINS: ${{ vars.JPTI_CORS_ORIGINS }}
+          JPTI_CORS_ORIGINS_EXTRA: ${{ vars.JPTI_CORS_ORIGINS_EXTRA }}
+          JPTI_EVENT_RISK_FAIL_CLOSED: ${{ vars.JPTI_EVENT_RISK_FAIL_CLOSED }}
+          JPTI_CROSS_VENUE_OUTLIER_PERCENT: ${{ vars.JPTI_CROSS_VENUE_OUTLIER_PERCENT }}
+          JPTI_TRUST_PROXY: ${{ vars.JPTI_TRUST_PROXY }}
           JPTI_CLOUDFLARE_VARS_JSON: ${{ vars.JPTI_CLOUDFLARE_VARS_JSON }}
           JPTI_CLOUDFLARE_SECRETS_JSON: ${{ secrets.JPTI_CLOUDFLARE_SECRETS_JSON }}
 
@@ -115,6 +138,13 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+      - name: Verify private access on the deployed sites
+        run: npm run verify:private-auth
+        env:
+          JPTI_DEPLOY_URL: https://${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jpti' }}.pages.dev
+          JPTI_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_URL }}
+          JPTI_JOURNAL_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
 
       - name: Verify deployed Bitget markets, tickers, candles and symbol switching
         run: npm run verify:bitget:live

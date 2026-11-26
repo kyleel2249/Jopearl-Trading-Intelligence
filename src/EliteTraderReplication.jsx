@@ -1,4 +1,5 @@
 import React,{useCallback,useEffect,useState} from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import {Activity,RefreshCw,ShieldCheck,Users,Target,AlertTriangle,Lock} from 'lucide-react';
 import {apiFetch} from './lib/api.js';
 
@@ -6,7 +7,7 @@ const example={candidates:[{traderId:'REPLACE_WITH_REAL_ID',displayName:'Real pr
 const number=(v,d=1)=>v==null?'—':Number(v).toFixed(d);
 export default function EliteTraderReplication(){
  const [status,setStatus]=useState(null),[ranking,setRanking]=useState(null),[history,setHistory]=useState([]);
- const [token,setToken]=useState(''),[payload,setPayload]=useState(JSON.stringify(example,null,2));
+ const [token,setToken]=useSessionToken(),[payload,setPayload]=useState(JSON.stringify(example,null,2));
  const [busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const load=useCallback(async()=>{
   setError('');

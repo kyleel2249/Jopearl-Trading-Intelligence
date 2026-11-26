@@ -1,9 +1,10 @@
 import React,{useCallback,useEffect,useState}from'react';
-import{apiFetch,getApiToken}from'./lib/api.js';
+import { useSessionToken } from './lib/useSessionToken.js';
+import{apiFetch}from'./lib/api.js';
 import{Activity,AlertOctagon,CheckCircle2,RefreshCw,ShieldAlert,ShieldCheck,TrendingUp}from'lucide-react';
 const fmt=v=>v==null?'—':Number(v).toLocaleString(undefined,{maximumFractionDigits:3});
 export default function InstitutionalGovernance(){
- const[token,setToken]=useState(()=>getApiToken()),[safety,setSafety]=useState(null),[cards,setCards]=useState(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState('');
+ const[token,setToken]=useSessionToken(),[safety,setSafety]=useState(null),[cards,setCards]=useState(null),[loading,setLoading]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[reason,setReason]=useState(''),[confirmation,setConfirmation]=useState('');
  const load=useCallback(async()=>{setLoading(true);setError('');try{const headers={'x-jpti-api-token':token};const[a,b]=await Promise.all([apiFetch('/api/universal/safety/status',{headers,cache:'no-store'}),apiFetch('/api/universal/institutional/scorecards?days=90&minTrades=20',{headers,cache:'no-store'})]);const[sa,sb]=await Promise.all([a.json(),b.json()]);if(!a.ok)throw Error(sa.error||'Safety status unavailable');if(!b.ok)throw Error(sb.error||'Scorecards unavailable');setSafety(sa);setCards(sb);}catch(e){setError(e.message);}finally{setLoading(false);}},[token]);
  useEffect(()=>{const timer=setTimeout(load,600);return()=>clearTimeout(timer);},[load]);/* debounced: load depends on the token being typed */
  const control=async action=>{setBusy(true);setError('');try{const r=await apiFetch('/api/universal/safety/kill-switch',{method:'POST',headers:{'x-jpti-api-token':token,'Content-Type':'application/json'},body:JSON.stringify({action,reason:reason.trim()||(action==='engage'?'Operator emergency stop':'Operator release'),...(action==='release'?{confirmation}:{})})});const d=await r.json();if(!r.ok)throw Error(d.error||'Safety control failed');setSafety(d.safety);setConfirmation('');setReason('');}catch(e){setError(e.message);}finally{setBusy(false);}};

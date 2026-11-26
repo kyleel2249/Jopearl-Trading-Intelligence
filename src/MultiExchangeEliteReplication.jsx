@@ -1,4 +1,5 @@
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import {Activity,AlertTriangle,BarChart3,Database,Lock,RefreshCw,ShieldCheck,Target,Users} from 'lucide-react';
 import {apiFetch} from './lib/api.js';
 
@@ -8,7 +9,7 @@ const venueNames={bitget:'Bitget',bybit:'Bybit',binance:'Binance'};
 const marketNames={spot:'Spot',usdt_perpetual:'USDT Perpetual',coin_perpetual:'Coin-M Perpetual',usdc_perpetual:'USDC Perpetual'};
 export default function MultiExchangeEliteReplication(){
  const [status,setStatus]=useState(null),[ranking,setRanking]=useState(null),[history,setHistory]=useState([]);
- const [token,setToken]=useState(''),[payload,setPayload]=useState(JSON.stringify(emptyImport,null,2));
+ const [token,setToken]=useSessionToken(),[payload,setPayload]=useState(JSON.stringify(emptyImport,null,2));
  const [venue,setVenue]=useState('all'),[market,setMarket]=useState('all'),[busy,setBusy]=useState(false),[loading,setLoading]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
  const load=useCallback(async()=>{
   setLoading(true);setError('');

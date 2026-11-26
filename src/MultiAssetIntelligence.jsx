@@ -1,11 +1,12 @@
 import React,{useCallback,useEffect,useMemo,useState} from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import {apiFetch} from './lib/api.js';
 import {AGENT_SQUADS,MULTI_ASSET_MODULES,JPTI_STRATEGY_LIBRARY} from './multi-asset-intelligence-engine.js';
 import {SHORT_TERM_SQUADS} from './scalping-daytrading-engine.js';
 import './multi-asset-intelligence.css';
 const fmt=v=>v==null?'—':Number(v).toLocaleString();
 export default function MultiAssetIntelligence(){
- const [data,setData]=useState(null),[token,setToken]=useState(''),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[evaluation,setEvaluation]=useState(null),[backfillBusy,setBackfillBusy]=useState(false),[backfillResult,setBackfillResult]=useState(null),[backfillExchange,setBackfillExchange]=useState('bitget'),[backfillMarketType,setBackfillMarketType]=useState('usdt-m'),[backfillSince,setBackfillSince]=useState(new Date(Date.now()-7*86400000).toISOString().slice(0,10));
+ const [data,setData]=useState(null),[token,setToken]=useSessionToken(),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState(''),[evaluation,setEvaluation]=useState(null),[backfillBusy,setBackfillBusy]=useState(false),[backfillResult,setBackfillResult]=useState(null),[backfillExchange,setBackfillExchange]=useState('bitget'),[backfillMarketType,setBackfillMarketType]=useState('usdt-m'),[backfillSince,setBackfillSince]=useState(new Date(Date.now()-7*86400000).toISOString().slice(0,10));
  const [form,setForm]=useState({assetClass:'crypto',symbol:'BTC/USDT',marketType:'usdt-m',venue:'bitget',momentumPct:'0.8',timeframeAlignment:'0.7',relativeVolume:'1.8',orderBookImbalance:'0.3',tradeFlowImbalance:'0.25',price:'90000',spreadBps:'3',volatilityPct:'1.2',liquidityUsd:'250000',marketStructure:'bullish',liquiditySweep:'true',fvg:'true',displacementPct:'0.8',premiumDiscount:'discount'});
  const auth=useMemo(()=>token?{Authorization:'Bearer '+token}:{},[token]);
  const load=useCallback(async()=>{setError('');try{const r=await apiFetch('/api/multi-asset',{headers:auth,cache:'no-store'});const p=await r.json();if(!r.ok)throw new Error(p.error||'Multi-asset registry unavailable.');setData(p);}catch(e){setError(e.message||'Could not load multi-asset intelligence.');}},[auth]);

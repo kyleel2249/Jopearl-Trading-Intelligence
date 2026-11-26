@@ -2,11 +2,11 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './ConnectionSettings.css';
 import { apiFetch, getApiBaseUrl, getApiToken, setApiToken } from './lib/api.js';
 import { describeTokenCheck } from './lib/token-check.js';
+import { SECRET_PATTERN, plainProfileVariables, unsavedSecretCount } from './lib/connection-profile.js';
 
 const VAULT_KEY = 'jpti.connectionVault.v1';
 const PROFILE_KEY = 'jpti.connectionProfile.v2';
 const loadProfile = () => { try { const data = JSON.parse(localStorage.getItem(PROFILE_KEY) || 'null'); return data && typeof data === 'object' ? data : {}; } catch { return {}; } };
-const SECRET_PATTERN = /(KEY|SECRET|PASSWORD|TOKEN|DATABASE_URL|PRIVATE|CREDENTIAL|AUTH)/i;
 const parseEnv = (source) => {
   const values = {};
   for (const raw of String(source || '').replace(/^\uFEFF/, '').split(/\r?\n/)) {
@@ -72,6 +72,8 @@ export default function ConnectionSettings() {
   const [busy, setBusy] = useState(false);
   const [filter, setFilter] = useState('');
   const fileRef = useRef(null);
+  const [vaultSnapshot, setVaultSnapshot] = useState({});
+  const unsavedSecrets = unsavedSecretCount(variables, { ...(loadProfile().variables || {}), ...vaultSnapshot });
   const groups = useMemo(() => {
     const grouped = {};
     Object.entries(variables).sort(([a], [b]) => a.localeCompare(b)).forEach(([key, value]) => {
@@ -83,7 +85,9 @@ export default function ConnectionSettings() {
   }, [variables]);
   const count = Object.keys(variables).length;
   const secretCount = Object.keys(variables).filter(key => SECRET_PATTERN.test(key)).length;
-  useEffect(() => { try { localStorage.setItem(PROFILE_KEY, JSON.stringify({ variables, apiBaseUrl: url, apiToken: '', savedAt: new Date().toISOString() })); } catch { setVaultError('Auto-save failed: device storage is full or unavailable.'); } }, [variables, url]);
+  const storeProfile = (vaultSaved = false) => localStorage.setItem(PROFILE_KEY, JSON.stringify({ variables: plainProfileVariables(variables, loadProfile().variables || {}, vaultSaved), apiBaseUrl: '', apiToken: '', savedAt: new Date().toISOString() }));
+  // Locking the editor empties it on screen; it must not erase the saved profile.
+  useEffect(() => { if (!Object.keys(variables).length && vaultExists && !vaultUnlocked) return; try { storeProfile(); } catch { setVaultError('Auto-save failed: device storage is full or unavailable.'); } }, [variables]);
 
   const importText = async (text) => {
     const parsed = parseEnv(text);
@@ -91,9 +95,9 @@ export default function ConnectionSettings() {
     setVariables(current => ({ ...current, ...parsed }));
     const importedToken = parsed.JPTI_JOURNAL_TOKEN || parsed.JPTI_API_TOKEN || '';
     if (importedToken) setToken(importedToken);
-    // Imported variables are retained in the encrypted device profile only; they are not pushed to a server.
+    // Imported variables stay on this device; secret values persist only in the encrypted vault.
     setVaultUnlocked(true);
-    setVaultMessage('Imported and auto-saved ' + Object.keys(parsed).length + ' variables on this device.');
+    setVaultMessage('Imported ' + Object.keys(parsed).length + ' variables. Non-secret settings are auto-saved; save the encrypted vault to keep secret values.');
     setVaultError('');
   };
   const addVariable = () => {
@@ -115,6 +119,7 @@ export default function ConnectionSettings() {
       const data = await decryptVault(payload, passphrase);
       if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('Vault contents are invalid.');
       setVariables(data.variables || {});
+      setVaultSnapshot(data.variables || {});
       setUrl('');
       setToken(data.apiToken || '');
       setApiToken(data.apiToken || '');
@@ -130,6 +135,8 @@ export default function ConnectionSettings() {
     try {
       const payload = await encryptVault({ variables, apiBaseUrl: url, apiToken: token }, passphrase);
       localStorage.setItem(VAULT_KEY, JSON.stringify(payload));
+      storeProfile(true); // the encrypted vault now holds the secrets, so drop plain-text copies
+      setVaultSnapshot(variables);
       setVaultExists(true); setVaultUnlocked(true); setConfirmPassphrase('');
       setVaultMessage('Saved ' + count + ' variables in an AES-256-GCM encrypted vault on this device.');
     } catch (error) { setVaultError(error.message || 'Could not save encrypted vault.'); }
@@ -168,7 +175,8 @@ export default function ConnectionSettings() {
 
   // Proves the token against the server instead of assuming it works, so a typo or a wrong secret is
   // caught here and not later as an unexplained 401 inside the private panels.
-  const verifyToken = async () => {
+  const verifyToken = async (previous) => {
+    const previousToken = typeof previous === 'string' ? previous : getApiToken();
     const candidate = token.trim();
     if (!candidate) { setTokenCheck({ kind: 'missing', message: 'Enter your JPTI_JOURNAL_TOKEN value first.' }); return; }
     setTokenBusy(true); setTokenCheck(null);
@@ -178,6 +186,11 @@ export default function ConnectionSettings() {
       const response = await apiFetch('/api/auth/check', { cache: 'no-store', headers: { accept: 'application/json' } });
       const payload = await response.json().catch(() => ({}));
       const outcome = describeTokenCheck(response.status, payload);
+      // A rejected value must not replace a different token that was already active.
+      if (outcome.kind === 'rejected' && previousToken && previousToken !== candidate) {
+        setApiToken(previousToken);
+        outcome.message += ' Your previously active token has been kept.';
+      }
       setTokenCheck(outcome);
       setSavedToken(outcome.kind === 'ok' ? 'VERIFIED IN THIS SESSION' : outcome.kind === 'rejected' ? 'REJECTED BY SERVER' : outcome.kind === 'unconfigured' ? 'SERVER SECRET NOT CONFIGURED' : 'NOT VERIFIED');
     } catch (error) {
@@ -188,16 +201,16 @@ export default function ConnectionSettings() {
 
   const saveSettingsAndSync = async () => {
     try {
-      const profile = { variables, apiBaseUrl: '', apiToken: '', savedAt: new Date().toISOString() };
+      const previousToken = getApiToken();
       setApiToken(token);
       setSavedToken(token ? 'ACTIVE IN THIS SESSION' : 'NOT CONFIGURED');
-      localStorage.setItem(PROFILE_KEY, JSON.stringify(profile));
+      storeProfile();
       setUrl(typeof window !== 'undefined' ? window.location.origin : '');
       setSavedUrl(typeof window !== 'undefined' ? window.location.origin : '');
       setApiError('');
       setServerMessage(token ? 'Device settings saved. Private agent, department and journal requests will use the token for this browser session; public charts remain token-free.' : 'Device settings saved. Public charts are available; private agent, department and journal requests need the existing JPTI_JOURNAL_TOKEN.');
       await testApi();
-      if (token.trim()) await verifyToken();
+      if (token.trim()) await verifyToken(previousToken);
     } catch (error) {
       setApiError(error.message || 'Settings could not be saved.');
     }
@@ -231,10 +244,11 @@ export default function ConnectionSettings() {
 
     <div className="detail-workspace">
       <div className="connection-section-head"><div><span className="eyebrow">02 · CONFIGURATION IMPORT</span><h4>Upload or enter all JPTI variables</h4></div><span className="not-connected">LOCAL PARSING</span></div>
-      <p className="subtle-note">Accepts .env, .env.local, .txt and JPTI JSON exports. Existing variable names are preserved in this encrypted device profile only; values are not uploaded to Cloudflare.</p>
+      <p className="subtle-note">Accepts .env, .env.local, .txt and JPTI JSON exports. Non-secret settings are saved on this device automatically; secret values are kept only if you save the encrypted vault below. Nothing is uploaded to Cloudflare.</p>
       <input ref={fileRef} type="file" accept=".env,.local,.txt,.json,text/plain,application/json" style={{display:'none'}} onChange={event => { const file = event.target.files?.[0]; if (file) importConfig(file).catch(error => setVaultError(error.message)); event.target.value=''; }}/>
       <div className="news-search"><button type="button" onClick={() => fileRef.current?.click()}>Upload configuration file</button><button type="button" onClick={addVariable}>Add variable manually</button><button type="button" onClick={exportConfig} disabled={!count}>Export JSON profile</button></div>{serverMessage && <p className="connection-success">{serverMessage}</p>}
       <div className="connection-toolbar"><input className="connection-url" value={filter} onChange={event => setFilter(event.target.value)} placeholder="Filter variable names…"/><span>{count} total · {secretCount} sensitive</span></div>
+      {unsavedSecrets > 0 && <p className="quote-error" role="status">{unsavedSecrets} secret value(s) are held in memory only. Save the encrypted device vault to keep them after leaving this screen.</p>}
       {visibleEntries.length === 0 && <p className="subtle-note">No variables loaded yet. Upload your existing environment file or add the first variable.</p>}
       {visibleEntries.map(([group, entries]) => <div className="connection-variable-group" key={group}>
         <div className="connection-group-title">{group}<span>{entries.length} variables</span></div>

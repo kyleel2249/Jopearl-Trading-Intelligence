@@ -1,8 +1,9 @@
 import React,{useState}from'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import{apiFetch}from'./lib/api.js';
 const sample=()=>JSON.stringify({timestamp:new Date().toISOString(),sources:[{id:'manual-observation',status:'ok'}],momentumPct:1.2,timeframeAlignment:.6,relativeVolume:1.5,depthImbalance:.2,fundingRate:.0002,openInterestChangePct:1,liquidityUsd:100000,volatilityPct:3,macroBias:'neutral'},null,2);
 export default function ResearchCouncil(){
- const[token,setToken]=useState(''),[symbol,setSymbol]=useState('BTC/USDT'),[assetClass,setAssetClass]=useState('crypto_spot'),[evidence,setEvidence]=useState(sample),[result,setResult]=useState(null),[history,setHistory]=useState([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const[token,setToken]=useSessionToken(),[symbol,setSymbol]=useState('BTC/USDT'),[assetClass,setAssetClass]=useState('crypto_spot'),[evidence,setEvidence]=useState(sample),[result,setResult]=useState(null),[history,setHistory]=useState([]),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  const headers=()=>({'Content-Type':'application/json','x-jpti-api-token':token});
  async function evaluate(){setBusy(true);setError('');try{let parsed;try{parsed=JSON.parse(evidence);}catch{throw new Error('Evidence must be valid JSON.');}const r=await apiFetch('/api/council/evaluate',{method:'POST',headers:headers(),body:JSON.stringify({symbol,assetClass,evidence:parsed})});const d=await r.json();if(!r.ok)throw new Error(d.error||'Council evaluation failed');setResult(d);}catch(e){setError(e.message);}finally{setBusy(false);}}
  async function loadHistory(){setBusy(true);setError('');try{const r=await apiFetch('/api/council/history?limit=20',{headers:headers(),cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Council history unavailable');setHistory(d.evaluations||[]);}catch(e){setError(e.message);}finally{setBusy(false);}}

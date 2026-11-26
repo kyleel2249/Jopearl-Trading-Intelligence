@@ -1,7 +1,8 @@
 import React,{useState}from'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import{apiFetch}from'./lib/api.js';
 export default function PortfolioAllocation(){
- const[token,setToken]=useState(''),[payload,setPayload]=useState(''),[result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ const[token,setToken]=useSessionToken(),[payload,setPayload]=useState(''),[result,setResult]=useState(null),[error,setError]=useState(''),[busy,setBusy]=useState(false);
  async function calculate(){setBusy(true);setError('');try{let body;try{body=JSON.parse(payload);}catch{throw new Error('Provide valid JSON containing assets and aligned returns.');}const r=await apiFetch('/api/portfolio/allocation/risk-parity',{method:'POST',headers:{'Content-Type':'application/json','x-jpti-api-token':token},body:JSON.stringify(body)});const d=await r.json();if(!r.ok)throw new Error(d.error||'Risk parity calculation failed');setResult(d);}catch(e){setError(e.message);}finally{setBusy(false);}}
  return <section className="glass-panel detail-workspace">
   <span className="eyebrow">PHASE 14 · PORTFOLIO CONSTRUCTION</span><h3>Covariance-aware risk parity</h3>

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import { apiFetch } from './lib/api.js';
 
 const fmt = value => value == null || !Number.isFinite(Number(value)) ? '—' : Number(value).toLocaleString(undefined,{maximumFractionDigits:4});
@@ -18,7 +19,7 @@ export default function UniversalEngine({ localPrivateAccess = false }) {
   const [evaluation,setEvaluation]=useState(null);
   const [extraEvidence,setExtraEvidence]=useState({});
   const [query,setQuery]=useState('ETH');
-  const [token,setToken]=useState('');
+  const [token,setToken]=useSessionToken();
   const [dex,setDex]=useState(null);
   const [macro,setMacro]=useState(null);
   const [risk,setRisk]=useState(null);

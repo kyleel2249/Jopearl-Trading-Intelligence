@@ -1,7 +1,8 @@
 import React,{useEffect,useState} from 'react';
+import { useSessionToken } from './lib/useSessionToken.js';
 import {apiFetch} from './lib/api.js';
 export default function FuturesPaperDesk({comparison,symbol,kind='perpetual'}){
- const [token,setToken]=useState(''),[quantity,setQuantity]=useState('0.001'),[fee,setFee]=useState('6'),[positions,setPositions]=useState([]),[error,setError]=useState(''),[status,setStatus]=useState('');
+ const [token,setToken]=useSessionToken(),[quantity,setQuantity]=useState('0.001'),[fee,setFee]=useState('6'),[positions,setPositions]=useState([]),[error,setError]=useState(''),[status,setStatus]=useState('');
  const headers=()=>({'Content-Type':'application/json',...(token?{'x-jpti-api-token':token}:{})});
  async function refresh(){try{const r=await apiFetch('/api/futures/paper/positions',{headers:headers(),cache:'no-store'});const d=await r.json();if(!r.ok)throw new Error(d.error||'Unable to load positions');setPositions(d.positions||[]);}catch(e){setError(e.message);}}
  useEffect(()=>{refresh();},[token]);

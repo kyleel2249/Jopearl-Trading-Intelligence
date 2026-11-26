@@ -24,9 +24,21 @@ function emitConfigChange() {
 const sessionStorageSafe = () => {
   try { return typeof window !== 'undefined' && window.sessionStorage ? window.sessionStorage : null; } catch { return null; }
 };
+// Node API and Pages Function families that authenticate with the same private token.
+const PRIVATE_ROUTE_PREFIXES = ['/api/elite-traders', '/api/multi-exchange-elite', '/api/replication', '/api/universal/', '/api/advanced/', '/api/portfolio/', '/api/strategies/', '/api/alpha/', '/api/futures/'];
 function isPrivateJournalRoute(path) {
   const value = String(path || '').split('?')[0];
+  if (PRIVATE_ROUTE_PREFIXES.some(prefix => value.startsWith(prefix))) return true;
   return value === '/api/auth/check' || value === '/api/journal/entries' || value === '/api/mentor/analyze' || value === '/api/session/memory' || value === '/api/session/memory/batch' || value === '/api/alpha/gainz/outcomes' || value.startsWith('/api/paper/') || value.startsWith('/api/org/') || value.startsWith('/api/agents/') || value.startsWith('/api/intelligence-foundation/') || value.startsWith('/api/council/') || value.startsWith('/api/intelligence-lab/');
+}
+
+// A panel whose own token box is empty must not mask the token verified for this session, so blank
+// credential headers are dropped before the session token is applied. A typed token always wins.
+function applySessionToken(headers, path) {
+  const supplied = headers.get('x-jpti-api-token');
+  if (supplied !== null && !supplied.trim()) headers.delete('x-jpti-api-token');
+  const token = getApiToken();
+  if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token') && !headers.has('authorization')) headers.set('x-jpti-api-token', token);
 }
 
 export function getApiToken() {
@@ -226,8 +238,7 @@ export async function apiFetch(path, options = {}) {
     throw error;
   }
   const headers = new Headers(options.headers || {});
-  const token = getApiToken();
-  if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+  applySessionToken(headers, path);
   let response;
   try {
     response = await fetch(apiUrl(path), { ...options, headers });
@@ -303,8 +314,7 @@ export async function apiRequest(path, {
     const onAbort = () => controller.abort();
     if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', onAbort, { once: true }); }
     const headers = new Headers(extraHeaders || {});
-    const token = getApiToken();
-    if (token && isPrivateJournalRoute(path) && !headers.has('x-jpti-api-token')) headers.set('x-jpti-api-token', token);
+    applySessionToken(headers, path);
     if (json !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const started = Date.now();
     try {

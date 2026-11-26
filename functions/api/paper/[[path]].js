@@ -1,4 +1,4 @@
-import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
+import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade, calculateAllInRiskPerUnit } from '../../../src/paper-trading-engine.js';
 import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 import { verifyPrivateToken } from '../../private-auth.js';
 import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';

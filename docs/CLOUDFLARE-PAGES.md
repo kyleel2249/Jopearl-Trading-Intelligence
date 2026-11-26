@@ -63,6 +63,8 @@ That message means the server has a secret and the browser sent a different valu
 | Server rejected this token | A secret exists but the value differs | Re-copy the secret exactly, with no quotes. The token is held in session storage, so re-enter it after closing the browser |
 | No secret configured (HTTP 409) | The deployment has no `JPTI_JOURNAL_TOKEN` or `JPTI_API_TOKEN` | Add it as an encrypted Pages secret for Production and Preview, then redeploy |
 
+Panels reload automatically once a token is saved. Each Cloudflare Pages project has its own secrets: if `CLOUDFLARE_PAGES_URL` differs from `https://<CLOUDFLARE_PAGES_PROJECT>.pages.dev`, set the secret on the project you actually open. The deploy workflow's **Verify private access** step reports this, and also tests the token when a `JPTI_JOURNAL_TOKEN` GitHub secret exists.
+
 The check reports a missing secret as 409 instead of 5xx so it is not mistaken for an API outage.
 
 The root `wrangler.toml` declares the Workers AI binding as `[ai] binding = "AI"`. Confirm the `AI` binding is present in the Pages Production and Preview environments, then redeploy after changing bindings. Workers AI does not require a third-party model API key; model usage is metered by Cloudflare. Local Pages development also requires an active Cloudflare account for Workers AI inference. The deterministic journal and trading engines continue to work when the optional AI binding is unavailable.

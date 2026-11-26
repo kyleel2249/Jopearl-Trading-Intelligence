@@ -1,13 +1,14 @@
+import { normaliseToken, providedToken, tokensEqual } from '../functions/private-auth.js';
 import { normalizeStreamRequest, exchangeStreamConfig, parseStreamMessage, advanceBookSequence, applyOrderBookUpdate, summarizeOrderBook } from '../src/sequence-aware-stream-engine.js';
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
-function safeToken(request,env){const supplied=request.headers.get('x-jpti-api-token')||request.headers.get('authorization')?.replace(/^Bearer\s+/i,'');return Boolean(env.JPTI_API_TOKEN&&supplied&&supplied===env.JPTI_API_TOKEN);}
+async function safeToken(request,env){const expected=normaliseToken(env.JPTI_API_TOKEN)||normaliseToken(env.JPTI_JOURNAL_TOKEN);return Boolean(expected)&&tokensEqual(expected,providedToken(request));}
 export default {
  async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/health')return json(200,{service:'JPTI sequence-aware stream collector',storage:'Durable Objects + D1',liveExecutionAuthorized:false});
   if(url.pathname==='/history'&&request.method==='GET'){
    // Public read-only market history: all returned observations originate from public exchange feeds.
    try{const config=normalizeStreamRequest({exchange:url.searchParams.get('exchange'),marketType:url.searchParams.get('marketType'),symbol:url.searchParams.get('symbol')});const id=env.MARKET_STREAMS.idFromName(config.streamId),stub=env.MARKET_STREAMS.get(id),target=new URL('https://stream-hub/history');for(const k of ['kind','since','until','limit'])if(url.searchParams.has(k))target.searchParams.set(k,url.searchParams.get(k));return await stub.fetch(target.toString());}catch(error){return json(400,{error:String(error?.message||error)});}
   }
-  if(!safeToken(request,env))return json(401,{error:'Private stream control authorization failed.'});
+  if(!(await safeToken(request,env)))return json(401,{error:'Private stream control authorization failed.'});
   if(request.method!=='POST'||url.pathname!=='/start')return json(404,{error:'Unknown stream collector route.'});
   const body=await request.json().catch(()=>({})),items=Array.isArray(body.streams)?body.streams:[body];if(!items.length||items.length>40)return json(400,{error:'Provide 1 to 40 stream configurations.'});
   const results=[];for(const item of items){try{const config=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(config.streamId),stub=env.MARKET_STREAMS.get(id),r=await stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});results.push({streamId:config.streamId,...await r.json()});}catch(error){results.push({status:'failed',error:String(error?.message||error)});}}

@@ -15,30 +15,27 @@ concurrency:
 jobs:
   replicate:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 8
+    env:
+      REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
+      # Same precedence as the Pages Function, so both secrets may be set.
+      JPTI_API_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
     steps:
       - name: Validate replication endpoint and credentials
-        env:
-          REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
-          JPTI_API_TOKEN: ${{ secrets.JPTI_API_TOKEN }}
+        id: config
         run: |
           set -euo pipefail
-          if [ -z "$REPLICATION_URL" ]; then
-            echo "::error::Set the GitHub Actions variable JPTI_REPLICATION_URL to the deployed Pages URL ending in /api/replication."
-            exit 1
-          fi
-          if [ -z "$JPTI_API_TOKEN" ]; then
-            echo "::error::Set the GitHub Actions secret JPTI_API_TOKEN to the same value configured as a Cloudflare Pages secret."
-            exit 1
+          if [ -z "$REPLICATION_URL" ] || [ -z "$JPTI_API_TOKEN" ]; then
+            echo "::notice title=Replication not configured::Set the variable JPTI_REPLICATION_URL (Pages URL ending in /api/replication) and the secret JPTI_JOURNAL_TOKEN or JPTI_API_TOKEN to enable it."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           case "$REPLICATION_URL" in
-            https://*) ;;
+            https://*) echo "ready=true" >> "$GITHUB_OUTPUT" ;;
             *) echo "::error::Replication URL must use HTTPS."; exit 1 ;;
           esac
       - name: Run bounded exchange replication cycle
-        env:
-          REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
-          JPTI_API_TOKEN: ${{ secrets.JPTI_API_TOKEN }}
+        if: steps.config.outputs.ready == 'true'
         run: |
           set -euo pipefail
           curl --fail-with-body --silent --show-error \
@@ -53,9 +50,7 @@ jobs:
           node -e "const r=require('./replication-result.json'); if(!r.runId || !['completed','partial'].includes(r.status)) process.exit(1); console.log('Replication run:',r.runId,'status:',r.status,'inserted:',r.counts?.inserted ?? 0);"
 
       - name: Replicate order books, trades, funding, open interest and liquidation events
-        env:
-          REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
-          JPTI_API_TOKEN: ${{ secrets.JPTI_API_TOKEN }}
+        if: steps.config.outputs.ready == 'true'
         run: |
           set -euo pipefail
           MICROSTRUCTURE_URL="${REPLICATION_URL%/api/replication}/api/replication/microstructure"

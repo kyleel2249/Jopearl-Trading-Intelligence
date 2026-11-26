@@ -162,7 +162,7 @@ function schedule() {
             orch.setSharedContext(await jptiBridge.refreshContext());
             orch.setSharedRisk(await jptiBridge.refreshRisk());
             orch.setSharedMacro(await jptiBridge.refreshMacro());
-            orch.setSharedAssetEvidence(await jptiBridge.refreshAssetEvidence(feed.snapshot()), true);
+            orch.setSharedAssetEvidence(await jptiBridge.refreshAssetEvidence(orch.feed.snapshot()), true);
           }
           await orch.step();
         } else {

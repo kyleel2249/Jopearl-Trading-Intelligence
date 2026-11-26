@@ -924,7 +924,7 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
 // Forwards routes the edge does not implement to the optional JPTI Node API. Only same-path /api
 // requests are forwarded, the origin must be https (or localhost for development), and hop-by-hop
 // or credential-bearing browser headers other than the JPTI token are not passed through.
-const PROXY_FORWARD_HEADERS = ['content-type', 'accept', 'authorization', 'x-jpti-token'];
+const PROXY_FORWARD_HEADERS = ['content-type', 'accept', 'authorization', 'x-jpti-api-token', 'x-jpti-token'];
 function nodeApiOrigin(env) {
   const raw = String(env?.JPTI_NODE_API_ORIGIN || '').trim().replace(/\/+$/, '');
   if (!raw) return null;
@@ -938,9 +938,11 @@ function nodeApiOrigin(env) {
 async function proxyToNodeApi({ env, request, url, fetchImpl }) {
   const origin = nodeApiOrigin(env);
   if (!origin || !url.pathname.startsWith('/api/')) return null;
+  // An origin pointing back at this deployment would recurse until the request budget is exhausted.
+  if (origin === url.origin || request.headers.has('x-jpti-proxied')) return null;
   if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return null;
   try {
-    const headers = new Headers();
+    const headers = new Headers({ 'x-jpti-proxied': '1' });
     for (const name of PROXY_FORWARD_HEADERS) { const value = request.headers.get(name); if (value) headers.set(name, value); }
     const hasBody = !['GET', 'HEAD'].includes(request.method);
     const upstream = await fetchImpl(origin + url.pathname + url.search, {

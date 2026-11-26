@@ -34,11 +34,17 @@ function normalizeMap(input, label) {
   return output;
 }
 
-const githubVars = parseObject(process.env.GITHUB_REPOSITORY_VARIABLES_JSON, 'GitHub Variables');
+const SYNCED_NAME = /^(?:VITE_[A-Z0-9_]+|JPTI_(?:ALERT_(?!WEBHOOK)[A-Z0-9_]+|CORS_[A-Z0-9_]+|EVENT_RISK_[A-Z0-9_]+|TRADING_MODE|ENABLE_[A-Z0-9_]+|CROSS_VENUE_[A-Z0-9_]+|TRUST_PROXY))$/;
+// Variables arrive one by one from the workflow. Dumping every repository variable as JSON prints
+// all of them in the (public) job log, so that map is accepted only for local or legacy use.
+const githubVars = {
+  ...parseObject(process.env.GITHUB_REPOSITORY_VARIABLES_JSON, 'GitHub Variables'),
+  ...Object.fromEntries(Object.entries(process.env).filter(([key, value]) => SYNCED_NAME.test(key) && value))
+};
 const customVars = parseObject(process.env.JPTI_CLOUDFLARE_VARS_JSON, 'JPTI_CLOUDFLARE_VARS_JSON');
 const selectedVars = {};
 for (const [key, value] of Object.entries(githubVars)) {
-  if (/^VITE_[A-Z0-9_]+$/.test(key) || /^JPTI_(?:ALERT_|CORS_|EVENT_RISK_|TRADING_MODE$|ENABLE_[A-Z0-9_]+$|CROSS_VENUE_[A-Z0-9_]+$|TRUST_PROXY$)/.test(key)) {
+  if (SYNCED_NAME.test(key)) {
     selectedVars[key] = value;
   }
 }

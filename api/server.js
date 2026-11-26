@@ -1,3 +1,4 @@
+import { tokensMatch, requestApiToken } from './token-auth.js';
 import { getRuntimeConfigStatus, saveRuntimeConfig, verifyConfigAdminToken } from './runtime-config.js';
 import dotenv from 'dotenv';
 // Load the unified local configuration file for PC development. Existing process
@@ -169,6 +170,15 @@ app.use('/t-bots', express.static(resolve(process.env.JPTI_TBOTS_PUBLIC_DIR || '
 // The previous pattern was written /^Bearer\\s+/i inside a regex literal, which matches a
 // literal backslash instead of whitespace, so Bearer tokens were never unwrapped.
 const configAdminCredential = (req) => req.get('x-jpti-api-token') || req.get('authorization')?.replace(/^Bearer\s+/i, '');
+
+// Mirrors the Pages Function so "Verify access token" also works in desktop and self-hosted builds.
+app.get('/api/auth/check', (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  const expected = String(process.env.JPTI_API_TOKEN || '').trim();
+  if (!expected) return res.status(409).json({ status: 'unconfigured', authorised: false, error: 'No JPTI_API_TOKEN is configured on this API server.' });
+  if (!tokensMatch(expected, requestApiToken(req))) return res.status(401).json({ status: 'rejected', authorised: false, error: 'The server rejected this token.' });
+  return res.json({ status: 'ok', authorised: true });
+});
 
 app.get('/api/configuration/status', (req, res) => {
   if (!verifyConfigAdminToken(configAdminCredential(req))) {

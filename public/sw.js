@@ -27,7 +27,11 @@ self.addEventListener('fetch', (event) => {
 
   if (request.mode === 'navigate') {
     event.respondWith(fetch(request).then((response) => {
-      if (response.ok) void caches.open(CACHE).then((cache) => cache.put(APP_BASE.href, response.clone()));
+      // Clone before the page consumes the body; cloning later throws "body already used".
+      if (response.ok && (response.headers.get('content-type') || '').includes('text/html')) {
+        const copy = response.clone();
+        void caches.open(CACHE).then((cache) => cache.put(APP_BASE.href, copy));
+      }
       return response;
     }).catch(async () => (await caches.match(APP_BASE.href)) || Response.error()));
     return;
@@ -35,7 +39,10 @@ self.addEventListener('fetch', (event) => {
 
   if (relativePath.startsWith('assets/') || ['jpti-icon.svg','manifest.webmanifest'].includes(relativePath)) {
     event.respondWith(caches.match(request).then((cached) => cached || fetch(request).then((response) => {
-      if (response.ok) void caches.open(CACHE).then((cache) => cache.put(request, response.clone()));
+      if (response.ok) {
+        const copy = response.clone();
+        void caches.open(CACHE).then((cache) => cache.put(request, copy));
+      }
       return response;
     })));
   }

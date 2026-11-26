@@ -20,19 +20,34 @@ jobs:
         run: |
           git clone --depth 1 https://github.com/kyleel2249/T-Bots.git "$RUNNER_TEMP/T-Bots"
           mkdir -p integrations/t-bots
-          rsync -a --delete --exclude='.git' "$RUNNER_TEMP/T-Bots/" integrations/t-bots/
+          rsync -a --delete --exclude='.git' --exclude='JPTI-*.md' "$RUNNER_TEMP/T-Bots/" integrations/t-bots/
       - name: Reapply JPTI integration adapter
         run: node scripts/apply-tbots-adapter.mjs
-      - name: Open upstream synchronization pull request
-        uses: peter-evans/create-pull-request@v6
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          branch: automation/sync-tbots-upstream
-          delete-branch: true
-          commit-message: "Sync T-Bots upstream into JPTI"
-          title: "Sync latest T-Bots upstream changes"
-          body: |
-            Automated hourly synchronization from https://github.com/kyleel2249/T-Bots.
-            The JPTI adapter overlay is reapplied. Review upstream architecture, strategy, risk and test changes before merging.
-          add-paths: |
-            integrations/t-bots/**
+      # Opening the pull request needs the repository setting "Allow GitHub Actions to create and
+      # approve pull requests". Without it the branch is still published and a compare link is shown.
+      - name: Publish upstream synchronization branch and pull request
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: automation/sync-tbots-upstream
+        run: |
+          set -euo pipefail
+          git add -A integrations/t-bots
+          if git diff --cached --quiet; then
+            echo "T-Bots is already up to date."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch -C "$BRANCH"
+          git commit -m "Sync T-Bots upstream into JPTI"
+          if git fetch --depth=1 origin "$BRANCH" && git diff --quiet FETCH_HEAD HEAD -- integrations/t-bots; then
+            echo "The synchronization branch already holds these changes."
+          else
+            git push --force origin "HEAD:refs/heads/$BRANCH"
+          fi
+          if [ -n "$(gh api "repos/$GITHUB_REPOSITORY/pulls?state=open&head=$GITHUB_REPOSITORY_OWNER:$BRANCH" --jq '.[].number')" ]; then
+            echo "A synchronization pull request is already open."
+          elif ! gh api "repos/$GITHUB_REPOSITORY/pulls" -f title="Sync latest T-Bots upstream changes" -f head="$BRANCH" -f base=main \
+              -f body="Automated synchronization from https://github.com/kyleel2249/T-Bots with the JPTI adapter reapplied. Review strategy, risk and test changes before merging."; then
+            echo "::warning title=T-Bots sync::Branch pushed. Open the pull request at $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/main...$BRANCH"
+          fi
