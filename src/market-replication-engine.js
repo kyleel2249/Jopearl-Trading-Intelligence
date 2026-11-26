@@ -91,10 +91,13 @@ export function normalizeCandleObservations({ exchange, marketType, symbol, time
       exchange, marketType, symbol, kind: 'ohlcv', timeframe,
       observedAt: new Date(timestamp).toISOString(), receivedAt: new Date(receivedAt).toISOString(),
       open, high, low, close, volume,
-      quality: { timestamped: true, validOhlc: true, nonNegativeVolume: true, stale: receivedAt - timestamp > 2 * timeframeMs(timeframe) }
+      quality: { timestamped: true, validOhlc: true, nonNegativeVolume: true, stale: false }
     });
   }
-  return [...unique.values()].sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+  const rows = [...unique.values()].sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+  const latestTimestamp = rows.length ? Date.parse(rows.at(-1).observedAt) : 0;
+  const stale = latestTimestamp > 0 && receivedAt - latestTimestamp > 2 * timeframeMs(timeframe);
+  return rows.map(row => ({ ...row, quality: { ...row.quality, stale } }));
 }
 
 export function timeframeMs(timeframe) {
