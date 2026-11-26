@@ -11,7 +11,7 @@ const shortDate = value => value ? new Date(value).toLocaleString() : '—';
 const pct = value => Math.round(Number(value || 0) * 100) + '%';
 const initialMission = { departmentId: 'research', title: '', objective: '', priority: 'normal' };
 
-export default function AutonomousDepartments() {
+export default function AutonomousDepartments({ onOpenSettings = () => {} }) {
   const [data, setData] = useState(null);
   const [department, setDepartment] = useState('research');
   const [mission, setMission] = useState(initialMission);
@@ -21,17 +21,26 @@ export default function AutonomousDepartments() {
   const [pulseBusy, setPulseBusy] = useState(false);
   const [reviewBusy, setReviewBusy] = useState(false);
   const [error, setError] = useState('');
+  const [authIssue, setAuthIssue] = useState(null);
   const [notice, setNotice] = useState('');
   const pulseAttempted = useRef(false);
 
   const load = useCallback(async () => {
     setError('');
+    setAuthIssue(null);
     try {
       const result = await apiFetch('/api/org/overview', { cache: 'no-store' });
       const payload = await result.json();
-      if (!result.ok) throw new Error(payload.error || 'Could not load JPTI department intelligence.');
+      if (!result.ok) {
+        if (result.status === 401) setAuthIssue('rejected');
+        else if (result.status === 409) setAuthIssue('unconfigured');
+        else if (result.status === 503) setAuthIssue('service-unavailable');
+        throw new Error(payload.error || 'Could not load JPTI department intelligence.');
+      }
       setData(payload);
-    } catch (cause) { setError(cause.message || 'Department intelligence is unavailable.'); }
+    } catch (cause) {
+      setError(cause.message || 'Department intelligence is unavailable.');
+    }
   }, []);
 
   const runPulse = useCallback(async () => {
@@ -118,7 +127,7 @@ export default function AutonomousDepartments() {
       <div><span className="eyebrow">JPTI AUTONOMOUS ORGANISATION</span><h2>AI Department Headquarters</h2><p>Three autonomous workforces, one shared institutional memory, measurable goals and daily accountability.</p></div>
       <div className="org-hero-actions"><span className="org-live"><i/> SHARED MEMORY ONLINE</span><button className="refresh-button" onClick={runPulse} disabled={pulseBusy}><RefreshCw size={14} className={pulseBusy ? 'org-spin' : ''}/>{pulseBusy ? 'Running daily pulse…' : 'Run autonomous daily pulse'}</button></div>
     </div>
-    {error && <div className="org-alert"><CircleAlert size={15}/>{error}</div>}
+    {error && <div className="org-alert" role="alert"><CircleAlert size={15}/><span>{authIssue === 'rejected' ? 'The server has a configured private secret, but this browser session did not present a matching token. ' : authIssue === 'unconfigured' ? 'The server has not been configured with its private department secret. ' : ''}{error}</span>{authIssue === 'rejected' && <button type="button" className="org-auth-settings" onClick={onOpenSettings}>Open Connection Settings</button>}</div>}
     {notice && <div className="org-notice"><CheckCircle2 size={15}/>{notice}</div>}
     <div className="org-department-grid">
       {(data?.departments || []).map(item => {
