@@ -35,12 +35,16 @@ export const EXCHANGE_SOURCE_REGISTRY=Object.freeze({
 });
 const wm=(c,w,k)=>finite(c.windows?.[w]?.[k]);
 function stability(c){
+ const days={'7d':7,'30d':30,'90d':90,'180d':180};
  const complete=WINDOWS.filter(w=>wm(c,w,'roiPct')!==null&&wm(c,w,'winRatePct')!==null&&wm(c,w,'maxDrawdownPct')!==null);
- const values=complete.map(w=>wm(c,w,'roiPct'));
- if(values.length<2)return {score:0,coverage:values.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio:0,dispersion:null};
- const mean=values.reduce((a,b)=>a+b,0)/values.length,variance=values.reduce((a,b)=>a+(b-mean)**2,0)/values.length;
- const dispersion=Math.sqrt(variance)/(Math.abs(mean)+1),positiveRatio=values.filter(v=>v>0).length/values.length;
- return {score:clamp(.65*positiveRatio+.35*(1-clamp(dispersion))),coverage:values.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio,dispersion:round(dispersion,4)};
+ const dailyRates=complete.map(w=>wm(c,w,'roiPct')/days[w]);
+ const winRates=complete.map(w=>wm(c,w,'winRatePct'));
+ if(dailyRates.length<2)return {score:0,coverage:dailyRates.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio:0,dispersion:null,winRateStability:0,dailyReturnPctByWindow:Object.fromEntries(complete.map((w,i)=>[w,round(dailyRates[i],5)]))};
+ const mean=dailyRates.reduce((a,b)=>a+b,0)/dailyRates.length,variance=dailyRates.reduce((a,b)=>a+(b-mean)**2,0)/dailyRates.length;
+ const dispersion=Math.sqrt(variance)/(Math.abs(mean)+.01),positiveRatio=dailyRates.filter(v=>v>0).length/dailyRates.length;
+ const winMean=winRates.reduce((a,b)=>a+b,0)/winRates.length,winVariance=winRates.reduce((a,b)=>a+(b-winMean)**2,0)/winRates.length;
+ const winRateStability=clamp(1-Math.sqrt(winVariance)/20);
+ return {score:clamp(.65*positiveRatio+.35*(1-clamp(dispersion))),coverage:dailyRates.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio,dispersion:round(dispersion,4),winRateStability:round(winRateStability,4),dailyReturnPctByWindow:Object.fromEntries(complete.map((w,i)=>[w,round(dailyRates[i],5)]))};
 }
 function style(hours){if(hours===null)return 'unclassified';if(hours<=1)return 'scalping';if(hours<=24)return 'day-trading';if(hours<=168)return 'swing';return 'position-trading';}
 function validate(c,now){
@@ -75,7 +79,7 @@ export function assessMultiExchangeTrader(raw={},now=Date.now()){
  const c=raw&&typeof raw==='object'&&!Array.isArray(raw)?raw:{},v=validate(c,now),ws=stability(c),missing=[];
  for(const [k,value] of Object.entries({totalTrades:v.trades,historyDays:v.history,winRatePct:v.winRate,maxDrawdownPct:v.drawdown,roiPct:v.roi}))if(value===null)missing.push(k);
  const components={
-  winRateConsistency:v.winRate===null?0:clamp((v.winRate-35)/35)*.6+ws.score*.4,
+  winRateConsistency:v.winRate===null?0:clamp((v.winRate-35)/35)*.5+(ws.winRateStability||0)*.5,
   riskAdjustedReturns:clamp(((v.sharpe??0)*.45+(v.sortino??0)*.35+Math.min(v.profitFactor??0,4)*.2)/4),
   drawdownControl:v.drawdown===null?0:clamp(1-v.drawdown/35),
   netProfitability:v.roi===null?0:clamp((v.roi+5)/35),
