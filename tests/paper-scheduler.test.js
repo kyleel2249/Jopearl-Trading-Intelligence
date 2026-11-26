@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {isDailyReviewDue,buildStreamStartPayload,startMarketStreamCollector} from '../workers/paper-scheduler.js';
+import {isDailyReviewDue,buildStreamStartPayload,startMarketStreamCollector,normalizeBitgetPerpetualUniverse,selectRoundRobinBatch} from '../workers/paper-scheduler.js';
 import {loadLiveMarketContext} from '../functions/api/paper/[[path]].js';
 test('paper scheduler retains legacy dedicated daily cron compatibility',()=>{assert.equal(isDailyReviewDue({cron:'5 0 * * *'}),true);});
 test('paper scheduler runs the daily review from its single per-minute trigger at 00:05 UTC',()=>{assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,0,5)}),true);assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,0,4)}),false);assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,12,5)}),false);});
@@ -36,6 +36,11 @@ test('paper scheduler starts streams through its cross-worker Durable Object bin
  assert.equal(calls[0].url,'https://stream-hub/start');
  assert.equal(JSON.parse(calls[0].options.body).symbol,'BTC/USDT');
 });
+
+test('Bitget perpetual catalogue filters inactive/non-USDT contracts and ranks liquidity',()=>{const rows=normalizeBitgetPerpetualUniverse([{symbol:'BTCUSDT',symbolStatus:'normal',quoteCoin:'USDT',baseCoin:'BTC'},{symbol:'ETHUSDT',symbolStatus:'normal',quoteCoin:'USDT',baseCoin:'ETH'},{symbol:'BADUSDT',symbolStatus:'offline',quoteCoin:'USDT'},{symbol:'BTCUSD',symbolStatus:'normal',quoteCoin:'USD'}],[{symbol:'BTCUSDT',usdtVolume:'100'},{symbol:'ETHUSDT',usdtVolume:'250'}]);assert.deepEqual(rows.map(x=>x.symbol),['ETHUSDT','BTCUSDT']);});
+test('perpetual universe rotation covers every symbol without duplicates',()=>{const universe=['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT'];const first=selectRoundRobinBatch(universe,0,2),second=selectRoundRobinBatch(universe,first.nextOffset,2),third=selectRoundRobinBatch(universe,second.nextOffset,2);assert.deepEqual(first.symbols,['BTCUSDT','ETHUSDT']);assert.deepEqual(second.symbols,['SOLUSDT','XRPUSDT']);assert.deepEqual(third.symbols,['BNBUSDT','BTCUSDT']);});
+test('priority perpetual symbols receive four venue futures streams within the 40-stream cap',()=>{const payload=buildStreamStartPayload([],['BTCUSDT','ETHUSDT']);assert.equal(payload.streams.length,8);assert.deepEqual(payload.streams.slice(0,4).map(x=>x.exchange),['binance','bybit','okx','bitget']);assert.ok(payload.streams.every(x=>x.marketType==='usdt-m'));});
+
 test('collector configuration does not consume another account cron trigger',async()=>{
  const config=await readFile(new URL('../workers/market-stream-collector.wrangler.toml',import.meta.url),'utf8');
  assert.doesNotMatch(config,/^\[triggers\]/m);
