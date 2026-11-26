@@ -174,11 +174,14 @@ export default function ConnectionSettings() {
     setTokenBusy(true); setTokenCheck(null);
     try {
       setApiToken(candidate);
-      setSavedToken('ACTIVE IN THIS SESSION');
+      setSavedToken('VERIFYING WITH SERVER');
       const response = await apiFetch('/api/auth/check', { cache: 'no-store', headers: { accept: 'application/json' } });
       const payload = await response.json().catch(() => ({}));
-      setTokenCheck(describeTokenCheck(response.status, payload));
+      const outcome = describeTokenCheck(response.status, payload);
+      setTokenCheck(outcome);
+      setSavedToken(outcome.kind === 'ok' ? 'VERIFIED IN THIS SESSION' : outcome.kind === 'rejected' ? 'REJECTED BY SERVER' : outcome.kind === 'unconfigured' ? 'SERVER SECRET NOT CONFIGURED' : 'NOT VERIFIED');
     } catch (error) {
+      setSavedToken('NOT VERIFIED');
       setTokenCheck({ kind: 'error', message: 'Could not reach the JPTI API to check the token: ' + (error?.message || 'network error') });
     } finally { setTokenBusy(false); }
   };
@@ -217,7 +220,7 @@ export default function ConnectionSettings() {
       <div className="connection-section-head"><div><span className="eyebrow">01 · CLOUDFLARE EDGE</span><h4>Built-in JPTI market-data connection</h4></div><span className={apiStatus ? 'connected' : 'not-connected'}>{apiStatus ? 'CLOUDFLARE ONLINE' : 'NOT CHECKED'}</span></div>
       <p className="subtle-note">JPTI uses the Cloudflare Pages Functions API on this same domain. Public market charts need no token. Private agent evaluations, department operations and journal memory require the existing JPTI_JOURNAL_TOKEN Cloudflare secret.</p>
       <label className="connection-label" htmlFor="jpti-private-token">Private JPTI access token</label>
-      <input id="jpti-private-token" className="connection-url" type="password" autoComplete="off" spellCheck="false" value={token} onChange={event => setToken(event.target.value)} placeholder="Enter the existing JPTI_JOURNAL_TOKEN value" />
+      <input id="jpti-private-token" className="connection-url" type="password" autoComplete="off" spellCheck="false" value={token} onChange={event => { setToken(event.target.value); setTokenCheck(null); setSavedToken(''); }} placeholder="Enter the existing JPTI_JOURNAL_TOKEN value" />
       <p className="subtle-note">The token is held in session storage and sent only to protected same-origin JPTI routes. It is excluded from the unencrypted device profile. Save device settings to activate it for this session.{savedToken ? ' Status: ' + savedToken + '.' : ''}</p>
       <div className="news-search"><button type="button" onClick={testApi} disabled={apiBusy}>{apiBusy ? 'Checking…' : 'Check Cloudflare connection'}</button><button type="button" onClick={verifyToken} disabled={tokenBusy || !token.trim()}>{tokenBusy ? 'Verifying…' : 'Verify access token'}</button><button type="button" onClick={saveSettingsAndSync}>Save device settings</button></div>
       {tokenCheck && <p className={tokenCheck.kind === 'ok' ? 'connection-success' : 'quote-error'} role="status" aria-live="polite">{tokenCheck.message}</p>}
