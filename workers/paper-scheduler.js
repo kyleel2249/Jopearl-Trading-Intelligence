@@ -23,7 +23,7 @@ export function buildStreamStartPayload(rows = []) {
     marketType: String(row.market_type || row.marketType || '').toLowerCase(),
     symbol: String(row.symbol || '').toUpperCase().replace(/USDT$/, '/USDT').replace('//', '/')
   })).filter(x => ['binance','bybit','okx','bitget'].includes(x.exchange)
-    && ['spot','margin','usdt-m','coin-m','usdc-m'].includes(x.marketType) && x.symbol.length >= 5);
+    && ['spot','margin','usdt-m','coin-m','usdc-m'].includes(x.marketType) && /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(x.symbol));
   return { streams: (streams.length ? streams : STREAM_FALLBACK).slice(0, 40) };
 }
 export async function startMarketStreamCollector(env) {
