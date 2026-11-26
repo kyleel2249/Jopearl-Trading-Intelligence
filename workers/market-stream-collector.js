@@ -4,7 +4,7 @@ function safeToken(request,env){const supplied=request.headers.get('x-jpti-api-t
 export default {
  async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/health')return json(200,{service:'JPTI sequence-aware stream collector',storage:'Durable Objects + D1',liveExecutionAuthorized:false});
   if(url.pathname==='/history'&&request.method==='GET'){
-   if(!safeToken(request,env))return json(401,{error:'Private stream history authorization failed.'});
+   // Public read-only market history: all returned observations originate from public exchange feeds.
    try{const config=normalizeStreamRequest({exchange:url.searchParams.get('exchange'),marketType:url.searchParams.get('marketType'),symbol:url.searchParams.get('symbol')});const id=env.MARKET_STREAMS.idFromName(config.streamId),stub=env.MARKET_STREAMS.get(id),target=new URL('https://stream-hub/history');for(const k of ['kind','since','until','limit'])if(url.searchParams.has(k))target.searchParams.set(k,url.searchParams.get(k));return await stub.fetch(target.toString());}catch(error){return json(400,{error:String(error?.message||error)});}
   }
   if(!safeToken(request,env))return json(401,{error:'Private stream control authorization failed.'});
