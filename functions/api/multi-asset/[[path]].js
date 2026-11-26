@@ -27,6 +27,40 @@ export async function onRequest({request,env}) {
    await env.JPTI_DB.prepare('INSERT INTO jpti_multi_asset_decisions(decision_id,asset_class,symbol,venue,agent_squad,direction,score,confidence,eligible,action,veto_json,evidence_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(result.decisionId,result.instrument.assetClass,result.instrument.symbol,result.instrument.venue,String(body.agentSquad||'scalping'),result.direction,result.score,result.confidence,result.eligible?1:0,result.action,JSON.stringify(result.veto),JSON.stringify(body.evidence||{}),now).run();
    return json(200,{...result,persisted:true,liveExecutionAuthorized:false});
   }
+  if(action==='backfill-stream-history'){
+   if(!env.JPTI_MARKET_STREAM?.fetch)return json(503,{error:'JPTI_MARKET_STREAM service binding is unavailable.'});
+   const instrument=normalizeAssetInstrument(body),exchange=id(body.exchange||instrument.venue).toLowerCase();
+   if(instrument.assetClass!=='crypto')return json(400,{error:'Durable Object stream-history recovery currently supports crypto instruments only; other asset-class backfill requires its configured provider adapter.'});
+   if(!['binance','bybit','okx','bitget'].includes(exchange))return json(400,{error:'Unsupported stream exchange.'});
+   const from=Date.parse(body.since||''),requestedUntil=Date.parse(body.until||now);
+   if(!Number.isFinite(from)||!Number.isFinite(requestedUntil)||requestedUntil<=from)return json(400,{error:'Valid since and until timestamps are required.'});
+   const limit=Math.max(100,Math.min(20000,Number(body.limit)||5000));
+   const cursorId=['stream',exchange,instrument.marketType,instrument.symbol,'all-events'].join(':');
+   const previous=await env.JPTI_DB.prepare('SELECT cursor_value,status FROM jpti_multi_asset_backfill_cursors WHERE cursor_id=?').bind(cursorId).first();
+   const until=previous?.cursor_value?Date.parse(previous.cursor_value):requestedUntil;
+   if(!Number.isFinite(until)||until<=from)return json(200,{status:'complete',cursorId,ingested:0,nextCursor:null});
+   const url=new URL('https://jpti-market-stream-collector/history');
+   url.searchParams.set('exchange',exchange);url.searchParams.set('marketType',instrument.marketType);url.searchParams.set('symbol',instrument.symbol);
+   url.searchParams.set('since',new Date(from).toISOString());url.searchParams.set('until',new Date(until).toISOString());url.searchParams.set('limit',String(limit));
+   const response=await env.JPTI_MARKET_STREAM.fetch(url.toString(),{headers:{accept:'application/json'}});
+   if(!response.ok)throw new Error('Market stream history returned HTTP '+response.status+'.');
+   const page=await response.json(),events=Array.isArray(page.events)?page.events:[];
+   const statements=events.map(event=>{
+    const observedAt=event.observedAt||event.observed_at,receivedAt=event.received_at||event.receivedAt||observedAt;
+    const eventId=String(event.event_id||event.eventId||observedAt),kind=String(event.event_kind||event.kind||'unknown');
+    const key=[page.streamId||cursorId,kind,eventId].join('|');
+    return env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_market_stream_events(event_key,stream_id,exchange,market_type,symbol,event_kind,event_id,sequence,observed_at,received_at,payload,quality) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
+     .bind(key,page.streamId||cursorId,exchange,instrument.marketType,instrument.symbol,kind,eventId,Number.isFinite(Number(event.sequence))?Number(event.sequence):null,new Date(observedAt).toISOString(),new Date(receivedAt).toISOString(),JSON.stringify(event.payload||{}),JSON.stringify(event.quality||{}));
+   });
+   let ingested=0;
+   for(let i=0;i<statements.length;i+=100){const results=await env.JPTI_DB.batch(statements.slice(i,i+100));ingested+=results.reduce((sum,result)=>sum+(Number(result.meta?.changes)||0),0);}
+   const oldest=events.length?Date.parse(events[0].observedAt||events[0].observed_at):NaN;
+   const nextUntil=events.length===limit&&Number.isFinite(oldest)&&oldest>from?new Date(oldest-1).toISOString():null;
+   const status=nextUntil?'partial':'complete';
+   await env.JPTI_DB.prepare('INSERT INTO jpti_multi_asset_backfill_cursors(cursor_id,provider,asset_class,symbol,market_type,stream_kind,cursor_value,status,records_ingested,last_error,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(cursor_id) DO UPDATE SET cursor_value=excluded.cursor_value,status=excluded.status,records_ingested=jpti_multi_asset_backfill_cursors.records_ingested+excluded.records_ingested,last_error=NULL,updated_at=excluded.updated_at')
+    .bind(cursorId,exchange,instrument.assetClass,instrument.symbol,instrument.marketType,'stream-events',nextUntil, status,ingested,null,now).run();
+   return json(200,{cursorId,status,requested:events.length,ingested,nextCursor:nextUntil,source:'persistent Durable Object event history',streamId:page.streamId||null,liveExecutionAuthorized:false});
+  }
   if(action==='backfill-checkpoint'){
    const instrument=normalizeAssetInstrument(body),provider=id(body.provider||instrument.venue),streamKind=id(body.streamKind||'ohlcv'),cursorId=[provider,instrument.assetClass,instrument.symbol,instrument.marketType,streamKind].join(':');
    await env.JPTI_DB.prepare('INSERT INTO jpti_multi_asset_backfill_cursors(cursor_id,provider,asset_class,symbol,market_type,stream_kind,cursor_value,status,records_ingested,last_error,updated_at) VALUES(?,?,?,?,?,?,?, ?,?,?,?) ON CONFLICT(cursor_id) DO UPDATE SET cursor_value=excluded.cursor_value,status=excluded.status,records_ingested=jpti_multi_asset_backfill_cursors.records_ingested+excluded.records_ingested,last_error=excluded.last_error,updated_at=excluded.updated_at')
@@ -59,7 +93,7 @@ export async function onRequest({request,env}) {
    }
    return json(200,{events,processed:events.length,lastEvent:last,checkpointPersisted:!!last,liveExecutionAuthorized:false});
   }
-  return json(400,{error:'Unknown action. Supported actions: evaluate, backfill-checkpoint, allocate, strategy-review, reconcile, replay-order.'});
+  return json(400,{error:'Unknown action. Supported actions: evaluate, backfill-stream-history, backfill-checkpoint, allocate, strategy-review, reconcile, replay-order.'});
  }catch(error){const missing=/no such table/i.test(String(error?.message||''));return json(missing?503:400,{error:missing?'Apply migration 0019_multi_asset_intelligence_3 before using this API.':String(error?.message||error).slice(0,300),liveExecutionAuthorized:false});}
 }
 function safe(v){try{return JSON.parse(v||'[]')}catch{return[]}}

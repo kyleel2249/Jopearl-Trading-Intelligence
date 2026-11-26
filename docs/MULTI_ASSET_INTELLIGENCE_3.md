@@ -33,6 +33,7 @@ The named specialist squad evaluations are deterministic, explainable rule modul
 All endpoints require the configured JPTI private API token and D1 migration 0019:
 - `GET /api/multi-asset`: module, squad and persisted-state overview.
 - `POST /api/multi-asset` with `action=evaluate`: evaluate and persist timestamped evidence.
+- `action=backfill-stream-history`: page retained crypto Durable Object events into D1 with a cursor advanced only after each D1 batch commits.
 - `action=backfill-checkpoint`: upsert a provider/asset/symbol cursor after a successful ingest page.
 - `action=allocate`: persist a paper risk allocation.
 - `action=strategy-review`: record a quarantine/requalification assessment.
@@ -40,7 +41,7 @@ All endpoints require the configured JPTI private API token and D1 migration 001
 - `action=replay-order`: stable event-time/sequence ordering for replay batches.
 
 ## Important limitations
-This release does not silently claim complete instrument coverage. “All pairs” means all instruments supplied by a verified provider catalogue, not an invented finite list. Full production market acquisition for the five provider-required classes depends on selecting and configuring data sources with the required entitlements. Exchange-specific futures contract specifications, equity corporate actions, FX calendars, commodity delivery rules, and chain finality must be supplied by adapters before those instruments can be enabled. Backfill checkpoint primitives are implemented; provider-specific page fetch/ingest workers remain an integration step per provider. Replay ordering is implemented; full venue-specific L2 state reconstruction must use the existing sequence-aware stream engine for supported crypto venues and adapter-specific sequencing for other markets.
+This release does not silently claim complete instrument coverage. “All pairs” means all instruments supplied by a verified provider catalogue, not an invented finite list. Full production market acquisition for the five provider-required classes depends on selecting and configuring data sources with the required entitlements. Exchange-specific futures contract specifications, equity corporate actions, FX calendars, commodity delivery rules, and chain finality must be supplied by adapters before those instruments can be enabled. The stream-history recovery endpoint pages the existing retained Durable Object log into D1 for Binance, Bybit, OKX and Bitget crypto streams. It cannot fetch exchange history older than the collector's retention window. Provider-specific historical REST backfills and ingest workers for deeper crypto history and the five provider-required non-crypto classes remain an integration step per provider. Replay ordering is implemented; full venue-specific L2 state reconstruction must use the existing sequence-aware stream engine for supported crypto venues and adapter-specific sequencing for other markets.
 
 The weekday scheduler policy prevents weekend paper candidates. Session-open flags must come from the relevant exchange calendar; UTC weekday alone is not a substitute for local exchange hours. Cross-venue arb remains paper research until transfer/settlement and inventory constraints are independently modelled.
 
