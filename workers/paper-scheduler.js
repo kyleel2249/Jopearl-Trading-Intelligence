@@ -87,7 +87,8 @@ export function buildStreamStartPayload(rows = [],prioritySymbols=[]) {
   })).filter(x => ['binance','bybit','okx','bitget'].includes(x.exchange)
     && ['spot','margin','usdt-m','coin-m','usdc-m'].includes(x.marketType) && /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(x.symbol));
   const prioritized=(Array.isArray(prioritySymbols)?prioritySymbols:[]).flatMap(symbol=>['binance','bybit','okx','bitget'].map(exchange=>({exchange,marketType:'usdt-m',symbol:String(symbol).toUpperCase().replace(/USDT$/,'/USDT').replace('//','/')})));
-  const unique=new Map([...prioritized,...(streams.length?streams:STREAM_FALLBACK)].map(x=>[x.exchange+':'+x.marketType+':'+x.symbol,x]));
+  const baseStreams=streams.length?streams:(prioritized.length?[]:STREAM_FALLBACK);
+  const unique=new Map([...prioritized,...baseStreams].map(x=>[x.exchange+':'+x.marketType+':'+x.symbol,x]));
   return { streams: [...unique.values()].slice(0, 40) };
 }
 export async function startMarketStreamCollector(env,prioritySymbols=[],previousSymbols=[]) {
