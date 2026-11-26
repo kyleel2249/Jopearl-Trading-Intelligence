@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   normalizeReplicationPlan, marketTypesForExchange, selectReplicationMarkets,
-  normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey
+  normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey,
+  detectCandleGaps, buildCrossExchangeConsensus
 } from '../src/market-replication-engine.js';
 import { createMarketReplicationHandler } from '../functions/api/replication.js';
 
@@ -93,6 +94,22 @@ test('OHLCV observations validate candles, deduplicate timestamps and sort ascen
   assert.equal(rows.length, 2);
   assert.ok(Date.parse(rows[0].observedAt) < Date.parse(rows[1].observedAt));
   assert.equal(rows.every(row => row.quality.validOhlc), true);
+});
+
+test('candle gap detection reports missing intervals without fabricating candles', () => {
+  const rows = normalizeCandleObservations({ exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', timeframe: '1m', candles: [candles[1], [nowValue, 90000, 92000, 89000, 91000, 11]], receivedAt: nowValue });
+  const report = detectCandleGaps(rows);
+  assert.equal(report.gapCount, 1);
+  assert.equal(report.missingCandles, 1);
+});
+
+test('cross-exchange consensus uses median and flags price outliers', () => {
+  const rows = ['binance', 'bybit', 'okx'].map((exchange, index) => ({ exchange, marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', last: [90000, 90010, 92000][index], observedAt: new Date(nowValue).toISOString(), receivedAt: new Date(nowValue).toISOString() }));
+  const consensus = buildCrossExchangeConsensus(rows);
+  assert.equal(consensus.length, 1);
+  assert.equal(consensus[0].venueCount, 3);
+  assert.equal(consensus[0].medianPrice, 90010);
+  assert.equal(consensus[0].outliers[0].exchange, 'okx');
 });
 
 test('observation keys are stable and isolate exchange, product, symbol, kind and time', () => {
