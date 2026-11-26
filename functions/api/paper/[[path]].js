@@ -2,11 +2,14 @@ import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calcula
 import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 import { verifyPrivateToken } from '../../private-auth.js';
 import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';
+import { loadPromotionEvidence } from '../../../src/strategy-validation-engine.js';
+import { evaluateAgentSafety, arbitrateAgentIntents } from '../../../src/lib/agent-safety-supervisor.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 const iso=()=>new Date().toISOString();
 const num=v=>Number.isFinite(Number(v))?Number(v):0;
+const parseJson=(value,fallback={})=>{try{return JSON.parse(value??'');}catch{return fallback;}};
 function authorized(request,env){
  return verifyPrivateToken(request,env,{unconfigured:'JPTI private API token is not configured.',rejected:'Private API authorization failed.'});
 }
@@ -16,24 +19,43 @@ async function bitget(path){
  const data=await res.json();if(String(data.code)!=='00000')throw new Error(data.msg||'Bitget market feed returned an error.');
  return data.data;
 }
-async function marketSnapshot(symbol){
+async function marketSnapshot(symbol,db){
  const normalized=String(symbol||'BTCUSDT').toUpperCase().replace('/','').replace(':USDT','');
- if(!/^[A-Z0-9]{5,24}$/.test(normalized))throw new Error('Invalid Bitget USDT perpetual symbol.');
- const [rawCandles,raw5m,raw15m,raw1h,rawTicker]=await Promise.all([
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=5m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=15m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1H&limit=100'),
-  bitget('/api/v2/mix/market/ticker?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES')
- ]);
- const parseCandles=raw=>(Array.isArray(raw)?raw:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
- const candles=parseCandles(rawCandles),timeframes={'5m':parseCandles(raw5m),'15m':parseCandles(raw15m),'1H':parseCandles(raw1h)};
- const t=Array.isArray(rawTicker)?rawTicker[0]:rawTicker;
- const ticker={last:num(t?.lastPr),bid:num(t?.bidPr),ask:num(t?.askPr),timestamp:num(t?.ts)};
- if(!(ticker.last>0)||candles.length<36)throw new Error('Bitget returned insufficient valid ticker/candle data.');
- const age=Date.now()-ticker.timestamp;
- if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp; paper entries are paused.');
- return {symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
+ if(!/^[A-Z0-9]{5,24}$/.test(normalized))throw new Error('Invalid market symbol.');
+ try{
+  const [rawCandles,raw5m,raw15m,raw1h,rawTicker]=await Promise.all([
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=5m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=15m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1H&limit=100'),
+   bitget('/api/v2/mix/market/ticker?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES')
+  ]);
+  const parseCandles=raw=>(Array.isArray(raw)?raw:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
+  const candles=parseCandles(rawCandles),timeframes={'5m':parseCandles(raw5m),'15m':parseCandles(raw15m),'1H':parseCandles(raw1h)};
+  const t=Array.isArray(rawTicker)?rawTicker[0]:rawTicker,ticker={last:num(t?.lastPr),bid:num(t?.bidPr),ask:num(t?.askPr),timestamp:num(t?.ts)};
+  if(!(ticker.last>0)||candles.length<36)throw new Error('Bitget returned insufficient valid ticker/candle data.');
+  const age=Date.now()-ticker.timestamp;if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp.');
+  return{symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
+ }catch(bitgetError){
+  try{
+   const pair=normalized.endsWith('USDT')?normalized.slice(0,-4)+'/USDT':normalized;
+   const candidates=await db.prepare("SELECT exchange,market_type,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='1m' GROUP BY exchange,market_type ORDER BY last_seen DESC LIMIT 12").bind(normalized,pair).all();
+   for(const candidate of candidates.results||[]){
+    const [raw1m,raw5m,raw15m,raw1h,tickerRow]=await Promise.all([
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='1m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='5m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='15m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe IN ('1h','1H') ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,received_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ticker' ORDER BY observed_at DESC LIMIT 1").bind(candidate.exchange,candidate.market_type,normalized,pair).first()
+    ]);
+    const parseRows=rows=>(rows.results||[]).map(row=>{let p={};try{p=JSON.parse(row.payload||'{}')}catch{}if(Array.isArray(p))return p.map(Number);return[Date.parse(row.observed_at)||num(p.timestamp||p.ts),num(p.open??p.o),num(p.high??p.h),num(p.low??p.l),num(p.close??p.c),num(p.volume??p.v)];}).filter(r=>r.length>=6&&r.every(Number.isFinite)).sort((a,b)=>a[0]-b[0]);
+    const candles=parseRows(raw1m),timeframes={'5m':parseRows(raw5m),'15m':parseRows(raw15m),'1H':parseRows(raw1h)};
+    let p={};try{p=JSON.parse(tickerRow?.payload||'{}')}catch{}const timestamp=Date.parse(tickerRow?.observed_at)||num(p.timestamp||p.ts),ticker={last:num(p.last??p.lastPr??p.price??p.close),bid:num(p.bid??p.bidPr),ask:num(p.ask??p.askPr),timestamp};
+    const age=Date.now()-timestamp;if(candles.length>=36&&ticker.last>0&&timestamp&&age<=120000&&age>=-5000)return{symbol:normalized,candles,timeframes,ticker,source:candidate.exchange+' '+candidate.market_type+' persisted D1 fallback',receivedAt:iso(),ageMs:age};
+   }
+   throw new Error('No fresh replicated OHLCV and ticker set was available.');
+  }catch(fallbackError){throw new Error('Primary Bitget feed unavailable ('+String(bitgetError?.message||bitgetError).slice(0,100)+'); cross-exchange D1 fallback unavailable ('+String(fallbackError?.message||fallbackError).slice(0,120)+').');}
+ }
 }
 export async function ensureAgents(db){
  for(const agent of PAPER_AGENTS){
@@ -56,8 +78,9 @@ async function spawnSuccessor(db,agent){
 async function promoteOrRetire(db,agent,metrics,kpi){
  const row=await db.prepare('SELECT tier,status FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
  if(!row)return null;
- if(kpi.eligibleForPromotion&&row.tier==='RESEARCH'){
-  const at=iso(),payload={...agent,tier:'LIVE_READY',status:'live_ready',promotedAt:at,liveReadiness:{approved:true,liveExecutionAuthorized:false,requiresHumanApproval:true},resources:[...AGENT_RESOURCES,'Live deployment and exchange-minimum preflight']};
+ const evidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
+ if(evidence.allowed&&row.tier==='RESEARCH'){
+  const at=iso(),payload={...agent,tier:'LIVE_READY',status:'live_ready',promotedAt:at,liveReadiness:{approved:false,liveExecutionAuthorized:false,requiresHumanApproval:true,validationStatus:evidence.verdict?.status||'LIVE_READY'},resources:[...AGENT_RESOURCES,'Live deployment and exchange-minimum preflight']};
   await db.prepare("UPDATE jpti_paper_agents SET tier='LIVE_READY',status='live_ready',promoted_at=?,updated_at=?,payload=? WHERE agent_id=?").bind(at,at,JSON.stringify(payload),agent.id).run();
   const successor=await spawnSuccessor(db,agent);
   return {status:'LIVE_READY',promotedAt:at,successorId:successor.id};
@@ -98,18 +121,63 @@ export function unrealizedPnlForSymbol(openTrades,symbol,lastPrice,feeRate){
   return sum+move-num(t.entryFeeUsd)-lastPrice*num(t.quantity)*feeRate;
  },0);
 }
-export async function runCycle(db,symbol,options={}){
+async function loadLiveMarketContext(db,marketSymbol,env={}){
+ const pair=String(marketSymbol||'').endsWith('USDT')?String(marketSymbol).slice(0,-4)+'/USDT':String(marketSymbol||'');
+ const safe=async sql=>{try{return(await db.prepare(sql).bind(pair).all()).results||[];}catch{return[];}};
+ const [books,events,micro,streamStates]=await Promise.all([
+  safe("SELECT exchange,market_type,symbol,last_sequence,book_valid,best_bid,best_ask,spread_bps,depth_imbalance,notional_imbalance,book_json,updated_at FROM jpti_market_stream_books WHERE symbol=? ORDER BY updated_at DESC LIMIT 12"),
+  safe("SELECT exchange,market_type,symbol,event_kind,event_id,sequence,observed_at,received_at,payload,quality FROM jpti_market_stream_events WHERE symbol=? ORDER BY observed_at DESC LIMIT 120"),
+  safe("SELECT exchange,market_type,symbol,observation_kind,event_id,observed_at,received_at,payload,quality FROM jpti_microstructure_observations WHERE symbol=? ORDER BY observed_at DESC LIMIT 120"),
+  safe("SELECT exchange,market_type,symbol,status,last_sequence,book_valid,last_event_at,updated_at FROM jpti_market_stream_state WHERE symbol=? ORDER BY updated_at DESC LIMIT 20")
+ ]);
+ const parse=v=>{try{return JSON.parse(v||'{}')}catch{return{};}};
+ const remote=[];
+ const base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\/$/,'');
+ const streamFetch=env.JPTI_MARKET_STREAM?.fetch?env.JPTI_MARKET_STREAM.fetch.bind(env.JPTI_MARKET_STREAM):fetch;
+ const streamBase=env.JPTI_MARKET_STREAM?'https://jpti-market-stream-collector':base;
+ if(streamBase&&env.JPTI_API_TOKEN){const since=new Date(Date.now()-120000).toISOString(),until=new Date().toISOString();const requests=[];for(const exchange of ['binance','bybit','okx','bitget'])for(const marketType of ['spot','usdt-m'])requests.push((async()=>{try{const url=new URL(streamBase+'/history');url.searchParams.set('exchange',exchange);url.searchParams.set('marketType',marketType);url.searchParams.set('symbol',pair);url.searchParams.set('since',since);url.searchParams.set('until',until);url.searchParams.set('limit','2000');const response=await streamFetch(url,{headers:{'x-jpti-api-token':env.JPTI_API_TOKEN,'accept':'application/json'}});if(response.ok){const body=await response.json();remote.push(...(body.events||[]).map(x=>({exchange,market_type:marketType,event_kind:x.event_kind,event_id:x.event_id,observed_at:x.observedAt,received_at:x.received_at,payload:x.payload,quality:x.quality})));}}catch{}})());await Promise.all(requests);}
+ const eventCandidates=[...events.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),...micro.map(x=>({...x,event_kind:x.observation_kind,payload:parse(x.payload),quality:parse(x.quality)})),...remote];const seenEvents=new Set();const parseEvents=eventCandidates.filter(x=>{const key=[x.exchange,x.market_type,x.event_kind,x.event_id||x.observed_at].join('|');if(seenEvents.has(key))return false;seenEvents.add(key);return true;});
+ const now=Date.now(),freshnessMs=60000;
+ const freshEvents=parseEvents.filter(x=>{const at=Date.parse(x.received_at||x.observed_at||'');return Number.isFinite(at)&&now-at<=freshnessMs&&at-now<=30000;});
+ const latestBooks=new Map();for(const row of books){const updated=Date.parse(row.updated_at||'');if(Number(row.book_valid)!==1||!Number.isFinite(updated)||now-updated>freshnessMs||updated-now>30000)continue;const value=Number(row.notional_imbalance);if(Number.isFinite(value))latestBooks.set(row.exchange+'|'+row.market_type,{imbalance:value,bid:Number(row.best_bid),ask:Number(row.best_ask),marketType:row.market_type});}
+ const eventBooks=new Map(),funding=new Map();let buy=0,sell=0;
+ for(const row of freshEvents){const p=row.payload||{};if(row.event_kind==='orderbook'&&row.quality?.bookValid===true){const raw=p.reconstructed||p,value=Number(raw.notionalImbalance??p.notionalImbalance);if(Number.isFinite(value))eventBooks.set(row.exchange+'|'+row.market_type,{imbalance:value,bid:Number(raw.bestBid??p.bestBid),ask:Number(raw.bestAsk??p.bestAsk),marketType:row.market_type});}if(row.event_kind==='trade'){const value=Number(p.quoteNotional??Number(p.price)*Number(p.quantity));if(value>0&&p.side==='buy')buy+=value;else if(value>0&&p.side==='sell')sell+=value;}if(row.event_kind==='funding'&&Number.isFinite(Number(p.rate)))funding.set(row.exchange,Number(p.rate));}
+ const mergedBooks=new Map([...latestBooks,...eventBooks]),allBooks=[...mergedBooks.values()],preferred=allBooks.filter(x=>x.marketType==='usdt-m'),bookValues=preferred.length?preferred:allBooks,total=buy+sell,bids=bookValues.map(x=>x.bid).filter(x=>x>0),asks=bookValues.map(x=>x.ask).filter(x=>x>0);
+ const invalidStreamStates=streamStates.filter(x=>['gap','reconnecting','connecting','stopped','failed'].includes(String(x.status||'').toLowerCase())||Number(x.book_valid)!==1);
+ const bookValid=allBooks.length>0?true:streamStates.length?false:undefined;
+ const bookHealth={valid:bookValid,validVenueBooks:allBooks.length,streams:streamStates.length,invalidStreams:invalidStreamStates.length,checkedAt:new Date(now).toISOString()};
+ return{symbol:pair,orderBooks:books.map(x=>({...x,book:parse(x.book_json)})),streamEvents:parseEvents,freshStreamEvents:freshEvents,microstructure:micro,streamStates,bookValid,bookHealth,venues:[...new Set([...books,...parseEvents].map(x=>x.exchange))],orderBookImbalance:bookValues.length?bookValues.reduce((a,b)=>a+b.imbalance,0)/bookValues.length:null,tradeFlowImbalance:total?(buy-sell)/total:null,fundingRate:funding.size?[...funding.values()].reduce((a,b)=>a+b,0)/funding.size:null,ticker:bids.length&&asks.length?{bid:bids.reduce((a,b)=>a+b,0)/bids.length,ask:asks.reduce((a,b)=>a+b,0)/asks.length}:null,freshestAt:[...books,...freshEvents].map(x=>x.received_at||x.updated_at||x.observed_at).filter(Boolean).sort().at(-1)||null};
+}
+export async function runCycle(db,symbol,options={},env={}){
  if(!options.agentsEnsured)await ensureAgents(db);
  const tradingWindow=evaluateTradingWindow(options.now??Date.now());
- const market=await marketSnapshot(symbol);
- const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,tradingWindow,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
+ const market=await marketSnapshot(symbol,db);
+ const liveMarketContext=await loadLiveMarketContext(db,market.symbol,env);
+ const report={mode:'PAPER_ONLY',tradingWindow,liveMarketContext,source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
  let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
  try{const row=await db.prepare("SELECT policy_json FROM jpti_risk_policies WHERE policy_id='default'").first();if(row?.policy_json)independentPolicy={...independentPolicy,...JSON.parse(row.policy_json)};}catch{/* The existing paper gates remain active until migration 0010 is applied. */}
  report.riskVetoes=[];
+ let fleetSafety={available:false,killSwitch:false,circuitBreaker:false,status:'UNKNOWN',reasons:[]};
+ try{
+  const stored=await db.prepare("SELECT status,kill_switch,circuit_breaker,manual_resume_required,reasons_json FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+  if(stored){fleetSafety={available:true,killSwitch:Number(stored.kill_switch)===1,circuitBreaker:Number(stored.circuit_breaker)===1||stored.status==='TRIPPED',manualResumeRequired:Number(stored.manual_resume_required)===1,status:stored.status,reasons:parseJson(stored.reasons_json,[])};}
+ }catch{/* Migration 0018 is applied by the production deployment workflow; legacy local DBs retain existing guards. */}
+ report.fleetSafety=fleetSafety;
+ report.agentSafety=[];
  for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
- for(const agent of await loadAgents(db)){
+ const fleetAgents=await loadAgents(db);
+ const intentTicker=liveMarketContext.ticker?.bid>0&&liveMarketContext.ticker?.ask>0?{...market.ticker,...liveMarketContext.ticker}:market.ticker;
+ const intentCandidates=fleetAgents.filter(agent=>agent.status==='active'||agent.status==='live_ready').map(agent=>{
+  const signal=derivePaperSignal(market.candles,intentTicker,agent.strategyId||agent.id,{timeframes:market.timeframes,marketData:liveMarketContext});
+  return signal.action==='SIGNAL'?{agentId:agent.id,symbol:market.symbol,direction:signal.direction,confidence:Number(signal.confidence)||.65,score:Number(signal.score)||0}:null;
+ }).filter(Boolean);
+ const intentArbitration=arbitrateAgentIntents(intentCandidates);
+ const approvedIntentAgentIds=new Set(intentArbitration.accepted.map(x=>x.agentId));
+ const collisionSymbols=new Set(intentArbitration.collisions.map(x=>x.symbol));
+ report.intentArbitration={...intentArbitration,accepted:intentArbitration.accepted.map(x=>({agentId:x.agentId,symbol:x.symbol,direction:x.direction,confidence:x.confidence})),rejected:intentArbitration.rejected.map(x=>({agentId:x.intent.agentId,symbol:x.intent.symbol,direction:x.intent.direction,reason:x.reason}))};
+ for(const agent of fleetAgents){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
@@ -163,7 +231,8 @@ export async function runCycle(db,symbol,options={}){
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});exposure.total=Math.max(0,exposure.total-1);exposure.bySymbol.set(open.symbol,Math.max(0,(exposure.bySymbol.get(open.symbol)||0)-1));exposure.byDirection.set(open.direction,Math.max(0,(exposure.byDirection.get(open.direction)||0)-1));
    }
   }
-  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id,{timeframes:market.timeframes});
+  const decisionTicker=liveMarketContext.ticker?.bid>0&&liveMarketContext.ticker?.ask>0?{...market.ticker,...liveMarketContext.ticker}:market.ticker;
+  const signal=derivePaperSignal(market.candles,decisionTicker,agent.strategyId||agent.id,{timeframes:market.timeframes,marketData:liveMarketContext});
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
   const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
@@ -174,15 +243,63 @@ export async function runCycle(db,symbol,options={}){
   const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
+  const validationEvidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
+  const decayDetected=validationEvidence.verdict?.decayDetected===true;
+  const [storedSafety,heartbeat,behaviorRows,trustRow]=await Promise.all([
+   db.prepare('SELECT status,quarantined_until FROM jpti_agent_safety_state WHERE agent_id=?').bind(agent.id).first().catch(()=>null),
+   db.prepare('SELECT status,last_seen,latency_ms,error_count FROM jpti_agent_heartbeats WHERE agent_id=?').bind(agent.id).first().catch(()=>null),
+   db.prepare("SELECT event_type,severity,summary,observed_at FROM jpti_agent_behavior_events WHERE agent_id=? AND observed_at>=? ORDER BY observed_at DESC LIMIT 50").bind(agent.id,new Date(Date.now()-24*60*60*1000).toISOString()).all().catch(()=>({results:[]})),
+   db.prepare('SELECT trust_score FROM jpti_agent_trust_snapshots WHERE agent_id=? ORDER BY calculated_at DESC LIMIT 1').bind(agent.id).first().catch(()=>null)
+  ]);
+  const quarantineExpiry=Date.parse(storedSafety?.quarantined_until||''),quarantined=storedSafety?.status==='QUARANTINED'&&(!storedSafety.quarantined_until||!Number.isFinite(quarantineExpiry)||quarantineExpiry>Date.now());
+  const dailyLossPct=Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100;
+  const safetyDecision=evaluateAgentSafety({
+   agentStatus:agent.status,heartbeatStatus:heartbeat?.status||'unknown',
+   heartbeatAgeMs:heartbeat?.last_seen?Math.max(0,Date.now()-Date.parse(heartbeat.last_seen)):null,
+   latencyMs:heartbeat?.latency_ms??null,errorRate:heartbeat?.error_count?Math.min(1,Number(heartbeat.error_count)/10):0,
+   trustScore:trustRow?.trust_score===undefined?Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)):Number(trustRow.trust_score),
+   safetyStorageReady:fleetSafety.available,
+   anomalies:(behaviorRows.results||[]).map(x=>({type:x.event_type,severity:x.severity,summary:x.summary,at:x.observed_at})),
+   dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),
+   dailyLossPct,drawdownPct:metrics.maxDrawdownPct,consecutiveLosses:metrics.currentConsecutiveLosses,
+   killSwitch:fleetSafety.killSwitch||independentPolicy.killSwitch===true,
+   circuitBreaker:fleetSafety.circuitBreaker||independentPolicy.circuitBreaker===true,
+   quarantined,sessionAllowed:tradingWindow.eligible,
+   strategySuspended:agent.tier==='SUSPENDED'||validationEvidence.verdict?.status==='SUSPENDED',
+   duplicateIntent:signal.action==='SIGNAL'&&!approvedIntentAgentIds.has(agent.id),
+   oppositeIntentCollision:collisionSymbols.has(market.symbol),
+   // New risk requires at least one fresh, sequence-valid streamed order book; REST candles alone are insufficient.
+   bookValid:liveMarketContext.bookValid===true,
+   // Trade outcomes below -1.1R are strategy-performance evidence, not proof of a policy bypass.
+   // Actual policy violations are supplied through high/critical governance behaviour events.
+  });
+  report.agentSafety.push({agentId:agent.id,...safetyDecision});
+  try{
+   const evaluatedAt=iso(),quarantinedUntil=safetyDecision.quarantine?(quarantined?storedSafety.quarantined_until:new Date(Date.now()+24*60*60*1000).toISOString()):null;
+   await db.prepare("INSERT INTO jpti_agent_safety_state(agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status,health_score=excluded.health_score,trust_score=excluded.trust_score,reasons_json=excluded.reasons_json,quarantined_until=excluded.quarantined_until,last_evaluated_at=excluded.last_evaluated_at,updated_at=excluded.updated_at")
+    .bind(agent.id,safetyDecision.status,safetyDecision.health.score,safetyDecision.trustScore,JSON.stringify(safetyDecision.reasons),quarantinedUntil,evaluatedAt,evaluatedAt).run();
+   if(safetyDecision.quarantine){
+    const incidentId=agent.id+':safety-quarantine:'+evaluatedAt.slice(0,10);
+    await db.prepare("INSERT OR IGNORE INTO jpti_agent_safety_incidents(incident_id,agent_id,incident_type,severity,summary,evidence_json,status,detected_at) VALUES(?,?,'agent-quarantine','high',?,?,'open',?)")
+     .bind(incidentId,agent.id,'Agent isolated by the safety supervisor.',JSON.stringify({reasons:safetyDecision.reasons,health:safetyDecision.health}),evaluatedAt).run();
+   }
+  }catch{/* The supervisor remains active in-process when a local DB has not applied migration 0018. */}
+  const capitalHaltReasons=[];let capitalRiskMultiplier=1;
+  // Risk-breach counts and maximum historical loss streaks are promotion analytics, not current-session kill conditions.
+  if(metrics.currentConsecutiveLosses>=5)capitalHaltReasons.push('five-consecutive-loss current streak halt');
+  else if(metrics.currentConsecutiveLosses>=3)capitalRiskMultiplier*=0.5;
+  if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct)capitalHaltReasons.push('maximum drawdown reached');
+  else if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct*0.5)capitalRiskMultiplier*=0.5;
+  if(decayDetected)capitalHaltReasons.push('forward performance decay detected');
   const sessionName=tradingWindow.activeSessions.join(' + ')||'OUTSIDE_SESSION';
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&tradingWindow.eligible&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&safetyDecision.allowed&&tradingWindow.eligible&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&capitalHaltReasons.length===0&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
-   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
+   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct*capitalRiskMultiplier,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
    const targetRiskUsd=sizing.riskAmount;
-   const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
+   const allInRiskPerUnit=calculateAllInRiskPerUnit({entryPrice:price,stopDistance});
    const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
-   const riskUsd=quantity*stopDistance;
+   const riskUsd=quantity*allInRiskPerUnit;
    if(quantity>0&&Number.isFinite(quantity)){
     const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:exposure.total,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:3,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
     if(!riskDecision.allowed){
@@ -206,7 +323,7 @@ export async function runCycle(db,symbol,options={}){
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
     }
-  }else if(signal.action==='SIGNAL')reason=!tradingWindow.eligible?tradingWindow.reason:'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
+  }else if(signal.action==='SIGNAL')reason=!safetyDecision.allowed?'Agent safety supervisor veto: '+safetyDecision.reasons.map(x=>x.code).join(', '):capitalHaltReasons.length?'Capital protection halt: '+capitalHaltReasons.join('; '):'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
@@ -223,11 +340,17 @@ async function dashboard(db){
   agents.push({...agent,...stored,id:agent.id,tier:row?.tier||'RESEARCH',status:row?.status||'active',virtualEquityUsd:row?.virtual_equity_usd==null?PAPER_POLICY.initialEquityUsd:num(row.virtual_equity_usd),promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
  }
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
- return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
+ let safety={available:false,global:{status:'UNKNOWN',killSwitch:false,circuitBreaker:false},agents:[]};
+ try{
+  const global=await db.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+  const states=await db.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 100').all();
+  safety={available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parseJson(global.reasons_json,[])}:{status:'CLOSED',killSwitch:false,circuitBreaker:false},agents:(states.results||[]).map(x=>({...x,reasons:parseJson(x.reasons_json,[])}))};
+ }catch{/* A migration-required state is surfaced instead of inventing healthy telemetry. */}
+ return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,safety,updatedAt:iso()};
 }
 export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
- const summary={date,mode:'PAPER_ONLY',fleet:{total:dash.agents.length,research:dash.agents.filter(a=>a.tier==='RESEARCH').length,liveReady:dash.agents.filter(a=>a.tier==='LIVE_READY').length,suspended:dash.agents.filter(a=>a.status==='suspended').length,retired:dash.agents.filter(a=>a.status==='retired').length,capitalPerNewAgentUsd:PAPER_POLICY.initialEquityUsd},agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,maxFleetOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxOpenPerSymbol:PAPER_POLICY.maxOpenPerSymbol,maxSameDirectionOpenPositions:PAPER_POLICY.maxSameDirectionOpenPositions,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
+ const summary={date,mode:'PAPER_ONLY',safety:dash.safety,fleet:{total:dash.agents.length,research:dash.agents.filter(a=>a.tier==='RESEARCH').length,liveReady:dash.agents.filter(a=>a.tier==='LIVE_READY').length,suspended:dash.agents.filter(a=>a.status==='suspended').length,retired:dash.agents.filter(a=>a.status==='retired').length,capitalPerNewAgentUsd:PAPER_POLICY.initialEquityUsd},agents:dash.agents.map(a=>({agentId:a.id,name:a.name,tier:a.tier,metrics:a.metrics,kpi:a.kpi,openPositions:a.openTrades.length,safety:dash.safety.agents.find(x=>x.agent_id===a.id)||null})),capitalProtection:{maxDrawdownLimitPct:PAPER_POLICY.maxDrawdownPct,dailyLossLimitPct:PAPER_POLICY.maxDailyLossPct,maxFleetOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxOpenPerSymbol:PAPER_POLICY.maxOpenPerSymbol,maxSameDirectionOpenPositions:PAPER_POLICY.maxSameDirectionOpenPositions,liveOrdersAllowed:false},dataQuality:'Review uses persisted simulated fills and fee/slippage estimates; it does not certify future profitability.'};
  for(const agent of dash.agents){
   const lifecycle=await promoteOrRetire(db,agent,agent.metrics,agent.kpi);
   if(lifecycle){const item=summary.agents.find(a=>a.agentId===agent.id);if(item){item.tier=lifecycle.status;item.lifecycle=lifecycle;}}
@@ -244,12 +367,36 @@ export async function onRequest({request,env,params}){
  const path=String(params?.path||'').replace(/^\/+|\/+$/g,'');
  try{
   if(request.method==='GET'&&path==='overview')return response(200,await dashboard(env.JPTI_DB));
+  if(request.method==='GET'&&path==='safety'){
+   const global=await env.JPTI_DB.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+   const states=await env.JPTI_DB.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 200').all();
+   return response(200,{available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parseJson(global.reasons_json,[])}:null,agents:(states.results||[]).map(x=>({...x,reasons:parseJson(x.reasons_json,[])})),liveExecutionAuthorized:false});
+  }
+  if(request.method==='POST'&&path==='safety/kill-switch'){
+   const body=await request.json().catch(()=>({})),enabled=body.enabled===true,reason=String(body.reason||'').trim();
+   if(!reason||reason.length<8)return response(400,{error:'A reason of at least 8 characters is required.'});
+   await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_fleet_circuit_breakers(scope_id,status,kill_switch,circuit_breaker,manual_resume_required,reasons_json,updated_by,updated_at) VALUES('global','CLOSED',0,0,0,'[]','system',?)").bind(iso()).run();
+   const current=await env.JPTI_DB.prepare("SELECT circuit_breaker FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+   if(!enabled&&body.acknowledge!==true)return response(409,{error:'Explicit acknowledge:true is required to clear the operator kill switch.'});
+   const circuitBreaker=enabled?1:Number(current?.circuit_breaker||0),status=enabled||circuitBreaker?'TRIPPED':'CLOSED',now=iso();
+   await env.JPTI_DB.prepare("UPDATE jpti_fleet_circuit_breakers SET status=?,kill_switch=?,circuit_breaker=?,manual_resume_required=?,reasons_json=?,tripped_at=CASE WHEN ?=1 THEN COALESCE(tripped_at,?) ELSE NULL END,resume_at=NULL,updated_by='authenticated-operator',updated_at=? WHERE scope_id='global'")
+    .bind(status,enabled?1:0,circuitBreaker,enabled||circuitBreaker?1:0,JSON.stringify(enabled?[{code:'OPERATOR_KILL_SWITCH',reason}]:circuitBreaker?[{code:'CIRCUIT_BREAKER_STILL_ACTIVE',reason:'Operator kill switch cleared; circuit breaker remains tripped.'}]:[]),enabled?1:0,now,now).run();
+   return response(200,{updated:true,enabled,status,killSwitch:enabled,circuitBreaker:!!circuitBreaker,manualResumeRequired:!!(enabled||circuitBreaker),reason,liveExecutionAuthorized:false});
+  }
+  if(request.method==='POST'&&path==='safety/resume'){
+   const body=await request.json().catch(()=>({})),reason=String(body.reason||'').trim();
+   await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_fleet_circuit_breakers(scope_id,status,kill_switch,circuit_breaker,manual_resume_required,reasons_json,updated_by,updated_at) VALUES('global','CLOSED',0,0,0,'[]','system',?)").bind(iso()).run();
+   if(body.acknowledge!==true||reason.length<8)return response(409,{error:'Explicit acknowledge:true and a reason of at least 8 characters are required to resume.'});
+   const now=iso();
+   await env.JPTI_DB.prepare("UPDATE jpti_fleet_circuit_breakers SET status='CLOSED',kill_switch=0,circuit_breaker=0,manual_resume_required=0,reasons_json='[]',tripped_at=NULL,resume_at=NULL,updated_by='authenticated-operator',updated_at=? WHERE scope_id='global'").bind(now).run();
+   return response(200,{updated:true,status:'CLOSED',killSwitch:false,circuitBreaker:false,reason,liveExecutionAuthorized:false,note:'Paper entries may resume only after the normal market, strategy and capital-protection gates pass.'});
+  }
   if(request.method==='GET'&&path==='reviews'){
    const rows=await env.JPTI_DB.prepare('SELECT payload FROM jpti_paper_reviews ORDER BY review_date DESC LIMIT 30').all();
    return response(200,{reviews:(rows.results||[]).map(r=>JSON.parse(r.payload))});
   }
   if(request.method==='POST'&&path==='cycle'){
-   const body=await request.json().catch(()=>({}));return response(200,await runCycle(env.JPTI_DB,body.symbol||'BTCUSDT'));
+   const body=await request.json().catch(()=>({}));return response(200,await runCycle(env.JPTI_DB,body.symbol||'BTCUSDT',{},env));
   }
   if(request.method==='POST'&&path==='daily-review')return response(200,{review:await dailyReview(env.JPTI_DB)});
   return response(404,{error:'Unknown paper trading endpoint.'});

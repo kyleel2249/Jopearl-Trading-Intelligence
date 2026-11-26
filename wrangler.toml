@@ -17,3 +17,9 @@ id = "df173421174345f9a065b312082ba43d"
 
 [ai]
 binding = "AI"
+
+
+# Internal service binding to the persistent WebSocket history collector.
+[[services]]
+binding = "JPTI_MARKET_STREAM"
+service = "jpti-market-stream-collector"

@@ -29,6 +29,8 @@ jobs:
       - run: npm test
       - name: Apply complete D1 migration chain locally
         run: npx --no-install wrangler d1 migrations apply JPTI_DB --local --config wrangler.toml
+      - name: Bundle-check sequence-aware market stream collector
+        run: npx --no-install wrangler deploy --dry-run --config workers/market-stream-collector.wrangler.toml
       - name: Bundle-check scheduled paper trading Worker
         run: npx --no-install wrangler deploy --dry-run --config workers/wrangler.toml
       - name: Bundle-check autonomous department scheduler

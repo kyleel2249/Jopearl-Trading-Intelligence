@@ -70,19 +70,43 @@ test('T-Bots fails closed until the shared historical validation gate qualifies 
   assert.match(calls[0],/validation\/latest/);
 });
 
+test('T-Bots rejects unknown or manual-resume-required fleet safety states', async () => {
+  for (const global of [
+    {status:'UNKNOWN',killSwitch:false,circuitBreaker:false,manualResumeRequired:false},
+    {status:'TRIPPED',killSwitch:false,circuitBreaker:true,manualResumeRequired:true},
+    {status:'CLOSED',killSwitch:false,circuitBreaker:false,manualResumeRequired:true}
+  ]) {
+    const calls=[];
+    const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url)=>{
+      calls.push(url);
+      return {ok:true,json:async()=>url.includes('/validation/latest/')
+        ? {paperTrialEligible:true}
+        : {available:true,global}};
+    }});
+    bridge.setToken('local-test-token');
+    const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair'});
+    assert.equal(result.allowed,false);
+    assert.match(result.reasons[0],/not explicitly CLOSED/i);
+    assert.equal(calls.length,2,'entry preflight must not be reached when fleet state is unsafe');
+  }
+});
+
 test('T-Bots proceeds to the existing independent entry preflight only after historical qualification', async () => {
   const calls=[];
   const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url,options)=>{
     calls.push(url);
     const body=url.includes('/validation/latest/')
       ? {paperTrialEligible:true}
-      : {allowed:true,maxEntrySizePct:0.5,reasons:[]};
+      : url.includes('/paper/safety')
+        ? {available:true,global:{status:'CLOSED',killSwitch:false,circuitBreaker:false}}
+        : {allowed:true,maxEntrySizePct:0.5,reasons:[]};
     return {ok:true,json:async()=>body};
   }});
   bridge.setToken('local-test-token');
   const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair',securityPassed:true});
   assert.equal(result.allowed,true);
-  assert.equal(calls.length,2);
+  assert.equal(calls.length,3);
   assert.match(calls[0],/validation\/latest/);
-  assert.match(calls[1],/entry-preflight/);
+  assert.match(calls[1],/paper\/safety/);
+  assert.match(calls[2],/entry-preflight/);
 });

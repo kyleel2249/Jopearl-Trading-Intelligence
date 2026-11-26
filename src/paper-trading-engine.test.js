@@ -54,6 +54,22 @@ test('paper metrics expose payoff, fee, holding-time and recovery analytics',()=
  assert.equal(m.worstTradeUsd,-.04);
  assert.ok(Number.isFinite(m.recoveryFactor));
 });
+test('paper metrics distinguish the active loss streak from the historical maximum',()=>{
+ const recovered=calculatePaperMetrics([
+  {status:'closed',netPnlUsd:-.1,closedAt:'2026-01-01T00:00:00Z'},
+  {status:'closed',netPnlUsd:-.1,closedAt:'2026-01-01T01:00:00Z'},
+  {status:'closed',netPnlUsd:.2,closedAt:'2026-01-01T02:00:00Z'}
+ ],1,Date.parse('2026-04-01T00:00:00Z'));
+ assert.equal(recovered.maxConsecutiveLosses,2);
+ assert.equal(recovered.currentConsecutiveLosses,0);
+ const active=calculatePaperMetrics([
+  {status:'closed',netPnlUsd:.2,closedAt:'2026-01-01T00:00:00Z'},
+  {status:'closed',netPnlUsd:-.1,closedAt:'2026-01-01T01:00:00Z'},
+  {status:'closed',netPnlUsd:-.1,closedAt:'2026-01-01T02:00:00Z'}
+ ],1,Date.parse('2026-04-01T00:00:00Z'));
+ assert.equal(active.maxConsecutiveLosses,2);
+ assert.equal(active.currentConsecutiveLosses,2);
+});
 test('one-dollar starting equity is used for an empty agent ledger',()=>{
  const m=calculatePaperMetrics([],PAPER_POLICY.initialEquityUsd);
  assert.equal(m.closedTrades,0);assert.equal(m.winRatePct,0);assert.equal(m.equityUsd,1);

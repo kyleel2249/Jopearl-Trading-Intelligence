@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { handleIntelligenceFoundationApi } from '../functions/intelligence-foundation.js';
 import { handleOrganizationApi } from '../functions/organization-intelligence.js';
+import { onRequest as paperRequest } from '../functions/api/paper/[[path]].js';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 function d1() {
@@ -130,4 +131,41 @@ test('budget endpoint reports live usage and limits', async () => {
   await call(h.env, 'POST', '/api/intelligence-foundation/agents/tasks', task);
   const b = await (await call(h.env, 'GET', '/api/intelligence-foundation/agents/ai-budget')).json();
   assert.equal(b.hourly.used, 1); assert.equal(b.hourly.limit, 10); assert.equal(b.ok, true); assert.equal(b.measured, true);
+});
+
+test('paper safety API persists operator kill-switch and requires explicit resume acknowledgement', async () => {
+  const db=d1(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:TOKEN};
+  const callPaper=(method,path,body)=>paperRequest({env,request:req(method,'/api/paper/'+path,body),params:{path}});
+  let response=await callPaper('GET','safety');
+  assert.equal(response.status,200,await response.clone().text());
+  let state=await response.json();
+  assert.equal(state.available,true);
+  assert.equal(state.global.killSwitch,false);
+  response=await callPaper('POST','safety/kill-switch',{enabled:true,reason:'Operator detected unsafe fleet behaviour.'});
+  assert.equal(response.status,200);
+  state=await response.json();
+  assert.equal(state.killSwitch,true);
+  assert.equal(state.circuitBreaker,true);
+  response=await callPaper('POST','safety/kill-switch',{enabled:false,reason:'Attempted reset without acknowledgement.'});
+  assert.equal(response.status,409);
+  response=await callPaper('POST','safety/kill-switch',{enabled:false,acknowledge:true,reason:'Operator reviewed incident evidence.'});
+  assert.equal(response.status,200);
+  state=await response.json();
+  assert.equal(state.killSwitch,false);
+  assert.equal(state.circuitBreaker,true,'clearing the operator switch must not clear a separately tripped breaker');
+  response=await callPaper('POST','safety/resume',{acknowledge:true,reason:'Investigation complete; paper controls revalidated.'});
+  assert.equal(response.status,200);
+  state=await response.json();
+  assert.equal(state.status,'CLOSED');
+  assert.equal(state.liveExecutionAuthorized,false);
+  response=await callPaper('GET','safety');
+  state=await response.json();
+  assert.equal(state.global.status,'CLOSED');
+  assert.equal(state.global.circuitBreaker,false);
+  response=await callPaper('GET','overview');
+  assert.equal(response.status,200,await response.clone().text());
+  const overview=await response.json();
+  assert.equal(overview.safety.available,true);
+  assert.equal(overview.safety.global.status,'CLOSED');
+  assert.equal(overview.liveExecutionAuthorized,false);
 });

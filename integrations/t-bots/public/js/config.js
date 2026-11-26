@@ -45,6 +45,9 @@ export const DEFAULT_CONFIG = {
     drawdownLimitPct: 30,
     pauseMin: 60,
     reentryCooldownMin: 30,
+    sessionLossLimitPct: 10,
+    lossStreakLimit: 4,
+    maxDrawdownTriggers: 2,
     compound: true,
   },
 };

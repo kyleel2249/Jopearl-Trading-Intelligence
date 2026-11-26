@@ -61,6 +61,8 @@ export function renderPrompt(c) {
   L.push(`- Enter only when SCANNER flags at least ${word(sc.minSignals)} signals and RUG CHECK passes.`);
   L.push(`- No chasing: skip if the coin is already +${r.noChaseGainPct}% in the last hour without a pullback.`);
   L.push(`- Daily drawdown limit -${r.drawdownLimitPct}% from peak: pause and log why.`);
+  L.push(`- No-chase pullback threshold ${r.noChasePullbackPct}%; pause new entries for ${r.pauseMin} min after a halt; re-entry cooldown ${r.reentryCooldownMin} min.`);
+  L.push(`- Session loss limit -${r.sessionLossLimitPct}%; stop after ${word(r.lossStreakLimit)} consecutive losses; maximum drawdown triggers ${r.maxDrawdownTriggers}.`);
   if (r.compound) L.push('- Compound profits into the next position size.');
   L.push(
     '',

@@ -19,6 +19,8 @@
     "check:syntax": "node scripts/check-syntax.mjs",
     "test": "node --test && npm run verify:institutional-intelligence",
     "backtest:walkforward": "node scripts/walk-forward.mjs",
+    "validate:strategy": "node scripts/validate-strategy.mjs",
+    "deploy:market-streams": "wrangler deploy --config workers/market-stream-collector.wrangler.toml",
     "desktop:dev": "npm run build && electron .",
     "desktop:pack": "npm run build && electron-builder --dir",
     "desktop:dist": "npm run build && electron-builder",

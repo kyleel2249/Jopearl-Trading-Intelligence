@@ -53,6 +53,9 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+      - name: Cache Gradle dependencies and build outputs
+        uses: gradle/actions/setup-gradle@v4
+
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -87,14 +90,30 @@ jobs:
           JPTI_ANDROID_KEY_PASSWORD: ${{ secrets.JPTI_ANDROID_KEY_PASSWORD }}
           JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
           JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
-        run: bash ./gradlew --no-daemon assembleRelease bundleRelease
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if bash ./gradlew --no-daemon --stacktrace assembleRelease bundleRelease; then exit 0; fi
+            if [ "$attempt" -eq 4 ]; then exit 1; fi
+            delay=$((attempt * 30))
+            echo "Gradle dependency/build attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
       - name: Build Android debug APK when production signing is not configured
         if: ${{ env.JPTI_ANDROID_SIGNING_READY != 'true' }}
         working-directory: android
         env:
           JPTI_ANDROID_VERSION_CODE: ${{ github.run_number }}
           JPTI_ANDROID_VERSION_NAME: 0.2.${{ github.run_number }}
-        run: bash ./gradlew --no-daemon assembleDebug
+        run: |
+          set -euo pipefail
+          for attempt in 1 2 3 4; do
+            if bash ./gradlew --no-daemon --stacktrace assembleDebug; then exit 0; fi
+            if [ "$attempt" -eq 4 ]; then exit 1; fi
+            delay=$((attempt * 30))
+            echo "Gradle dependency/build attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
       - name: Stage Android packages in the Android project output folder
         run: |
           mkdir -p android/app/build/outputs/distribution build-downloads/android
