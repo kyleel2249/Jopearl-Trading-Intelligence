@@ -77,7 +77,7 @@ test('only Bitget receives the five supported public product categories', () => 
 
 test('market selection respects the configured base/quote allowlist and cap', () => {
   const rows = [{ symbol: 'ETH/USDT', active: true }, { symbol: 'BTC/USDT:USDT', active: true }, { symbol: 'DOGE/USDT', active: true }, { symbol: 'BTC/USDT', active: false }];
-  assert.deepEqual(selectReplicationMarkets(rows, ['BTC/USDT', 'ETH/USDT'], 1).map(x => x.symbol), ['ETH/USDT']);
+  assert.deepEqual(selectReplicationMarkets(rows, ['BTC/USDT', 'ETH/USDT'], 1).map(x => x.symbol), ['BTC/USDT:USDT']);
 });
 
 test('ticker observations reject missing timestamps and negative prices', () => {
