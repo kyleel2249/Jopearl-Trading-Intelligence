@@ -14,8 +14,8 @@ export function normalizeMicrostructurePlan(input={}){
  return {exchanges,symbols,kinds,marketType,depthLimit:Math.max(5,Math.min(100,Number(input.depthLimit)||20)),tradeLimit:Math.max(10,Math.min(100,Number(input.tradeLimit)||50)),maxRequests:Math.max(1,Math.min(24,Number(input.maxRequests)||18))};
 }
 export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',limit=50){
- const [pair,settle]=symbol.split(':');const [base,quote]=pair.split('/');
- const bitgetSymbol=base+quote, okxSpot=base+'-'+quote, okxSwap=base+'-'+(marketType==='coin-m'?base:quote)+'-SWAP';
+ const [pair]=symbol.split(':');const [base,quote]=pair.split('/');
+ const bitgetSymbol=base+quote, okxSpot=base+'-'+quote, okxSwap=base+'-'+quote+'-SWAP';
  const derivative=marketType!=='spot';
  if(exchange==='binance'){
   const sym=base+quote,host=marketType==='coin-m'?'dapi.binance.com':derivative?'fapi.binance.com':'api.binance.com',prefix=marketType==='coin-m'?'/dapi/v1/':derivative?'/fapi/v1/':'/api/v3/';
@@ -65,7 +65,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
    let id,time,data;
    if(kind==='trade'){
     id=row.execId||row.tradeId||row.id||row.ts+'-'+row.price+'-'+row.size;time=row.time||row.ts||row.T||row.timestamp;
-    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q||row.sz),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q)};
+    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q||row.sz),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q||row.sz)};
     if(!(data.price>0&&data.quantity>0))continue;
    }else if(kind==='funding'){
     id=row.fundingRateTimestamp||row.fundingTime||row.fundingRateTime||row.ts||row.id;time=id;
@@ -77,7 +77,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
     if(data.openInterest===null)continue;
    }else if(kind==='liquidation'){
     id=row.orderId||row.ts+'-'+row.price+'-'+row.size;time=row.updatedTime||row.ts||row.time;
-    data={side:String(row.side||row.S||'unknown').toLowerCase(),price:n(row.price||row.p),quantity:n(row.qty||row.size||row.sz),notional:n(row.price||row.p)*n(row.qty||row.size||row.sz),orderId:String(id)};
+    data={side:String(row.side||row.S||'unknown').toLowerCase(),price:n(row.price||row.p||row.bkPx),quantity:n(row.qty||row.size||row.sz),notional:n(row.price||row.p||row.bkPx)*n(row.qty||row.size||row.sz),orderId:String(id)};
     if(!(data.price>0&&data.quantity>0))continue;
    }
    push(id,time,data,{validated:true});
