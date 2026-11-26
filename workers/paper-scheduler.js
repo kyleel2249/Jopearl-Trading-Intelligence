@@ -44,9 +44,9 @@ export default {
   async scheduled(event, env, ctx) {
     if (!env.JPTI_DB) throw new Error('JPTI_DB D1 binding is required.');
     const task = (async () => {
-      const failures = [];
+      const failures = [], streamFailures = [];
       try { await startMarketStreamCollector(env); }
-      catch (error) { failures.push({ stage: 'market-stream-collector', error: shortError(error) }); }
+      catch (error) { streamFailures.push({ stage: 'market-stream-collector', error: shortError(error) }); }
       // Symbols run sequentially on purpose: each cycle reads fleet exposure from D1 before opening
       // a position, so parallel cycles could both pass the same concentration gate.
       try { await ensureAgents(env.JPTI_DB); }
@@ -62,13 +62,13 @@ export default {
         try { await dailyReview(env.JPTI_DB); }
         catch (error) { failures.push({ stage: 'daily-review', error: shortError(error) }); }
       }
-      if (failures.length) {
+      if (failures.length || streamFailures.length) {
         // Each invocation receives a unique health-event ID so overlapping retries cannot overwrite diagnostics.
         const at = new Date().toISOString();
         const id = 'paper-scheduler:' + at + ':' + crypto.randomUUID().slice(0, 8);
         try {
           await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_events(id,kind,source,external_id,occurred_at,payload) VALUES(?, 'paper-scheduler-health','jpti-paper-scheduler',?,?,?)")
-            .bind(id, String(event.cron || 'manual'), at, JSON.stringify({ failures, watchlist: WATCHLIST, cron: event.cron || null, mode: 'PAPER_ONLY' })).run();
+            .bind(id, String(event.cron || 'manual'), at, JSON.stringify({ failures, streamFailures, watchlist: WATCHLIST, cron: event.cron || null, mode: 'PAPER_ONLY' })).run();
         } catch (error) {
           console.error('[JPTI paper scheduler] could not record health event:', shortError(error), JSON.stringify(failures));
         }
