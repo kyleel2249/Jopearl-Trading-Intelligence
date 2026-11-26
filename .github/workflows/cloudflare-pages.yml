@@ -99,12 +99,6 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
 
-      - name: Deploy Cloudflare Pages
-        run: npx --no-install wrangler pages deploy dist --project-name "${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jpti' }}" --branch main --commit-dirty=true
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-
       - name: Deploy sequence-aware market stream collector
         run: npx --no-install wrangler deploy --config workers/market-stream-collector.wrangler.toml
         env:
@@ -122,6 +116,13 @@ jobs:
             exit 1
           fi
           printf '%s' "$JPTI_API_TOKEN" | npx --no-install wrangler secret put JPTI_API_TOKEN --config workers/market-stream-collector.wrangler.toml
+
+      - name: Deploy Cloudflare Pages
+        run: npx --no-install wrangler pages deploy dist --project-name "${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jpti' }}" --branch main --commit-dirty=true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
       - name: Deploy autonomous department scheduler
         run: npx --no-install wrangler deploy --config workers/department-intelligence-scheduler.wrangler.toml
         env:
