@@ -78,7 +78,7 @@ export function assessEliteTrader(raw={}, now=Date.now()) {
     [roi!==null&&roi>0,'non_positive_roi'],
     [stability.coverage>=3,'insufficient_window_coverage'],
     [missing.length===0,'missing_required_metrics'],
-    [errors.length===0,'source_integrity_failed']
+    [c.sourceAttested===true,'source_not_attested_by_operator'],\n    [errors.length===0,'source_integrity_failed']
   ];
   const failed=gates.filter(([ok])=>!ok).map(([,reason])=>reason);
   const eligible=failed.length===0&&score>=ETRD_POLICY.minimumScore;
