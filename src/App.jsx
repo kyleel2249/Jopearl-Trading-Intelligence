@@ -1,8 +1,8 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 const MultiChartWorkstation = lazy(() => import('./MultiChartWorkstation.jsx'));
-import Dashboard from './Dashboard.jsx';
-import AgentDashboardOverview from './AgentDashboardOverview.jsx';
-import TerminalDashboard from './TerminalDashboard.jsx';
+const Dashboard = lazy(() => import('./Dashboard.jsx'));
+const AgentDashboardOverview = lazy(() => import('./AgentDashboardOverview.jsx'));
+const TerminalDashboard = lazy(() => import('./TerminalDashboard.jsx'));
 const FinancialIntelligence = lazy(() => import('./FinancialIntelligence.jsx'));
 const ReflectiveJournal = lazy(() => import('./ReflectiveJournal.jsx'));
 const PairScanner = lazy(() => import('./PairScanner.jsx'));
