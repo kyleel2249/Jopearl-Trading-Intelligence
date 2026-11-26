@@ -27,7 +27,7 @@ async function mapLimit(items,limit,worker){
 }
 function supports(exchange,kind,marketType){
  if((kind==='funding'||kind==='open_interest')&&marketType==='spot')return false;
- if(kind==='liquidation')return exchange==='binance'||exchange==='okx';
+ if(kind==='liquidation')return exchange==='okx';
  return true;
 }
 async function save(db,rows){
