@@ -60,10 +60,10 @@ export function assessEliteTrader(raw={}, now=Date.now()) {
   for(const [k,v] of Object.entries({totalTrades:trades,historyDays:history,winRatePct:winRate,maxDrawdownPct:drawdown,roiPct:roi,copierPnlUsd:copierPnl}))if(v===null)missing.push(k);
   const stability=scoreWindowStability(c);
   const components={
-    winRateConsistency:winRate===null?0:clamp((winRate-35)/35,0,1)*.65+stability.score*.35,
+    winRateConsistency:winRate===null?0:clamp((winRate-35)/30,0,1)*.65+stability.score*.35,
     riskAdjustedReturns:[sharpe,sortino,calmar].some(v=>v!==null)?clamp(((sharpe??0)*.45+(sortino??0)*.35+(calmar??0)*.2)/3,0,1):0,
     maxDrawdown:drawdown===null?0:clamp(1-drawdown/40,0,1),
-    netProfitability:roi===null?0:clamp((roi+5)/45,0,1),
+    netProfitability:roi===null?0:clamp((roi+5)/30,0,1),
     periodConsistency:stability.score,
     copierProfitability:copierPnl===null?0:copierPnl>0?clamp(.5+Math.log10(1+copierPnl)/4,.5,1):0,
     historyAndSample:trades===null||history===null?0:clamp(Math.min(trades/300,history/180),0,1)
