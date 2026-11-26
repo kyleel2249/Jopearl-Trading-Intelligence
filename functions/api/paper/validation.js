@@ -29,7 +29,7 @@ function createMarketDataAt(events,windowMs){
  return timestamp=>{
   while(cursor<events.length&&events[cursor].ts<=timestamp){active.push(events[cursor++]);}
   const floor=timestamp-windowMs;while(active.length&&active[0].ts<floor)active.shift();
-  const books=new Map(),buy=0,sell=0;let buyNotional=0,sellNotional=0;const funding=new Map(),oi=new Map();
+  const books=new Map();let buyNotional=0,sellNotional=0;const funding=new Map(),oi=new Map();
   for(const event of active){const p=event.payload||{};
    if(event.kind==='orderbook'){const value=Number(p.reconstructed?.notionalImbalance??p.notionalImbalance);if(Number.isFinite(value))books.set(event.exchange,value);}
    if(event.kind==='trade'){const value=Number(p.quoteNotional??(Number(p.price)*Number(p.quantity)));if(value>0&&p.side==='buy')buyNotional+=value;else if(value>0&&p.side==='sell')sellNotional+=value;}
