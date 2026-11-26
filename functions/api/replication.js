@@ -2,7 +2,7 @@ import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-di
 import {
   normalizeReplicationPlan, marketTypesForExchange, selectReplicationMarkets,
   normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey,
-  buildReplicationSummary
+  detectCandleGaps, buildCrossExchangeConsensus, buildReplicationSummary
 } from '../../src/market-replication-engine.js';
 import { verifyPrivateToken } from '../private-auth.js';
 
@@ -182,6 +182,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
     }
     const finishedAt = now().toISOString();
     const summary = buildReplicationSummary({ startedAt, finishedAt, plan, counts, errors, skipped, runId });
+    summary.dataQuality = { candleGaps: detectCandleGaps(observations), crossExchangeConsensus: buildCrossExchangeConsensus(observations), staleObservations: observations.filter(row => row.quality?.stale).length };
     try {
       await env.JPTI_DB.prepare(
         'UPDATE jpti_market_replication_runs SET status=?,finished_at=?,duration_ms=?,counts_json=?,errors_json=? WHERE run_id=?'
