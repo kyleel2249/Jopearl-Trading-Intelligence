@@ -4,7 +4,7 @@ import { assessEliteTrader, rankEliteTraders, ETRD_AGENTS } from '../src/elite-t
 
 const now=Date.parse('2026-11-26T12:00:00.000Z');
 const candidate=(overrides={})=>({
-  traderId:'bitget-trader-001',displayName:'Sample Trader',source:'manual-provider-export',
+  traderId:'bitget-trader-001',displayName:'Sample Trader',source:'manual-provider-export',sourceAttested:true,
   retrievedAt:new Date(now).toISOString(),totalTrades:500,historyDays:240,
   averageHoldingHours:8,maxLeverage:5,
   windows:{
