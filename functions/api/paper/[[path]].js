@@ -1,6 +1,7 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
 import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 import { verifyPrivateToken } from '../../private-auth.js';
+import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -99,8 +100,9 @@ export function unrealizedPnlForSymbol(openTrades,symbol,lastPrice,feeRate){
 }
 export async function runCycle(db,symbol,options={}){
  if(!options.agentsEnsured)await ensureAgents(db);
+ const tradingWindow=evaluateTradingWindow(options.now??Date.now());
  const market=await marketSnapshot(symbol);
- const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
+ const report={mode:'PAPER_ONLY',source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,tradingWindow,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
  let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
@@ -172,9 +174,9 @@ export async function runCycle(db,symbol,options={}){
   const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
-  const sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
+  const sessionName=tradingWindow.activeSessions.join(' + ')||'OUTSIDE_SESSION';
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&tradingWindow.eligible&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
    const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
    const targetRiskUsd=sizing.riskAmount;
@@ -204,7 +206,7 @@ export async function runCycle(db,symbol,options={}){
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
     }
-  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
+  }else if(signal.action==='SIGNAL')reason=!tradingWindow.eligible?tradingWindow.reason:'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
