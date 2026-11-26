@@ -13,9 +13,12 @@ export default {
   const results=[];for(const item of items){try{const config=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(config.streamId),stub=env.MARKET_STREAMS.get(id),r=await stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(config)});results.push({streamId:config.streamId,...await r.json()});}catch(error){results.push({status:'failed',error:String(error?.message||error)});}}
   return json(200,{results,requested:items.length,started:results.filter(x=>x.status==='connected'||x.status==='connecting').length,liveExecutionAuthorized:false});
  },
- async scheduled(_event,env,ctx){const raw=env.JPTI_STREAMS_CONFIG||'[{"exchange":"binance","marketType":"spot","symbol":"BTC/USDT"},{"exchange":"bybit","marketType":"spot","symbol":"BTC/USDT"},{"exchange":"okx","marketType":"spot","symbol":"BTC/USDT"},{"exchange":"bitget","marketType":"spot","symbol":"BTC/USDT"},{"exchange":"binance","marketType":"usdt-m","symbol":"BTC/USDT"},{"exchange":"bybit","marketType":"usdt-m","symbol":"BTC/USDT"},{"exchange":"okx","marketType":"usdt-m","symbol":"BTC/USDT"},{"exchange":"bitget","marketType":"usdt-m","symbol":"BTC/USDT"}]';
-  let streams=[];try{streams=JSON.parse(raw);}catch{return;}
-  for(const item of streams){try{const c=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(c.streamId),stub=env.MARKET_STREAMS.get(id);ctx.waitUntil(stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)}));}catch{}}
+ async scheduled(_event,env,ctx){
+  let streams=[];
+  if(env.JPTI_STREAMS_CONFIG){try{streams=JSON.parse(env.JPTI_STREAMS_CONFIG);}catch{return;}}
+  else{try{const rows=await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') GROUP BY exchange,market_type,symbol ORDER BY last_seen DESC LIMIT 40").all();streams=(rows.results||[]).map(r=>({exchange:r.exchange,marketType:r.market_type,symbol:r.symbol}));}catch{}}
+  if(!streams.length)streams=[{exchange:'binance',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'},{exchange:'okx',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},{exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'bybit',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'okx',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}];
+  for(const item of streams.slice(0,40)){try{const c=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(c.streamId),stub=env.MARKET_STREAMS.get(id);ctx.waitUntil(stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)}));}catch{}}
  }
 };
 export class MarketStreamHub {
