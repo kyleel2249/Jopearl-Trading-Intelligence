@@ -105,6 +105,52 @@ function collisionAnalysis(items){
  const rows=[];for(let i=0;i<items.length;i++)for(let j=i+1;j<items.length;j++){const a=items[i],b=items[j];if(a.exchange===b.exchange)continue;const left=new Map(a.positions.filter(p=>p.symbol&&p.side).map(p=>[p.symbol,p.side]));const shared=b.positions.filter(p=>p.symbol&&p.side&&left.has(p.symbol));const same=shared.filter(p=>left.get(p.symbol)===p.side).length,opposite=shared.length-same;if(shared.length)rows.push({leftTraderId:a.traderId,rightTraderId:b.traderId,leftExchange:a.exchange,rightExchange:b.exchange,sharedSymbols:shared.map(p=>p.symbol),sameDirection:same,opposingDirection:opposite,classification:opposite?'cross-venue-direction-conflict':'duplicated-cross-venue-exposure'});}
  return rows.slice(0,200);
 }
+function simulatePaperAllocation(eligible){
+ const picks=eligible.slice(0,30),allocations=new Map(picks.map(x=>[x.traderId+':'+x.exchange+':'+x.marketType,0]));
+ let active=picks.slice(),remaining=100;
+ while(active.length&&remaining>0.0001){
+  const weights=active.map(x=>Math.max(0.01,x.score)/Math.max(1,x.metrics.maxDrawdownPct||1));
+  const total=weights.reduce((a,b)=>a+b,0);
+  const capped=[];
+  active.forEach((item,index)=>{
+   const key=item.traderId+':'+item.exchange+':'+item.marketType;
+   const proposed=remaining*weights[index]/total;
+   if(proposed>=10-1e-9){allocations.set(key,10);remaining-=10;capped.push(key);}
+  });
+  if(!capped.length){
+   active.forEach((item,index)=>{const key=item.traderId+':'+item.exchange+':'+item.marketType;allocations.set(key,remaining*weights[index]/total);});
+   remaining=0;break;
+  }
+  active=active.filter(item=>!capped.includes(item.traderId+':'+item.exchange+':'+item.marketType));
+ }
+ const rows=picks.map(item=>({traderId:item.traderId,exchange:item.exchange,marketType:item.marketType,targetPct:round(allocations.get(item.traderId+':'+item.exchange+':'+item.marketType)||0,4),score:item.score,drawdownPct:item.metrics.maxDrawdownPct}));
+ const deployed=rows.reduce((sum,row)=>sum+row.targetPct,0);
+ return {mode:'paper-simulation-only',maximumPerTraderPct:10,targets:rows,totalTargetPct:round(deployed,4),cashReservePct:round(100-deployed,4),realCapitalAllocated:0,liveExecutionAuthorized:false,method:'score-weighted inverse-drawdown heuristic; no capital or orders are used'};
+}
+function buildAgentActivity(assessments,clusters,collisions,allocation){
+ const eligible=assessments.filter(x=>x.eligible),risk=assessments.filter(x=>x.riskFlags.length);
+ const activity=[
+  {id:'MX-01',status:'complete',finding:'Imported trader records discovered and deduplicated.',count:assessments.length},
+  {id:'MX-02',status:'complete',finding:'Source provenance, freshness and metric integrity gates evaluated.',count:assessments.filter(x=>x.provenance.sourceAttested).length},
+  {id:'MX-03',status:'complete',finding:'Rolling-window stability and sample reliability evaluated.',count:assessments.length},
+  {id:'MX-04',status:'complete',finding:'Strategy DNA clusters generated.',count:clusters.length},
+  {id:'MX-05',status:'complete',finding:'Virtual inverse-drawdown paper allocation targets simulated.',count:allocation.targets.length},
+  {id:'MX-06',status:'complete',finding:'Supplied positions checked for cross-venue collisions.',count:collisions.length},
+  {id:'MX-07',status:'partial',finding:'Execution quality evaluated only where slippage evidence was supplied.',count:assessments.filter(x=>x.metrics.averageSlippageBps!==null).length},
+  {id:'MX-08',status:'partial',finding:'Fee and funding costs evaluated only where source records supplied them.',count:assessments.filter(x=>x.metrics.fundingCostPct!==null).length},
+  {id:'MX-09',status:'complete',finding:'Strategy fingerprints grouped for cross-venue transfer research.',count:clusters.filter(x=>new Set(x.traderIds.map(id=>assessments.find(a=>a.traderId===id)?.exchange)).size>1).length},
+  {id:'MX-10',status:'awaiting-market-data',finding:'No verified cross-venue quote/funding stream is connected; no arbitrage claim is emitted.',count:0},
+  {id:'MX-11',status:'complete',finding:'Eligible candidates ranked for paper-replica research.',count:eligible.length},
+  {id:'MX-12',status:'complete',finding:'Global risk supervisor applied hard gates and risk flags.',count:risk.length}
+ ];
+ for(const exchange of EXCHANGES){
+  const rows=assessments.filter(x=>x.exchange===exchange);
+  const ids=venue[exchange].map(x=>x[0]);
+  const names=venue[exchange].map(x=>x[1]);
+  for(let i=0;i<ids.length;i++)activity.push({id:ids[i],exchange,status:rows.length?'complete':'awaiting-source',finding:names[i]+' evaluated against imported venue-specific records.',count:rows.length});
+ }
+ return activity.map(item=>({...item,executionPermission:'none'}));
+}
 export function rankMultiExchangeTraders(candidates=[],now=Date.now()){
  const bounded=Array.isArray(candidates)?candidates.slice(0,300):[],seen=new Set(),unique=[],duplicates=[];
  bounded.sort((a,b)=>Date.parse(b.retrievedAt||b.retrieved_at||'')-Date.parse(a.retrievedAt||a.retrieved_at||''));
@@ -113,6 +159,8 @@ export function rankMultiExchangeTraders(candidates=[],now=Date.now()){
  for(const exchange of EXCHANGES)for(const marketType of MARKET_TYPES){const group=assessments.filter(x=>x.exchange===exchange&&x.marketType===marketType).sort((a,b)=>b.score-a.score);if(group.length)boards[exchange+':'+marketType]={exchange,marketType,candidateCount:group.length,eligibleCount:group.filter(x=>x.eligible).length,selected:group.filter(x=>x.eligible).slice(0,10).map((x,i)=>({...x,rank:i+1,replicaMode:'paper',allocationPct:0}))};}
  const eligible=assessments.filter(x=>x.eligible).sort((a,b)=>b.score-a.score),selected=eligible.slice(0,30).map((x,i)=>({...x,globalResearchRank:i+1,replicaMode:'paper',allocationPct:0}));
  const collisions=collisionAnalysis(eligible),clusters={};for(const item of assessments)(clusters[item.strategyFingerprint]??=[]).push(item.traderId);
- return {id:globalThis.crypto?.randomUUID?.()||('mx-'+now+'-'+assessments.length),generatedAt:new Date(now).toISOString(),policy:MULTI_EXCHANGE_POLICY,agents:MULTI_EXCHANGE_AGENTS,candidateCount:assessments.length,eligibleCount:eligible.length,selectedCount:selected.length,exchangeSummary:Object.fromEntries(EXCHANGES.map(exchange=>[exchange,{candidateCount:assessments.filter(x=>x.exchange===exchange).length,eligibleCount:assessments.filter(x=>x.exchange===exchange&&x.eligible).length,feedStatus:'manual-import-only'}])),boards,selected,assessments:assessments.sort((a,b)=>b.score-a.score),strategyClusters:Object.entries(clusters).map(([fingerprint,traderIds])=>({fingerprint,traderIds,count:traderIds.length})),crossExchangeCollisions:collisions,intelligenceEvents:[{kind:'multi-exchange-elite-ranking',exchange:'all',candidateCount:assessments.length,eligibleCount:eligible.length},{kind:'cross-exchange-strategy-fingerprint',clusterCount:Object.keys(clusters).length},{kind:'cross-exchange-exposure-collision',collisionCount:collisions.length}],execution:{mode:'paper-only',liveExecutionAuthorized:false,ordersCreated:0,capitalAllocated:0,blockers:['No verified public trader leaderboard feed is configured for any exchange.','Private copy-trading credentials and order adapters are not connected.','Independent reconciliation and operator approval are required before live execution.']},audit:{scoreIsRankingHeuristic:true,exchangeScoresAreResearchComparisons:true,sourceMethodsMayDiffer:true,profitabilityGuaranteed:false,metricsIndependentlyVerified:false,duplicateCandidatesRemoved:duplicates.length,duplicateKeys:duplicates}};
+ const clusterRows=Object.entries(clusters).map(([fingerprint,traderIds])=>({fingerprint,traderIds,count:traderIds.length}));
+ const allocationSimulation=simulatePaperAllocation(eligible),agentActivity=buildAgentActivity(assessments,clusterRows,collisions,allocationSimulation);
+ return {id:globalThis.crypto?.randomUUID?.()||('mx-'+now+'-'+assessments.length),generatedAt:new Date(now).toISOString(),policy:MULTI_EXCHANGE_POLICY,agents:MULTI_EXCHANGE_AGENTS,candidateCount:assessments.length,eligibleCount:eligible.length,selectedCount:selected.length,exchangeSummary:Object.fromEntries(EXCHANGES.map(exchange=>[exchange,{candidateCount:assessments.filter(x=>x.exchange===exchange).length,eligibleCount:assessments.filter(x=>x.exchange===exchange&&x.eligible).length,feedStatus:'manual-import-only'}])),boards,selected,assessments:assessments.sort((a,b)=>b.score-a.score),strategyClusters:clusterRows,crossExchangeCollisions:collisions,allocationSimulation,agentActivity,intelligenceEvents:[{kind:'multi-exchange-elite-ranking',exchange:'all',candidateCount:assessments.length,eligibleCount:eligible.length},{kind:'cross-exchange-strategy-fingerprint',clusterCount:Object.keys(clusters).length},{kind:'cross-exchange-exposure-collision',collisionCount:collisions.length}],execution:{mode:'paper-only',liveExecutionAuthorized:false,ordersCreated:0,capitalAllocated:0,blockers:['No verified public trader leaderboard feed is configured for any exchange.','Private copy-trading credentials and order adapters are not connected.','Independent reconciliation and operator approval are required before live execution.']},audit:{scoreIsRankingHeuristic:true,exchangeScoresAreResearchComparisons:true,sourceMethodsMayDiffer:true,profitabilityGuaranteed:false,metricsIndependentlyVerified:false,duplicateCandidatesRemoved:duplicates.length,duplicateKeys:duplicates}};
 }
 export function getMultiExchangeStatus(env={}){return {system:'JPTI Multi-Exchange Elite Replication System',version:MULTI_EXCHANGE_POLICY.version,exchanges:Object.entries(EXCHANGE_SOURCE_REGISTRY).map(([id,meta])=>({...meta,feedConfigured:Boolean(env['JPTI_'+id.toUpperCase()+'_ELITE_FEED_URL']),credentialsConfigured:false,scheduledMonitoringConfigured:false,executionMode:'paper-only'})),agents:MULTI_EXCHANGE_AGENTS,policy:MULTI_EXCHANGE_POLICY,integrations:{sharedIntelligenceMemory:'ranking events are published to D1 event stream',riskCommandCentre:'risk findings are published to D1 event stream',strategyResearchLab:'strategy fingerprints included in ranking snapshots',liveTrading:'disabled'}};}
