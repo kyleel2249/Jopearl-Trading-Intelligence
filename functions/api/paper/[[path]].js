@@ -231,7 +231,7 @@ export async function runCycle(db,symbol,options={},env={}){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
    const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct*capitalRiskMultiplier,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
    const targetRiskUsd=sizing.riskAmount;
-   const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
+   const allInRiskPerUnit=calculateAllInRiskPerUnit({entryPrice:price,stopDistance});
    const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    const riskUsd=quantity*allInRiskPerUnit;
    if(quantity>0&&Number.isFinite(quantity)){
