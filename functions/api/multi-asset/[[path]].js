@@ -49,7 +49,7 @@ export async function onRequest({request,env}) {
    const statements=events.map(event=>{
     const observedAt=event.observedAt||event.observed_at,receivedAt=event.received_at||event.receivedAt||observedAt;
     const eventId=String(event.event_id||event.eventId||observedAt),kind=String(event.event_kind||event.kind||'unknown');
-    const key=[page.streamId||cursorId,kind,eventId].join('|');
+    const key=[exchange,instrument.marketType,instrument.symbol,kind,eventId].join('|');
     return env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_market_stream_events(event_key,stream_id,exchange,market_type,symbol,event_kind,event_id,sequence,observed_at,received_at,payload,quality) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
      .bind(key,page.streamId||cursorId,exchange,instrument.marketType,instrument.symbol,kind,eventId,event.sequence==null?null:(Number.isFinite(Number(event.sequence))?Number(event.sequence):null),new Date(observedAt).toISOString(),new Date(receivedAt).toISOString(),JSON.stringify(event.payload||{}),JSON.stringify(event.quality||{}));
    });
