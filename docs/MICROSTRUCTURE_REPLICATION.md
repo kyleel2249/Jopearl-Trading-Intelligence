@@ -12,7 +12,7 @@ Implemented observation kinds:
 - Open interest: reported open-interest value and observation timestamp.
 - Liquidation events: currently enabled only for OKX's public liquidation-orders endpoint. Unsupported venues are explicitly reported, not synthesized.
 
-Supported venues: Binance, Bybit, OKX and Bitget. Spot and derivative product routing is controlled through the `marketType` argument (`spot`, `usdt-m`, `coin-m`, `usdc-m`). Product availability differs by exchange and instrument.
+Supported venues: Binance, Bybit, OKX and Bitget. Spot and derivative product routing is controlled through the `marketType` argument (`spot`, `margin`, `usdt-m`, `coin-m`, `usdc-m`). Margin uses the venue's spot public order-book and trade endpoints; margin-specific borrowing/loan metrics are not included.. Product availability differs by exchange and instrument.
 
 ## API
 
