@@ -18,7 +18,7 @@ The gate checks historical sample size, net profit factor, expectancy, drawdown,
 Set `JPTI_VALIDATION_URL` to the deployed Pages origin and `JPTI_API_TOKEN` to the existing private API token. Production Pages uses its direct Worker service binding for full WebSocket-history replay; an optional `JPTI_MARKET_STREAM_URL` can be set for preview environments.
 
 ```sh
-npm run validate:strategy -- --strategy-id atlas-trend --exchange bitget --market-type usdt-m --symbol BTC/USDT --timeframe 1m
+npm run validate:strategy -- --strategy-id trend --exchange bitget --market-type usdt-m --symbol BTC/USDT --timeframe 1m
 npm run validate:strategy -- --strategy-id atlas-trend --exchange bitget --market-type usdt-m --symbol BTC/USDT --timeframe 1m --submit
 ```
 
