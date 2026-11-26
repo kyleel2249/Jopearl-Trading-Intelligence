@@ -162,7 +162,7 @@ export async function runCycle(db,symbol,options={},env={}){
  let fleetSafety={available:false,killSwitch:false,circuitBreaker:false,status:'UNKNOWN',reasons:[]};
  try{
   const stored=await db.prepare("SELECT status,kill_switch,circuit_breaker,manual_resume_required,reasons_json FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
-  if(stored){fleetSafety={available:true,killSwitch:Number(stored.kill_switch)===1,circuitBreaker:Number(stored.circuit_breaker)===1||stored.status==='TRIPPED',manualResumeRequired:Number(stored.manual_resume_required)===1,status:stored.status,reasons:parse(stored.reasons_json,[])};}
+  if(stored){fleetSafety={available:true,killSwitch:Number(stored.kill_switch)===1,circuitBreaker:Number(stored.circuit_breaker)===1||stored.status==='TRIPPED',manualResumeRequired:Number(stored.manual_resume_required)===1,status:stored.status,reasons:parseJson(stored.reasons_json,[])};}
  }catch{/* Migration 0018 is applied by the production deployment workflow; legacy local DBs retain existing guards. */}
  report.fleetSafety=fleetSafety;
  report.agentSafety=[];
