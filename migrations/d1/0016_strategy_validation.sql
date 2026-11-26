@@ -6,7 +6,7 @@ CREATE TABLE IF NOT EXISTS jpti_strategy_validation_runs (
  exchange TEXT NOT NULL,
  market_type TEXT NOT NULL,
  timeframe TEXT NOT NULL,
- status TEXT NOT NULL CHECK(status IN ('LIVE_READY','RESEARCH_ONLY','INSUFFICIENT_DATA','ERROR')),
+ status TEXT NOT NULL CHECK(status IN ('LIVE_READY','RESEARCH_ONLY','SUSPENDED','INSUFFICIENT_DATA','ERROR')),
  candle_count INTEGER NOT NULL DEFAULT 0,
  backtest_json TEXT NOT NULL CHECK(json_valid(backtest_json)),
  heldout_json TEXT NOT NULL CHECK(json_valid(heldout_json)),
