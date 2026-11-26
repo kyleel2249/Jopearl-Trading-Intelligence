@@ -26,7 +26,7 @@ async function mapLimit(items,limit,worker){
  return out;
 }
 function supports(exchange,kind,marketType){
- if((kind==='funding'||kind==='open_interest')&&marketType==='spot')return false;
+ if((kind==='funding'||kind==='open_interest')&&(marketType==='spot'||marketType==='margin'))return false;
  if(kind==='liquidation')return exchange==='okx';
  return true;
 }
