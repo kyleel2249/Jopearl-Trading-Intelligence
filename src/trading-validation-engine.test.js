@@ -40,3 +40,13 @@ test('live mode remains prohibited even with complete qualification evidence',()
   allowed:false,mode:'blocked',reason:'Autonomous live execution is disabled by policy.',liveOrders:false
  });
 });
+
+test('historical validation can authorize only a forward paper trial before forward evidence exists',()=>{
+ const evidence=structuredClone(complete);
+ delete evidence.forward;
+ const result=evaluateTradingValidation(evidence);
+ assert.equal(result.status,'forward_paper_trial_required');
+ assert.equal(result.paperTrialEligible,true);
+ assert.equal(agentExecutionGate(result,{requestedMode:'paper'}).allowed,true);
+ assert.equal(agentExecutionGate(result,{requestedMode:'live'}).allowed,false);
+});
