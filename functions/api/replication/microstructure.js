@@ -78,7 +78,7 @@ export function createMicrostructureReplicationHandler({fetchImpl=fetch,now=()=>
   const parsed=await readBody(request);if(parsed.error)return json(parsed.status,{error:parsed.error});
   let plan;try{plan=normalizeMicrostructurePlan(parsed.value);}catch(error){return json(error.status||400,{error:error.message});}
   const tasks=[];
-  for(const exchange of plan.exchanges)for(const symbol of plan.symbols)for(const kind of plan.kinds)tasks.push({exchange,symbol,kind});
+  for(const symbol of plan.symbols)for(const kind of plan.kinds)for(const exchange of plan.exchanges)tasks.push({exchange,symbol,kind});
   const selected=tasks.slice(0,plan.maxRequests),omitted=tasks.length-selected.length;
   const startedAt=now().toISOString(),runId=crypto.randomUUID(),observations=[],results=[];
   await env.JPTI_DB.prepare("INSERT INTO jpti_microstructure_runs(run_id,status,started_at,plan_json,summary_json) VALUES(?,'running',?,?,?)").bind(runId,startedAt,JSON.stringify({...plan,selectedRequests:selected.length,omittedRequests:omitted}),JSON.stringify({})).run();
