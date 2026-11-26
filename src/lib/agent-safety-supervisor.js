@@ -24,7 +24,7 @@ export function scoreAgentHealth(input={},policy=AGENT_SAFETY_POLICY){
   return {score:Math.round(clamp(score)),heartbeatStatus:heartbeat,latencyMs:latency,errorRate,dataFresh:input.dataFresh===true,healthBand:score>=85?'healthy':score>=70?'watch':'degraded'};
 }
 
-const CRITICAL_ANOMALIES=new Set(['unauthorised-order','unauthorized-order','policy-bypass','risk-override-attempt','credential-compromise','secret-access-attempt','ledger-tamper-attempt','duplicate-order-flood','prompt-injection']);
+const CRITICAL_ANOMALIES=new Set(['unauthorised-access','unauthorized-access','unauthorised-order','unauthorized-order','policy-bypass','risk-override-attempt','risk-policy-override','credential-compromise','secret-access-attempt','secret-read-attempt','unauthorized-secret-access','exchange-write-attempt','withdrawal-attempt','ledger-tamper-attempt','duplicate-order-flood','prompt-injection']);
 export function detectAgentAnomalies(events=[]){
   return (Array.isArray(events)?events:[]).filter(event=>event&&typeof event==='object').map(event=>{
     const type=String(event.type||event.eventType||'').trim().toLowerCase();
