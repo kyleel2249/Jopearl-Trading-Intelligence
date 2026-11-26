@@ -572,7 +572,7 @@ function App() {
     if (page === 'Elite Trader Replication') return <EliteTraderReplication/>;
     if (page === 'Multi-Exchange Elite Replication') return <MultiExchangeEliteReplication/>;
     if (page === 'Agent Desk Live') return <AgentDeskLive/>;
-    if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
+    if (page === 'Autonomous Departments') return <AutonomousDepartments onOpenSettings={() => activeNav('Connection Settings')}/>;
     if (page === 'Agent Governance & Approval Centre') return <AgentGovernance/>;
     if (['Shared Intelligence Memory','Agent Organisation','Strategy Research Laboratory','Independent Risk Command Centre','Trade Intelligence Records'].includes(page)) return <IntelligenceFoundation page={page} symbol={symbol}/>;
     if (page === 'Trading Bots') return <PaperTradingCommandCenter/>;
