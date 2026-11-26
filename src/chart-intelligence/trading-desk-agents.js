@@ -12,15 +12,15 @@ const alignment = (direction, value) => direction && sign(direction) === sign(va
 const PROFILES = {
   scalp: {
     id: 'scalp', label: 'Scalping desk', preferredTimeframes: ['1m','3m','5m','15m'],
-    minRR: 1.25, minConfidence: 58, minConfluence: 0.30, maxVolatileRisk: 0.45,
-    maxSpreadAtr: 0.12, maxRiskPercent: 0.25, maxDailyLossPercent: 1.5,
+    minRR: 1.25, minConfidence: 58, minConfluence: 0.30, maxTransitionRisk: 0.62,
+    maxRiskPercent: 0.25, maxDailyLossPercent: 1.5,
     maxHoldBars: 12, requireSweepOrFvg: true, requireMtf: false,
     description: 'Short-horizon liquidity, displacement and execution-cost discipline.'
   },
   day: {
     id: 'day', label: 'Day-trading desk', preferredTimeframes: ['5m','15m','30m','1h'],
-    minRR: 1.6, minConfidence: 62, minConfluence: 0.36, maxVolatileRisk: 0.38,
-    maxSpreadAtr: 0.18, maxRiskPercent: 0.25, maxDailyLossPercent: 1.5,
+    minRR: 1.6, minConfidence: 62, minConfluence: 0.36, maxTransitionRisk: 0.55,
+    maxRiskPercent: 0.25, maxDailyLossPercent: 1.5,
     maxHoldBars: 48, requireSweepOrFvg: false, requireMtf: true,
     description: 'Session-aware directional trades with higher-timeframe confirmation.'
   }
@@ -48,6 +48,8 @@ function evaluateProfile(profile, input) {
   const confidence = Number(input.confidence);
   const regimeAligned = regime.state === 'trending-up' ? direction > 0 : regime.state === 'trending-down' ? direction < 0 : regime.state === 'ranging' ? true : false;
   const regimeConfidence = clamp(Number(regime.confidence) * 100, 0, 100);
+  const transitionRisk = Number(regime.transitionRisk);
+  const costsKnown = has(input.executionCosts?.spreadPct) && has(input.executionCosts?.slippagePct);
   const flowAlignment = flowReady ? alignment(direction, flow.summary.pressure) : null;
   const mtfScore = alignedMtf == null ? null : alignedMtf * 100;
   const fvgScore = linkedSetup ? clamp(linkedSetup.score) : (sweep ? 62 : null);
@@ -59,7 +61,7 @@ function evaluateProfile(profile, input) {
     specialist('regime','Market regime','Regime suitability and transition risk', regimeAligned ? regimeConfidence : regime.state === 'ranging' ? 55 : 30, 1.0, 'Current regime: ' + (regime.state || 'unknown') + '; confidence ' + regimeConfidence.toFixed(0) + '%.', Boolean(regime.state && regime.state !== 'unknown')),
     specialist('mtf','Multi-timeframe alignment','Fresh higher-timeframe directional agreement', mtfScore ?? 50, profile.requireMtf ? 1.2 : 0.7, freshMtf.length ? Math.round(alignedMtf * 100) + '% of fresh higher timeframes align.' : 'No fresh higher-timeframe readings.', freshMtf.length > 0),
     specialist('orderflow','Order-flow pressure','Measured or estimated flow alignment', flowAlignment == null ? 50 : flowAlignment * 100, 0.85, flowReady ? 'Order-flow pressure ' + Number(flow.summary.pressure).toFixed(3) + '.' : 'Order-flow feed unavailable or stale.', flowReady),
-    specialist('execution','Execution quality','Reward/risk, plan completeness and fee/slippage awareness', has(rr) ? (rr >= profile.minRR ? 85 : clamp(rr / profile.minRR * 60)) : 0, 1.0, has(rr) ? 'First target reward/risk ' + Number(rr).toFixed(2) + 'R.' : 'A complete risk plan and first target are required.', has(rr) && has(plan?.entry) && has(plan?.stopLoss)),
+    specialist('execution','Execution quality','Reward/risk, fee/slippage and plan completeness', has(rr) ? (rr >= profile.minRR ? (costsKnown ? 95 : 65) : clamp(rr / profile.minRR * 55)) : 0, 1.0, (has(rr) ? 'First target reward/risk ' + Number(rr).toFixed(2) + 'R.' : 'First target reward/risk unavailable.') + (costsKnown ? ' Spread and slippage assumptions are configured.' : ' Spread/slippage assumptions are missing.'), has(rr) && has(plan?.entry) && has(plan?.stopLoss)),
     specialist('capital','Independent capital protection','Hard risk veto, conflict veto and evidence integrity', 100, 1.5, 'Independent guard checks signal, plan, regime and conflict gates.', true)
   ];
   const weighted = agents.filter(agent => agent.score != null).reduce((sum, agent) => sum + agent.score * agent.weight, 0);
@@ -70,9 +72,12 @@ function evaluateProfile(profile, input) {
   if (!plan) blockers.push('No canonical risk plan is available.');
   if (Number(input.conflictSeverity) >= 3) blockers.push('Severe cross-domain conflict veto.');
   if (!has(rr) || rr < profile.minRR) blockers.push('First-target reward/risk is below the ' + profile.minRR.toFixed(2) + 'R desk minimum.');
+  if (!profile.preferredTimeframes.includes(input.timeframe)) blockers.push('Timeframe is outside this desk profile’s supported execution horizon.');
+  if (!costsKnown) blockers.push('Spread and slippage assumptions are missing; net reward/risk cannot be assessed.');
   if (!Number.isFinite(confidence) || confidence < profile.minConfidence) blockers.push('Signal confidence is below the desk minimum of ' + profile.minConfidence + '%.');
   if (!Number.isFinite(confluence) || confluence < profile.minConfluence) blockers.push('Confluence is below the desk minimum of ' + profile.minConfluence.toFixed(2) + '.');
   if (regime.state === 'volatile' && regimeConfidence < 70) blockers.push('Volatile regime lacks the desk confirmation threshold.');
+  if (Number.isFinite(transitionRisk) && transitionRisk > profile.maxTransitionRisk) blockers.push('Market-regime transition risk exceeds the desk tolerance.');
   if (profile.requireSweepOrFvg && !sweep && !linkedSetup) blockers.push('Scalping requires a confirmed aligned liquidity sweep or linked FVG setup.');
   if (profile.requireMtf && alignedMtf != null && alignedMtf < 0.6) blockers.push('Fewer than 60% of fresh higher timeframes agree with the trade.');
   if (profile.requireMtf && alignedMtf == null) blockers.push('Day-trading desk requires fresh higher-timeframe evidence.');
@@ -81,6 +86,7 @@ function evaluateProfile(profile, input) {
 
   const riskPolicy = {
     maxRiskPercent: profile.maxRiskPercent,
+    maxTransitionRisk: profile.maxTransitionRisk,
     maxDailyLossPercent: profile.maxDailyLossPercent,
     maxConcurrentPositionsPerSymbol: 1,
     maxCorrelatedPositions: 2,
