@@ -43,7 +43,7 @@ Migration `0015_microstructure_replication.sql` creates:
 - `jpti_microstructure_observations` — idempotently keyed order-book, trade, funding, open-interest and liquidation observations.
 - `jpti_microstructure_runs` — status, duration, requested plan and coverage/analytics summary.
 
-Each record stores exchange, product category, symbol, event identifier, source observation time, edge receipt time, normalized payload and quality metadata. Duplicate event identifiers are ignored. The original `jpti_market_observations` ticker/OHLCV history is not changed.
+Each record stores exchange, product category, symbol, event identifier, source observation time (or receipt-time fallback), edge receipt time, normalized payload and quality metadata. Quality metadata distinguishes exchange-supplied timestamps from receipt-time fallbacks. Duplicate event identifiers are ignored. The original `jpti_market_observations` ticker/OHLCV history is not changed.
 
 ## Derived intelligence
 
@@ -54,7 +54,7 @@ The acquisition response includes derived analytics for the current cycle:
 - Aggressor buy/sell notional and net flow.
 - Mean funding rate for the returned samples.
 - Latest open-interest values.
-- Long/short liquidation notional where liquidation records are available.
+- Buy-side/sell-side liquidation notional where liquidation records are available; position direction is not inferred from order side.
 
 These are descriptive data features, not directional trade signals. A single REST snapshot cannot reconstruct a full order-book event sequence or guarantee an accurate cumulative delta book. A WebSocket sequence-aware collector is required for that.
 
