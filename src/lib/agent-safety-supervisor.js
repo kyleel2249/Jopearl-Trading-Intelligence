@@ -61,10 +61,10 @@ export function evaluateAgentSafety(input={},policy={}){
   const quarantine=critical||health.score<40||input.quarantineRequested===true||input.quarantined===true;
   return {
     allowed:reasons.length===0,decision:reasons.length?'BLOCK':'PAPER_ELIGIBLE',
-    status:quarantine?'QUARANTINED':reasons.length?'BLOCKED':'HEALTHY',
+    status:quarantine?'QUARANTINED':input.strategySuspended===true?'SUSPENDED':reasons.length?'BLOCKED':'HEALTHY',
     health,trustScore:trust,reasons,anomalies:events,quarantine,
     permissions:{research:true,paper:reasons.length===0,live:false,withdrawals:false,credentialRead:false},
-    liveExecutionAuthorized:false,policyVersion:p.version,evaluatedAt:new Date().toISOString()
+    liveExecutionAuthorized:false,exitsRemainEnabled:true,policyVersion:p.version,evaluatedAt:new Date().toISOString()
   };
 }
 
