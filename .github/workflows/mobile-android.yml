@@ -1,10 +1,10 @@
 name: Android debug APK build
 
 on:
+  # The primary cross-platform workflow builds Android on pushes and pull requests.
+  # Keep this dedicated debug/release package workflow available for manual runs,
+  # avoiding duplicate concurrent Gradle downloads and Maven Central rate limiting.
   workflow_dispatch:
-  push:
-    branches: [main]
-  pull_request:
 
 permissions:
   contents: write
@@ -29,6 +29,8 @@ jobs:
         with:
           distribution: temurin
           java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
 
       - uses: android-actions/setup-android@v3
         with:
@@ -57,8 +59,15 @@ jobs:
       - name: Build Android debug and release variants
         working-directory: android
         run: |
+          set -euo pipefail
           chmod +x gradlew
-          ./gradlew --no-daemon assembleDebug assembleRelease
+          for attempt in 1 2 3 4; do
+            if ./gradlew --no-daemon --stacktrace assembleDebug assembleRelease; then exit 0; fi
+            if [ "$attempt" -eq 4 ]; then exit 1; fi
+            delay=$((attempt * 30))
+            echo "Gradle dependency/build attempt $attempt failed; retrying in ${delay}s."
+            sleep "$delay"
+          done
 
       - name: Verify Android APK outputs
         run: |
