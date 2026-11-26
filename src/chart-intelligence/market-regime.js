@@ -43,7 +43,7 @@ export function analyzeMarketRegime(input,{atrSeries=null,higherTimeframes=[],no
  const history=[];
  for(let end=Math.max(60,n-12);end<=n;end++){
   const z=rows.slice(0,end),cc=z.map(x=>x[4]),trz=trueRanges(z),az=mean(trz.slice(-14)),ez=p=>{const q=cc.slice(-p-1);let path=0;for(let j=1;j<q.length;j++)path+=Math.abs(q[j]-q[j-1]);return path?Math.abs(q.at(-1)-q[0])/path:0;},e20z=ema(cc,20),e50z=ema(cc,50),e100z=ema(cc,100),sz=az?slope(cc.slice(-30))*29/az:0,stackz=((cc.at(-1)>e20z.at(-1)?1:-1)+(e20z.at(-1)>e50z.at(-1)?1:-1)+(e50z.at(-1)>e100z.at(-1)?1:-1))/3,rrz=cc.slice(1).map((x,j)=>Math.log(x/cc[j])).filter(Number.isFinite),vrz=median(z.slice(-21,-1).map(x=>x[5]).filter(v=>v>0)),volz=vrz?z.at(-1)[5]/vrz:1,ra=az?mean(z.slice(-20).map(x=>x[2]-x[3]))/az:1,bz=typical.slice(0,end),bwz=bz.length>=20?4*std(bz.slice(-20))/Math.abs(mean(bz.slice(-20))||1):0,bhist=[];for(let k=Math.max(20,end-100);k<=end;k++){const w=bz.slice(k-20,k);if(w.length===20)bhist.push(4*std(w)/(Math.abs(mean(w))||1));}
-  const mz={er20:ez(20),adx:adx(z),slopeAtr:sz,slopeAbs:Math.abs(sz),emaStack:stackz,persistence:metrics.persistence,chop:chop(z),atrRank:pct(atrRecent,az),volRatio:volz,rangeAtr:ra,realizedRatio:std(rrz.slice(-20))/(std(rrz.slice(-100))||1),bbRank:pct(bhist,bwz)};
+  const mz={er20:ez(20),adx:adx(z),slopeAtr:sz,slopeAbs:Math.abs(sz),emaStack:stackz,persistence:mean(cc.slice(-21).slice(1).map((x,j)=>Math.sign(x-cc[cc.length-21+j])===Math.sign(cc.at(-1)-cc[cc.length-21])?1:0)),chop:chop(z),atrRank:pct(trz.slice(-100),az),volRatio:volz,rangeAtr:ra,realizedRatio:std(rrz.slice(-20))/(std(rrz.slice(-100))||1),bbRank:pct(bhist,bwz)};
   history.push(classify(mz).state);
  }
  let age=1;for(let i=history.length-2;i>=0&&history[i]===result.state;i--)age++;
