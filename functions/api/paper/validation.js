@@ -12,6 +12,8 @@ const TIMEFRAME_MS={'1m':60000,'3m':180000,'5m':300000,'15m':900000,'30m':180000
 function candle(row){const p=safeJson(row.payload,{});if(Array.isArray(p))return p.map(Number);const t=Date.parse(row.observed_at)||n(p.timestamp||p.ts);return[t,n(p.open??p.o),n(p.high??p.h),n(p.low??p.l),n(p.close??p.c),n(p.volume??p.v)];}
 function mapTrade(row){const p=safeJson(row.payload,{});return{...p,status:row.status,openedAt:row.opened_at,closedAt:row.closed_at,netPnlUsd:n(row.net_pnl_usd),rMultiple:n(row.r_multiple),riskBreach:p.riskBreach===true};}
 async function loadCandles(db,query){const rows=await db.prepare("SELECT observed_at,payload,quality FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol=? AND observation_kind='ohlcv' AND timeframe=? ORDER BY observed_at ASC LIMIT 12000").bind(query.exchange,query.marketType,query.symbol,query.timeframe).all();return(rows.results||[]).map(candle).filter(r=>r.length>=6&&r.every(Number.isFinite));}
+async function loadTimeframes(db,query){const labels=['5m','15m','1h'];const entries=await Promise.all(labels.map(async timeframe=>{const rows=await db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol=? AND observation_kind='ohlcv' AND timeframe=? ORDER BY observed_at ASC LIMIT 12000").bind(query.exchange,query.marketType,query.symbol,timeframe).all().catch(()=>({results:[]}));return[timeframe,(rows.results||[]).map(candle).filter(r=>r.length>=6&&r.every(Number.isFinite))];}));return Object.fromEntries(entries);}
+function createTimeframesAt(series){return timestamp=>Object.fromEntries(Object.entries(series).map(([label,rows])=>[label,rows.filter(row=>row[0]<=timestamp).slice(-100)]));}
 async function loadForward(db,strategyId){const rows=await db.prepare("SELECT t.* FROM jpti_paper_trades t JOIN jpti_paper_agents a ON a.agent_id=t.agent_id WHERE t.status='closed' AND (a.agent_id=? OR json_extract(a.payload,'$.strategyId')=?) ORDER BY t.closed_at ASC LIMIT 12000").bind(strategyId,strategyId).all();const trades=(rows.results||[]).map(mapTrade);const metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);return{...metrics,closedTrades:metrics.closedTrades,riskBreaches:metrics.riskBreaches,observationDays:metrics.observationDays};}
 async function loadHistoricalMarketEvents(db,query,from,to,env={}){
  const [stream,micro]=await Promise.all([
@@ -31,7 +33,7 @@ function createMarketDataAt(events,windowMs){
   const floor=timestamp-windowMs;while(active.length&&active[0].ts<floor)active.shift();
   const books=new Map();let buyNotional=0,sellNotional=0;const funding=new Map(),oi=new Map();
   for(const event of active){const p=event.payload||{};
-   if(event.kind==='orderbook'){const value=Number(p.reconstructed?.notionalImbalance??p.notionalImbalance);if(Number.isFinite(value))books.set(event.exchange,value);}
+   if(event.kind==='orderbook'){const value=Number(p.reconstructed?.notionalImbalance??p.notionalImbalance),bid=Number(p.reconstructed?.bestBid??p.bestBid),ask=Number(p.reconstructed?.bestAsk??p.bestAsk);if(Number.isFinite(value))books.set(event.exchange,{imbalance:value,bid,ask});}
    if(event.kind==='trade'){const value=Number(p.quoteNotional??(Number(p.price)*Number(p.quantity)));if(value>0&&p.side==='buy')buyNotional+=value;else if(value>0&&p.side==='sell')sellNotional+=value;}
    if(event.kind==='funding'&&Number.isFinite(Number(p.rate)))funding.set(event.exchange,Number(p.rate));
    if(event.kind==='open_interest'&&Number.isFinite(Number(p.openInterest)))oi.set(event.exchange,Number(p.openInterest));
@@ -58,7 +60,7 @@ export async function onRequest({request,env}){
   if(candles.length<60)return json(409,{error:'Insufficient persisted OHLCV history for a defensible replay.',availableCandles:candles.length,requiredCandles:60,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const from=new Date(candles[0][0]).toISOString(),to=new Date(candles.at(-1)[0]).toISOString();
   const marketEvents=await loadHistoricalMarketEvents(env.JPTI_DB,query,from,to,env),marketDataAt=createMarketDataAt(marketEvents,TIMEFRAME_MS[query.timeframe]);
-  const replay=replayStrategy({candles,strategyId:query.strategyId,startingEquity:10000,riskPerTradePct:.25,feeRate:.0006,slippageBps:5,spreadBps:3,maxDrawdownPct:10,monteCarloIterations:1000,marketDataAt});
+  const replay=replayStrategy({candles,strategyId:query.strategyId,startingEquity:10000,riskPerTradePct:.25,feeRate:.0006,slippageBps:5,spreadBps:3,maxDrawdownPct:10,monteCarloIterations:1000,marketDataAt,timeframesAt});
   if(replay.status!=='completed')return json(409,{error:'Historical replay could not complete.',replay,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const forward=await loadForward(env.JPTI_DB,query.strategyId);
   const decayRatio=replay.backtest.expectancyR>0?forward.expectancyR/replay.backtest.expectancyR:null;
