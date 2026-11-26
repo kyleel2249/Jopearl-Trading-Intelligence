@@ -168,7 +168,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
         if (!plan.includeCandles) return;
         await mapLimit(plan.timeframes, 2, async timeframe => {
           counts.attempted++;
-          const candlePath = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) + '?type=' + encodeURIComponent(marketType) + '&timeframe=' + encodeURIComponent(timeframe) + '&limit=' + plan.candleLimit;
+          const candlePath = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) + '?type=' + encodeURIComponent(marketType) + '&timeframe=' + encodeURIComponent(timeframe) + '&limit=' + plan.candleLimit + (exchange === 'bitget' && market.id ? '&instrumentId=' + encodeURIComponent(market.id) : '');
           const candleResult = await safeProviderRequest(provider, candlePath);
           if (candleResult?.status !== 200) {
             errors.push({ exchange, marketType, symbol, timeframe, stage: 'ohlcv', error: candleResult?.body?.error || 'OHLCV unavailable.' });
