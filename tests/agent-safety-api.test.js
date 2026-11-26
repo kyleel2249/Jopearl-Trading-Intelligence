@@ -137,7 +137,7 @@ test('paper safety API persists operator kill-switch and requires explicit resum
   const db=d1(),env={JPTI_DB:db,JPTI_JOURNAL_TOKEN:TOKEN};
   const callPaper=(method,path,body)=>paperRequest({env,request:req(method,'/api/paper/'+path,body),params:{path}});
   let response=await callPaper('GET','safety');
-  assert.equal(response.status,200);
+  assert.equal(response.status,200,await response.clone().text());
   let state=await response.json();
   assert.equal(state.available,true);
   assert.equal(state.global.killSwitch,false);
