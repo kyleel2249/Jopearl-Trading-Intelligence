@@ -60,6 +60,12 @@ const VALUE_RULES = [
   { re: /time stop (\d+) min/i, set: (m) => [['executor.timeStopMin', num(m[1])]] },
   { re: /already \+(\d+)% in the last hour/i, set: (m) => [['rules.noChaseGainPct', num(m[1])]] },
   { re: /drawdown limit -(\d+(?:\.\d+)?)%/i, set: (m) => [['rules.drawdownLimitPct', num(m[1])]] },
+  { re: /no-chase pullback threshold (\d+(?:\.\d+)?)%/i, set: (m) => [['rules.noChasePullbackPct', num(m[1])]] },
+  { re: /pause new entries for (\d+) min/i, set: (m) => [['rules.pauseMin', num(m[1])]] },
+  { re: /re-entry cooldown (\d+) min/i, set: (m) => [['rules.reentryCooldownMin', num(m[1])]] },
+  { re: /session loss limit -(\d+(?:\.\d+)?)%/i, set: (m) => [['rules.sessionLossLimitPct', num(m[1])]] },
+  { re: /stop after (\w+) consecutive losses/i, set: (m) => [['rules.lossStreakLimit', num(m[1])]] },
+  { re: /maximum drawdown triggers (\d+)/i, set: (m) => [['rules.maxDrawdownTriggers', num(m[1])]] },
 ];
 
 // Boolean switches: present in the prompt = on, removed from the prompt = off.
