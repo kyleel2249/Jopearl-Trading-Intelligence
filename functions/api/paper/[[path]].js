@@ -3,6 +3,7 @@ import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartial
 import { verifyPrivateToken } from '../../private-auth.js';
 import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';
 import { loadPromotionEvidence } from '../../../src/strategy-validation-engine.js';
+import { evaluateAgentSafety } from '../../../src/lib/agent-safety-supervisor.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -151,6 +152,13 @@ export async function runCycle(db,symbol,options={},env={}){
  let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
  try{const row=await db.prepare("SELECT policy_json FROM jpti_risk_policies WHERE policy_id='default'").first();if(row?.policy_json)independentPolicy={...independentPolicy,...JSON.parse(row.policy_json)};}catch{/* The existing paper gates remain active until migration 0010 is applied. */}
  report.riskVetoes=[];
+ let fleetSafety={available:false,killSwitch:false,circuitBreaker:false,status:'UNKNOWN',reasons:[]};
+ try{
+  const stored=await db.prepare("SELECT status,kill_switch,circuit_breaker,manual_resume_required,reasons_json FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+  if(stored){fleetSafety={available:true,killSwitch:Number(stored.kill_switch)===1,circuitBreaker:Number(stored.circuit_breaker)===1||stored.status==='TRIPPED',manualResumeRequired:Number(stored.manual_resume_required)===1,status:stored.status,reasons:parse(stored.reasons_json,[])};}
+ }catch{/* Migration 0018 is applied by the production deployment workflow; legacy local DBs retain existing guards. */}
+ report.fleetSafety=fleetSafety;
+ report.agentSafety=[];
  for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
  for(const agent of await loadAgents(db)){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
@@ -220,6 +228,26 @@ export async function runCycle(db,symbol,options={},env={}){
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   const validationEvidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
   const decayDetected=validationEvidence.verdict?.decayDetected===true;
+  const storedSafety=await db.prepare('SELECT status,quarantined_until FROM jpti_agent_safety_state WHERE agent_id=?').bind(agent.id).first().catch(()=>null);
+  const quarantined=storedSafety?.status==='QUARANTINED'&&(!storedSafety.quarantined_until||Date.parse(storedSafety.quarantined_until)>Date.now());
+  const dailyLossPct=Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100;
+  const safetyDecision=evaluateAgentSafety({
+   agentStatus:agent.status,heartbeatStatus:agent.status==='active'||agent.status==='live_ready'?'healthy':agent.status,
+   healthScore:100,trustScore:Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)),
+   dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),
+   dailyLossPct,drawdownPct:metrics.maxDrawdownPct,consecutiveLosses:metrics.maxConsecutiveLosses,
+   killSwitch:fleetSafety.killSwitch||independentPolicy.killSwitch===true,
+   circuitBreaker:fleetSafety.circuitBreaker||independentPolicy.circuitBreaker===true,
+   quarantined,sessionAllowed:tradingWindow.eligible,
+   strategySuspended:agent.tier==='SUSPENDED'||validationEvidence.verdict?.status==='SUSPENDED',
+   riskViolations:metrics.riskBreaches
+  });
+  report.agentSafety.push({agentId:agent.id,...safetyDecision});
+  try{
+   const evaluatedAt=iso(),quarantinedUntil=safetyDecision.quarantine?new Date(Date.now()+24*60*60*1000).toISOString():null;
+   await db.prepare("INSERT INTO jpti_agent_safety_state(agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status,health_score=excluded.health_score,trust_score=excluded.trust_score,reasons_json=excluded.reasons_json,quarantined_until=excluded.quarantined_until,last_evaluated_at=excluded.last_evaluated_at,updated_at=excluded.updated_at")
+    .bind(agent.id,safetyDecision.status,safetyDecision.health.score,safetyDecision.trustScore,JSON.stringify(safetyDecision.reasons),quarantinedUntil,evaluatedAt,evaluatedAt).run();
+  }catch{/* The supervisor remains active in-process when a local DB has not applied migration 0018. */}
   const capitalHaltReasons=[];let capitalRiskMultiplier=1;
   if(metrics.riskBreaches>0)capitalHaltReasons.push('risk breach recorded');
   if(metrics.maxConsecutiveLosses>=5)capitalHaltReasons.push('five-loss streak halt');
@@ -229,7 +257,7 @@ export async function runCycle(db,symbol,options={},env={}){
   if(decayDetected)capitalHaltReasons.push('forward performance decay detected');
   const sessionName=tradingWindow.activeSessions.join(' + ')||'OUTSIDE_SESSION';
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&tradingWindow.eligible&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&capitalHaltReasons.length===0&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&safetyDecision.allowed&&tradingWindow.eligible&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&capitalHaltReasons.length===0&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
    const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct*capitalRiskMultiplier,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
    const targetRiskUsd=sizing.riskAmount;
@@ -259,7 +287,7 @@ export async function runCycle(db,symbol,options={},env={}){
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
     }
-  }else if(signal.action==='SIGNAL')reason=capitalHaltReasons.length?'Capital protection halt: '+capitalHaltReasons.join('; '):'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
+  }else if(signal.action==='SIGNAL')reason=!safetyDecision.allowed?'Agent safety supervisor veto: '+safetyDecision.reasons.map(x=>x.code).join(', '):capitalHaltReasons.length?'Capital protection halt: '+capitalHaltReasons.join('; '):'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
