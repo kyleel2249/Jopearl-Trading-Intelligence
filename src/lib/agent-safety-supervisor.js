@@ -55,7 +55,7 @@ export function evaluateAgentSafety(input={},policy={}){
   if(input.strategySuspended===true)add('STRATEGY_SUSPENDED','Strategy is suspended pending fresh validation.');
   if(input.duplicateIntent===true)add('DUPLICATE_INTENT','A duplicate entry intent already exists.');
   if(input.oppositeIntentCollision===true)add('OPPOSITE_INTENT_COLLISION','Agents disagree on direction for the same instrument; entry is vetoed.');
-  if(input.bookValid===false)add('ORDER_BOOK_INVALID','Order book is invalid after a sequence gap or recovery.');
+  if(input.bookValid!==true)add('ORDER_BOOK_INVALID','Order book is invalid after a sequence gap or recovery.');
   for(const event of events){if(event.severity==='critical')add('CRITICAL_AGENT_ANOMALY',event.type+': '+event.summary);else if(event.severity==='high')add('HIGH_AGENT_ANOMALY',event.type+': '+event.summary);}
   const critical=events.some(event=>event.severity==='critical');
   const quarantine=critical||health.score<40||input.quarantineRequested===true||input.quarantined===true;
