@@ -16,6 +16,3 @@ class_name = "MarketStreamHub"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["MarketStreamHub"]
-
-[triggers]
-crons = ["*/1 * * * *"]
