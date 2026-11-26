@@ -162,4 +162,10 @@ test('paper safety API persists operator kill-switch and requires explicit resum
   state=await response.json();
   assert.equal(state.global.status,'CLOSED');
   assert.equal(state.global.circuitBreaker,false);
+  response=await callPaper('GET','overview');
+  assert.equal(response.status,200,await response.clone().text());
+  const overview=await response.json();
+  assert.equal(overview.safety.available,true);
+  assert.equal(overview.safety.global.status,'CLOSED');
+  assert.equal(overview.liveExecutionAuthorized,false);
 });
