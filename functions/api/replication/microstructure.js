@@ -11,7 +11,7 @@ async function readBody(request){const raw=await request.text();if(new TextEncod
 async function fetchJson(url,fetchImpl,timeoutMs=9000){
  const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeoutMs);
  try{
-  const response=await fetchImpl(url,{method:'GET',headers:{accept:'application/json','user-agent':'JPTI-Market-Data/1.0'},cache:'no-store',signal:controller.signal});
+  const response=await fetchImpl(url,{method:'GET',headers:{accept:'application/json'},cache:'no-store',signal:controller.signal});
   const payload=await response.json().catch(()=>null);
   if(!response.ok)throw new Error('Exchange HTTP '+response.status+' '+String(payload?.msg||payload?.message||'').slice(0,100));
   if(payload?.retCode!==undefined&&Number(payload.retCode)!==0)throw new Error(String(payload.retMsg||'Exchange rejected request').slice(0,160));
