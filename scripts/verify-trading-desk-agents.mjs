@@ -4,13 +4,14 @@ import { evaluateTradingDeskAgents } from '../src/chart-intelligence/trading-des
 const base = {
   now: 1795700000000, symbol: 'BTC/USDT', timeframe: '5m', signal: 'BUY',
   active: { signal: 'BUY', confidence: 82 },
-  plan: { entry: 100, stopLoss: 98, targets: [{ name: 'TP1', price: 103, rr: 1.5 }] },
+  plan: { entry: 100, stopLoss: 98, targets: [{ name: 'TP1', price: 104, rr: 2.0 }] },
   grade: { points: 82 }, confluence: { score: 0.62 }, conflictSeverity: 0,
   regime: { state: 'trending-up', confidence: 0.82 },
   mtf: [{ timeframe: '15m', status: 'fresh', bias: 0.8 }, { timeframe: '1h', status: 'fresh', bias: 0.7 }],
   smc: { status: 'ready', trend: 1, items: [{ kind: 'LIQUIDITY_SWEEP', direction: 'bullish' }] },
   fvgLiquidity: { setups: [{ id: 's1', direction: 'bullish', state: 'active', score: 86 }] },
-  flow: { status: 'ready', summary: { pressure: 0.7 } }
+  flow: { status: 'ready', summary: { pressure: 0.7 } },
+  executionCosts: { spreadPct: 0.0004, slippagePct: 0.0005 }
 };
 const ready = evaluateTradingDeskAgents(base);
 assert.equal(ready.profiles.length, 2);
