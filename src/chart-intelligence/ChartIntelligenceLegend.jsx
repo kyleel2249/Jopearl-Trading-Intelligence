@@ -1,8 +1,8 @@
 import React, { useState } from 'react';
 import './ChartIntelligence.css';
 
-const NAMES = { signals: 'Signals', plan: 'Entry/TP/SL', liquidation: 'Liquidation', profile: 'POC/VA', vwap: 'VWAP', sr: 'S/R', orderflow: 'Order flow', structure: 'BOS/CHoCH', orderBlocks: 'Order blocks', fvg: 'FVG', liquidity: 'Liquidity', sweeps: 'Sweeps', smc: 'Prem/Disc' };
-const SWATCH = { signals: '#20c997', plan: '#dbe7f5', liquidation: '#ff9f43', profile: '#e5b85c', vwap: '#38bdf8', sr: '#f07883', orderflow: '#b38aff', structure: '#60b8ff', orderBlocks: '#20c997', fvg: '#9b8cf5', liquidity: '#e5b85c', sweeps: '#f07883', smc: '#8392a8' };
+const NAMES = { signals: 'Signals', plan: 'Entry/TP/SL', liquidation: 'Liquidation', profile: 'POC/VA', vwap: 'VWAP', sr: 'S/R', orderflow: 'Order flow', structure: 'BOS/CHoCH', orderBlocks: 'Order blocks', fvg: 'FVG', liquidity: 'Liquidity', sweeps: 'Sweeps', smc: 'Prem/Disc', candlePatterns: 'Candle DNA' };
+const SWATCH = { signals: '#20c997', plan: '#dbe7f5', liquidation: '#ff9f43', profile: '#e5b85c', vwap: '#38bdf8', sr: '#f07883', orderflow: '#b38aff', structure: '#60b8ff', orderBlocks: '#20c997', fvg: '#9b8cf5', liquidity: '#e5b85c', sweeps: '#f07883', smc: '#8392a8', candlePatterns: '#e5b85c' };
 const BASIS = { 'estimated-model': 'est.', 'ohlcv-estimate': 'est.', 'ohlcv-distributed': 'ohlcv', 'measured-feed': 'live', 'measured-aggressor': 'live' };
 
 export default function ChartIntelligenceLegend({ ci, hook }) {
@@ -18,7 +18,8 @@ export default function ChartIntelligenceLegend({ ci, hook }) {
       <b>CHART INTELLIGENCE</b>
       <strong className={'ci-state ' + tone}>{d.state}{r.grade ? ' · ' + r.grade.grade : ''}</strong>
       <span>Confluence <b className={r.confluence.score > 0 ? 'up' : r.confluence.score < 0 ? 'down' : ''}>{r.confluence.score > 0 ? '+' : ''}{r.confluence.score}</b> ({r.confluence.agreeing}/{r.confluence.total})</span>
-      <span>Regime <b>{r.regime.state}</b> · {Math.round((r.regime.confidence || 0) * 100)}%</span>
+      <span>Regime <b>{r.regime.state}</b></span>
+      {r.candleFormation?.status === 'ready' && <span>CFIE <b>{r.candleFormation.summary.direction}</b> · pressure {r.candleFormation.summary.pressureScore}/100 · rejection {r.candleFormation.summary.rejectionScore}/100</span>}
       {r.orderFlow && <span>Flow <b>{r.orderFlow.bias}</b> <i className="ci-basis">{BASIS[r.orderFlow.basis]}</i></span>}
       {r.liquidation.cascade && <span>Liq risk <b>{r.liquidation.cascade.level}</b> <i className="ci-basis">{BASIS[r.liquidation.basis]}</i></span>}
       <button type="button" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? 'Hide details' : 'Details'}</button>
@@ -32,7 +33,7 @@ export default function ChartIntelligenceLegend({ ci, hook }) {
     {alerts.length > 0 && <div className="ci-alerts"><b>Alerts</b> <button type="button" onClick={clearAlerts}>Clear</button><ul>{alerts.slice(0, 4).map((a) => <li key={a.id} className={a.severity}>{a.message}</li>)}</ul></div>}
     {open && <div className="ci-details">
       <div className="ci-grid">{r.confluence.components.map((c) => <div key={c.key} className={c.available ? '' : 'na'}><small>{c.key}</small><b className={c.value > 0 ? 'up' : c.value < 0 ? 'down' : ''}>{c.available ? c.value : 'n/a'}</b></div>)}</div>
-      <section className="ci-regime"><div className="ci-regime-head"><b>MARKET REGIME ENGINE · {r.regime.model}</b><span>{r.regime.direction} bias {r.regime.directionalBias}</span><span>Transition risk {Math.round((r.regime.transitionRisk || 0) * 100)}%</span><span>Persistence {Math.round((r.regime.persistenceScore || 0) * 100)}%</span></div><div className="ci-regime-probs">{Object.entries(r.regime.probabilities || {}).map(([name, value]) => <div key={name}><span>{name.replace('trending-','trend ')}</span><b>{Math.round(value * 100)}%</b><i><em style={{width:(value * 100)+'%'}} /></i></div>)}</div><div className="ci-regime-metrics">{[['ER20',r.regime.metrics?.er20],['ADX',r.regime.metrics?.adx],['ATR rank',r.regime.metrics?.atrRank],['ATR ratio',r.regime.metrics?.atrRatio],['BB rank',r.regime.metrics?.bbRank],['Choppiness',r.regime.metrics?.chop],['Volume ratio',r.regime.metrics?.volumeRatio],['Age',r.regime.regimeAgeBars+' bars']].map(([k,v])=><span key={k}>{k} <b>{v ?? 'n/a'}</b></span>)}</div><p>{r.regime.playbook}</p><p>MTF regime: {r.regime.multiTimeframe?.timeframes?.map(x=>x.timeframe+': '+x.state+' ('+x.status+')').join(' · ') || 'unavailable'} · agreement {Math.round((r.regime.multiTimeframe?.agreement || 0)*100)}%.</p><p>Adaptive controls: min score {r.adaptive.minScore} · position-size multiplier {r.adaptive.positionSizeMultiplier} · risk multiplier {r.adaptive.riskMultiplier} · extra confirmation {r.adaptive.requireExtraConfirmation ? 'required' : 'not required'}.</p></section>
+      <p>CFIE: {r.candleFormation?.status === 'ready' ? `${r.candleFormation.summary.patternCount} latest patterns · bullish heuristic ${r.candleFormation.summary.bullishProbability}% · bearish heuristic ${r.candleFormation.summary.bearishProbability}% · ${r.candleFormation.latest.anomaly ? 'range/volume anomaly' : 'no range/volume anomaly'}${r.candleFormation.latest.absorption ? ' · absorption candidate' : ''}. ${r.candleFormation.summary.basis}` : 'unavailable'}.</p>
       <p>MTF: {r.mtf.length ? r.mtf.map((m) => m.timeframe + ' ' + (m.status === 'fresh' ? m.bias : m.status)).join(' · ') : 'unavailable'}. Min score {r.confluence.minScore} (adaptive, {r.regime.state}). ATR {r.atr}. Expectancy: {r.expectancy && r.expectancy.reliable ? r.expectancy.expectancy + 'R over ' + r.expectancy.n + ' outcomes' : 'sample too small'}.</p>
       <p className="ci-basis-note">Data basis — {r.provenance.filter((p) => p.count).map((p) => NAMES[p.layer] + ': ' + p.bases.join('/')).join(' · ')}. “est.” layers are modelled from OHLCV, not exchange tick or liquidation data.</p>
       <div className="ci-controls">
