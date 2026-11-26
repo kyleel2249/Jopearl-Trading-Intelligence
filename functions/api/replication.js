@@ -156,7 +156,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
 
       await mapLimit(markets, 3, async market => {
         const symbol = String(market.symbol);
-        const query = '?type=' + encodeURIComponent(marketType);
+        const query = '?type=' + encodeURIComponent(marketType) + (exchange === 'bitget' && market.id ? '&instrumentId=' + encodeURIComponent(market.id) : '');
         counts.attempted++;
         const tickerResult = await safeProviderRequest(provider, '/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(symbol) + query);
         if (tickerResult?.status === 200) {
