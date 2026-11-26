@@ -4,7 +4,7 @@
  * OHLCV pressure/absorption are estimates, never represented as exchange tick/order-book facts.
  */
 const clamp=(v,a=0,b=100)=>Math.max(a,Math.min(b,v));
-const finite=(v)=>Number.isFinite(Number(v));
+const finite=(v)=>v!==null&&v!==undefined&&v!==''&&Number.isFinite(Number(v));
 const round=(v,n=4)=>finite(v)?Number(Number(v).toFixed(n)):null;
 const median=(a)=>{if(!a.length)return 0;const s=[...a].sort((x,y)=>x-y);return s[Math.floor(s.length/2)];};
 const dir=(v)=>v>0?'bullish':v<0?'bearish':'neutral';
