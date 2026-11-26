@@ -1,4 +1,4 @@
-import { derivePaperSignal, simulatePaperFill, settlePaperTrade, PAPER_POLICY } from './paper-trading-engine.js';
+import { derivePaperSignal, simulatePaperFill, settlePaperTrade, calculateAllInRiskPerUnit, PAPER_POLICY } from './paper-trading-engine.js';
 import { adaptivePositionSize, evaluateRiskGate } from './intelligence-foundation-engine.js';
 const n=v=>Number.isFinite(Number(v))?Number(v):0;
 const mean=a=>a.length?a.reduce((s,v)=>s+v,0)/a.length:0;
@@ -22,7 +22,7 @@ export function replayStrategy({candles,strategyId='ensemble',startingEquity=100
    const recent=prefix.slice(-15,-1),atr=mean(recent.map(r=>r[2]-r[3])),entry=next[1];if(!(atr>0&&entry>0))continue;
    const stopDistance=Math.max(entry*.0035,atr*1.2),stopPrice=signal.direction==='LONG'?entry-stopDistance:entry+stopDistance;
    const sizing=adaptivePositionSize({equity,entryPrice:entry,stopPrice,baseRiskPercent:riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:1},policy);
-   const allInRiskPerUnit=stopDistance+entry*(feeRate*2+(slippageBps*2+spreadBps)/10000),targetRiskUsd=sizing.riskAmount||0;
+   const allInRiskPerUnit=calculateAllInRiskPerUnit({entryPrice:entry,stopDistance,feeRate,slippageBps,spreadBps}),targetRiskUsd=sizing.riskAmount||0;
    const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,equity/(entry*(1+feeRate)));if(!(quantity>0))continue;
    const riskUsd=quantity*allInRiskPerUnit,spreadPercent=Number.isFinite(signal.features.spreadPct)?signal.features.spreadPct:null;
    const day= new Date(bar[0]).toISOString().slice(0,10),dailyLoss=trades.filter(t=>t.closedAt?.slice(0,10)===day).reduce((sum,t)=>sum+Math.min(0,t.netPnlUsd),0);
