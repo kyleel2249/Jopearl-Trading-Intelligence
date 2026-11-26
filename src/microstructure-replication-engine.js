@@ -64,8 +64,8 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
   for(const row of rowsOf(payload)){
    let id,time,data;
    if(kind==='trade'){
-    id=row.execId||row.tradeId||row.id||row.ts+'-'+row.price+'-'+row.size;time=row.time||row.ts||row.T||row.timestamp;
-    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q||row.sz),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q||row.sz)};
+    id=row.execId||row.tradeId||row.id||row.a||row.ts+'-'+row.price+'-'+row.size;time=row.time||row.ts||row.T||row.timestamp;
+    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q||row.sz),side:String(row.side||(row.m===true?'sell':row.m===false?'buy':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q||row.sz)};
     if(!(data.price>0&&data.quantity>0))continue;
    }else if(kind==='funding'){
     id=row.fundingRateTimestamp||row.fundingTime||row.fundingRateTime||row.ts||row.id;time=id;
