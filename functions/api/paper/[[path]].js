@@ -208,7 +208,7 @@ function buildMultiAssetEvidence(market,context,signal,tradingWindow){
   session:f.session||null,sessionOpen:tradingWindow?.eligible===true,price:Number(market.ticker.last),
   spreadBps:f.spreadPct==null?null:Number(f.spreadPct)*100,volatilityPct:f.atrPct,liquidityUsd:bookNotional,
   momentumPct:f.momentumPct,timeframeAlignment:alignment,relativeVolume:f.relativeVolume,
-  orderBookImbalance:context?.orderBookImbalance,tradeFlowImbalance:context?.tradeFlowImbalance,
+  orderBookImbalance:context?.orderBookImbalance,depthImbalance:context?.orderBookImbalance,tradeFlowImbalance:context?.tradeFlowImbalance,
   fundingRate:context?.fundingRate,displacementPct};
 }
 

@@ -159,6 +159,9 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  if(!input.riskContext)veto.push('portfolio-risk-context-unavailable');
  if(riskGate&&!riskGate.allowed)veto.push(...riskGate.violations.map(x=>'risk-gate:'+x.code.toLowerCase()));
  if(debate.riskVetoes.length)veto.push(...debate.riskVetoes.map(x=>'agent-debate:'+x.toLowerCase()));
+ if(agentFleet.risk?.blocked)veto.push(...(agentFleet.risk.reasons||['agent-fleet-risk-veto']).map(x=>'agent-fleet:'+String(x).toLowerCase().replaceAll(' ','-')));
+ if(agentFleet.recommendedAction!=='REVIEW_SETUP')veto.push('agent-fleet-recommends-wait');
+ if((direction==='long'&&agentFleet.consensus?.stance==='bearish_research_lean')||(direction==='short'&&agentFleet.consensus?.stance==='bullish_research_lean'))veto.push('agent-fleet-direction-conflict');
  if(instrument.assetClass==='onchain'&&e.chainFinalityVerified!==true)veto.push('chain-finality-unverified');
  const eligible=veto.length===0;
  return {decisionId:input.decisionId||cryptoId(),instrument,generatedAt:isoNow(),eventTimestamp:e.timestamp||null,evidenceAgeMs:ageMs,
