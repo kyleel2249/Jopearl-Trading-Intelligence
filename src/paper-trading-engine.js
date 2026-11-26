@@ -96,7 +96,7 @@ export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.init
  totalFeesUsd:fees,bestTradeUsd:closed.length?Math.max(...closed.map(t=>n(t.netPnlUsd))):0,
  worstTradeUsd:closed.length?Math.min(...closed.map(t=>n(t.netPnlUsd))):0,
  recoveryFactor,averageHoldMinutes:mean(holdMinutes),sharpe,maxConsecutiveLosses:maxStreak,
- observationDays:days,regimes,riskBreaches:closed.filter(t=>t.riskBreach===true).length};
+ observationDays:days,regimes,currentConsecutiveLosses:streak,riskBreaches:closed.filter(t=>t.riskBreach===true).length};
 }
 export function assessAgentKpis(metrics={},policy=PAPER_POLICY,outOfSampleTrades=0){
  const checks=[
