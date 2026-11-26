@@ -15,7 +15,7 @@ import { scoreInstitutionalContext } from './institutional.js';
 import { scoreChainDexContext } from './chain-dex.js';
 import { analyzeFvgLiquidity, scoreFvgLiquidityForConfluence } from './fvg-liquidity.js';
 
-export const MODULE_VERSION = 'chart-intelligence-1.1.0';
+export const MODULE_VERSION = 'chart-intelligence-1.2.0';
 export const LAYERS = ['signals', 'plan', 'liquidation', 'profile', 'volumeNodes', 'sr', 'orderflow', 'structure', 'orderBlocks', 'fvg', 'liquidity', 'sweeps', 'smc', 'vwap'];
 export const DEFAULT_LAYER_VISIBILITY = { signals: true, plan: true, liquidation: true, profile: true, volumeNodes: true, sr: true, orderflow: false, structure: true, orderBlocks: true, fvg: true, liquidity: true, sweeps: true, smc: true, vwap: true };
 const r8 = (v) => (Number.isFinite(v) ? Number(v.toFixed(8)) : null);
