@@ -73,3 +73,30 @@ test('strategy DNA fingerprints and downstream intelligence event envelopes are 
  assert.ok(result.intelligenceEvents.some(x=>x.kind==='multi-exchange-elite-ranking'));
  assert.ok(result.intelligenceEvents.some(x=>x.kind==='cross-exchange-exposure-collision'));
 });
+
+test('rolling-window coverage requires ROI, win rate and drawdown for each counted period',()=>{
+ const partial=candidate('binance',{windows:{
+  '7d':{roiPct:3},
+  '30d':{roiPct:12,winRatePct:72,maxDrawdownPct:4},
+  '90d':{roiPct:32,winRatePct:71,maxDrawdownPct:5,sharpe:4,sortino:4,profitFactor:4},
+  '180d':{roiPct:48}
+ }});
+ const result=assessMultiExchangeTrader(partial,now);
+ assert.equal(result.windowCoverage,2);
+ assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('insufficient_window_coverage'));
+});
+test('duplicate trader imports retain the freshest source snapshot',()=>{
+ const older=candidate('bitget',{retrievedAt:'2026-11-26T10:00:00.000Z',windows:{'7d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'30d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'90d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'180d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40}}});
+ const newer=candidate('bitget',{retrievedAt:'2026-11-26T11:59:00.000Z'});
+ const result=rankMultiExchangeTraders([older,newer],now);
+ assert.equal(result.candidateCount,1);
+ assert.equal(result.assessments[0].eligible,true);
+ assert.equal(result.assessments[0].retrievedAt,'2026-11-26T11:59:00.000Z');
+});
+test('market type must be explicit instead of silently defaulting to derivatives',()=>{
+ const record=candidate('bybit');delete record.marketType;
+ const result=assessMultiExchangeTrader(record,now);
+ assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('source_or_exchange_integrity_failed'));
+});
