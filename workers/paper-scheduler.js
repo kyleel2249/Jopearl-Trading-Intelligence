@@ -62,7 +62,7 @@ export default {
       catch (error) { failures.push({ stage: 'ensure-agents', error: shortError(error) }); }
       if (!failures.length) {
         for (const symbol of WATCHLIST) {
-          try { await runCycle(env.JPTI_DB, symbol, { agentsEnsured: true }); }
+          try { await runCycle(env.JPTI_DB, symbol, { agentsEnsured: true }, env); }
           catch (error) { failures.push({ stage: 'cycle', symbol, error: shortError(error) }); }
         }
       }
