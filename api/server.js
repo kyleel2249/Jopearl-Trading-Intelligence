@@ -37,6 +37,7 @@ import { alphaSignalRouter } from './alpha-signal-engine.js';
 import { institutionalRouter, assessExchangeEventRisk } from './institutional-intelligence.js';
 import { sessionMemoryRouter } from './session-memory.js';
 import { agentFleetRouter } from './agent-fleet.js';
+import { validationRouter } from './trading-validation.js';
 
 const app = express();
 const port = Number(process.env.PORT || process.env.JPTI_API_PORT || 8787);
@@ -159,6 +160,7 @@ app.use('/api/futures', futuresPaperRouter);
 app.use('/api/assets', assetIntelligenceRouter);
 app.use('/api/council', researchCouncilRouter);
 app.use('/api', agentFleetRouter);
+app.use('/api/validation', validationRouter);
 app.use('/api/portfolio', allocationRouter);
 // T-Bots is preserved as an independently versioned paper-trading subsystem.
 app.use('/t-bots', express.static(resolve(process.env.JPTI_TBOTS_PUBLIC_DIR || 'integrations/t-bots/public'), { fallthrough: true, index: 'index.html' }));
