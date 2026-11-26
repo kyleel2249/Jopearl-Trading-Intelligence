@@ -1,6 +1,7 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
 import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
 import { verifyPrivateToken } from '../../private-auth.js';
+import { loadPromotionEvidence } from '../../../src/strategy-validation-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -55,8 +56,9 @@ async function spawnSuccessor(db,agent){
 async function promoteOrRetire(db,agent,metrics,kpi){
  const row=await db.prepare('SELECT tier,status FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
  if(!row)return null;
- if(kpi.eligibleForPromotion&&row.tier==='RESEARCH'){
-  const at=iso(),payload={...agent,tier:'LIVE_READY',status:'live_ready',promotedAt:at,liveReadiness:{approved:true,liveExecutionAuthorized:false,requiresHumanApproval:true},resources:[...AGENT_RESOURCES,'Live deployment and exchange-minimum preflight']};
+ const evidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
+ if(evidence.allowed&&row.tier==='RESEARCH'){
+  const at=iso(),payload={...agent,tier:'LIVE_READY',status:'live_ready',promotedAt:at,liveReadiness:{approved:false,liveExecutionAuthorized:false,requiresHumanApproval:true,validationStatus:evidence.verdict?.status||'LIVE_READY'},resources:[...AGENT_RESOURCES,'Live deployment and exchange-minimum preflight']};
   await db.prepare("UPDATE jpti_paper_agents SET tier='LIVE_READY',status='live_ready',promoted_at=?,updated_at=?,payload=? WHERE agent_id=?").bind(at,at,JSON.stringify(payload),agent.id).run();
   const successor=await spawnSuccessor(db,agent);
   return {status:'LIVE_READY',promotedAt:at,successorId:successor.id};
@@ -172,15 +174,24 @@ export async function runCycle(db,symbol,options={}){
   const savedTier=await db.prepare('SELECT tier FROM jpti_paper_agents WHERE agent_id=?').bind(agent.id).first();
   await saveAgent(db,agent.id,metrics,kpi,savedTier?.tier||agent.tier||'RESEARCH');
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
+  const validationEvidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
+  const decayDetected=validationEvidence.verdict?.decayDetected===true;
+  const capitalHaltReasons=[];let capitalRiskMultiplier=1;
+  if(metrics.riskBreaches>0)capitalHaltReasons.push('risk breach recorded');
+  if(metrics.maxConsecutiveLosses>=5)capitalHaltReasons.push('five-loss streak halt');
+  else if(metrics.maxConsecutiveLosses>=3)capitalRiskMultiplier*=0.5;
+  if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct)capitalHaltReasons.push('maximum drawdown reached');
+  else if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct*0.5)capitalRiskMultiplier*=0.5;
+  if(decayDetected)capitalHaltReasons.push('forward performance decay detected');
   const sessionHour=new Date().getUTCHours(),sessionName=sessionHour<7?'ASIA':sessionHour<12?'LONDON':sessionHour<16?'LONDON_NEW_YORK_OVERLAP':sessionHour<22?'NEW_YORK':'ROLLOVER';
   let action='NO_ENTRY',reason=signal.reason;
-  if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
+  if(signal.action==='SIGNAL'&&!current.some(t=>t.symbol===market.symbol&&t.status==='closed'&&Date.now()-Date.parse(t.closedAt||0)<15*60*1000)&&sessionName!=='ROLLOVER'&&signal.features&&Number.isFinite(signal.features.spreadPct)&&signal.features.spreadPct<=0.15&&signal.features.atrPct>0&&signal.features.timeframeAgreement>=2&&openNow<PAPER_POLICY.maxOpenPositions&&exposure.total<PAPER_POLICY.maxFleetOpenPositions&&(exposure.bySymbol.get(market.symbol)||0)<PAPER_POLICY.maxOpenPerSymbol&&(exposure.byDirection.get(signal.direction)||0)<PAPER_POLICY.maxSameDirectionOpenPositions&&capitalHaltReasons.length===0&&metrics.maxDrawdownPct<PAPER_POLICY.maxDrawdownPct&&dailyLoss>-(metrics.equityUsd*PAPER_POLICY.maxDailyLossPct/100)){
    const price=market.ticker.last,stopDistance=Math.max(price*0.0035,price*signal.features.atrPct/100*1.2);
-   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
+   const sizing=adaptivePositionSize({equity:metrics.equityUsd,entryPrice:price,stopPrice:signal.direction==='LONG'?price-stopDistance:price+stopDistance,baseRiskPercent:PAPER_POLICY.riskPerTradePct*capitalRiskMultiplier,regime:signal.features.regime,confidence:Number(signal.confidence)||.65,correlationFactor:(exposure.bySymbol.get(market.symbol)||0)>0?.5:1},independentPolicy);
    const targetRiskUsd=sizing.riskAmount;
    const allInRiskPerUnit=stopDistance+price*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000);
    const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
-   const riskUsd=quantity*stopDistance;
+   const riskUsd=quantity*allInRiskPerUnit;
    if(quantity>0&&Number.isFinite(quantity)){
     const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:exposure.total,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:3,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
     if(!riskDecision.allowed){
@@ -204,7 +215,7 @@ export async function runCycle(db,symbol,options={}){
     }catch(e){if(!String(e.message||e).includes('UNIQUE'))throw e;reason='Duplicate closed-candle signal ignored (idempotency gate).';}
    }
     }
-  }else if(signal.action==='SIGNAL')reason='Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
+  }else if(signal.action==='SIGNAL')reason=capitalHaltReasons.length?'Capital protection halt: '+capitalHaltReasons.join('; '):'Entry blocked by spread, risk, drawdown, daily-loss, per-agent, fleet, symbol-concentration, direction-concentration or independent risk gate.';
   report.agents.push({agentId:agent.id,action,reason,signal,openPositions:openNow,metrics});
  }
  return report;
