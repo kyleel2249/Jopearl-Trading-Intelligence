@@ -70,6 +70,27 @@ test('T-Bots fails closed until the shared historical validation gate qualifies 
   assert.match(calls[0],/validation\/latest/);
 });
 
+test('T-Bots rejects unknown or manual-resume-required fleet safety states', async () => {
+  for (const global of [
+    {status:'UNKNOWN',killSwitch:false,circuitBreaker:false,manualResumeRequired:false},
+    {status:'TRIPPED',killSwitch:false,circuitBreaker:true,manualResumeRequired:true},
+    {status:'CLOSED',killSwitch:false,circuitBreaker:false,manualResumeRequired:true}
+  ]) {
+    const calls=[];
+    const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url)=>{
+      calls.push(url);
+      return {ok:true,json:async()=>url.includes('/validation/latest/')
+        ? {paperTrialEligible:true}
+        : {available:true,global}};
+    }});
+    bridge.setToken('local-test-token');
+    const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair'});
+    assert.equal(result.allowed,false);
+    assert.match(result.reasons[0],/not explicitly CLOSED/i);
+    assert.equal(calls.length,2,'entry preflight must not be reached when fleet state is unsafe');
+  }
+});
+
 test('T-Bots proceeds to the existing independent entry preflight only after historical qualification', async () => {
   const calls=[];
   const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url,options)=>{
