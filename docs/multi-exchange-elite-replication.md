@@ -16,6 +16,8 @@ Supported venue/market buckets are Bitget Spot, USDT Perpetual, Coin-M Perpetual
 - Duplicate trader identity removal within an exchange and market bucket.
 - Strategy DNA fingerprints and clusters.
 - Optional supplied position snapshots for cross-venue same-direction duplicate exposure and opposing-direction collision detection.
+- A virtual score-weighted inverse-drawdown allocation simulation, with a 10% per-trader cap, explicit cash reserve and zero real capital allocation.
+- Deterministic findings from all 24 specialist agents, including explicit waiting states where live quote/funding or execution-quality evidence is unavailable.
 - Risk flags for leverage, drawdown, high slippage, funding costs, concentrated exposure and recovery-style trading.
 - Durable D1 ranking snapshots, Shared Intelligence Memory event envelopes and Risk Command Centre review event envelopes.
 - Paper-only replica selection with zero capital allocation and no order endpoint.
@@ -43,7 +45,7 @@ Each candidate requires exchange, marketType, traderId, source, retrievedAt, sou
 Each successful run writes three event records into the existing jpti_events table:
 1. multi-exchange-elite-ranking — complete ranking snapshot.
 2. shared-intelligence-memory-event — compact selected trader and strategy identity envelope.
-3. risk-command-centre-event — cross-venue collisions, risk flags and failed eligibility gates.
+3. risk-command-centre-event — cross-venue collisions, risk flags, failed eligibility gates, virtual allocation targets and agent findings.
 
 These records are published to the shared event store. A downstream consumer or scheduled process must still subscribe/query them before claiming autonomous agent-to-agent action.
 
