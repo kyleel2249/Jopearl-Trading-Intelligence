@@ -128,8 +128,8 @@ export class JptiBridge {
       const safety = await this._request('/paper/safety');
       const global = safety?.global;
       if (safety?.available !== true || !global) return { allowed:false, reasons:['JPTI fleet safety state unavailable; bot entry fails fail-closed.'], exitsRemainEnabled:true };
-      if (global.killSwitch === true || global.circuitBreaker === true || global.status === 'TRIPPED')
-        return { allowed:false, reasons:['JPTI global kill switch or fleet circuit breaker is active.'], exitsRemainEnabled:true };
+      if (global.status !== 'CLOSED' || global.killSwitch !== false || global.circuitBreaker !== false || global.manualResumeRequired === true)
+        return { allowed:false, reasons:['JPTI fleet safety is not explicitly CLOSED; operator review and manual resume are required.'], exitsRemainEnabled:true };
     } catch (error) {
       this.lastSafetyError = error.message;
       return { allowed:false, reasons:['JPTI fleet safety check failed; bot entry fails fail-closed.', error.message], exitsRemainEnabled:true };
