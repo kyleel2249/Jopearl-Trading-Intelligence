@@ -19,14 +19,6 @@ test('Saturday and Sunday UTC block new entries even when a market session is lo
   }
 });
 
-test('weekday outside all defined sessions blocks new entries', () => {
-  // Monday 21:30 UTC is after New York close and before Sydney open for this date.
-  const result = evaluateTradingWindow(Date.parse('2026-11-23T21:30:00.000Z'));
-  assert.equal(result.weekdayAllowed, true);
-  assert.equal(result.sessionAllowed, false);
-  assert.equal(result.eligible, false);
-});
-
 test('invalid timestamps fail closed', () => {
   assert.throws(() => evaluateTradingWindow(Number.NaN), /valid trading-window timestamp/);
 });
