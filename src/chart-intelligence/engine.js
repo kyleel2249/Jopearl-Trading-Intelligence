@@ -196,7 +196,7 @@ export function analyzeChartIntelligence(candles, opts = {}) {
   const trail = active && !severe ? trailingStop(work, active, { atr }) : null;
   const plan = active && !severe ? buildPlan(active, active.trade, work, atr, [...profileS, ...sr, ...smc.items.filter((i) => i.layer === 'liquidity')], cfg, trail) : null;
   const entryAssessment = buildEntryAssessment({ active, plan, smc, work, atr, confluence: conf, conflictSeverity: cf.severity, chainDex, institutional, sessionContext, fvgLiquidity, crossExchangeFlows, walletAttributionContext, eventImpact, bisFlows });
-  const tradingAgents = evaluateTradingDeskAgents({ now, symbol, timeframe, active, plan, grade, confluence: conf, conflictSeverity: cf.severity, regime, mtf, smc, fvgLiquidity, flow: of, eventRisk: eventImpact });
+  const tradingAgents = evaluateTradingDeskAgents({ now, symbol, timeframe, active, plan, grade, confluence: conf, conflictSeverity: cf.severity, regime, mtf, smc, fvgLiquidity, flow: of, eventRisk: eventImpact, executionCosts: cfg.costs });
 
   // Layer assembly with caps, merging and stable ids.
   const cap = (arr, n) => arr.slice(-n);
