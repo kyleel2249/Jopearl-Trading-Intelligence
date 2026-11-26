@@ -9,6 +9,7 @@ test('microstructure plan validates and bounds exchanges, symbols, kinds and req
 });
 test('venue URL builders select the correct public product endpoints',()=>{
  assert.match(buildMicrostructureUrl('binance','BTC/USDT','orderbook','spot'),/api\.binance\.com\/api\/v3\/depth/);
+ assert.match(buildMicrostructureUrl('binance','BTC/USDT','orderbook','margin'),/api\.binance\.com\/api\/v3\/depth/);
  assert.match(buildMicrostructureUrl('binance','BTC/USDT','funding','usdt-m'),/fapi\.binance\.com\/fapi\/v1\/fundingRate/);
  assert.match(buildMicrostructureUrl('binance','BTC/USD:BTC','open_interest','coin-m'),/dapi\.binance\.com\/dapi\/v1\/openInterest/);
  assert.match(buildMicrostructureUrl('bybit','BTC/USDT','trade','usdt-m'),/category=linear/);
