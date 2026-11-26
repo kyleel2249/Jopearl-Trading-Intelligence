@@ -161,7 +161,7 @@ export function buildReplicationSummary({ startedAt, finishedAt, plan, counts, e
   const stored = counts.inserted || 0;
   return {
     runId, startedAt, finishedAt, durationMs: Math.max(0, Date.parse(finishedAt) - Date.parse(startedAt)),
-    status: errors.length ? stored ? 'partial' : 'failed' : 'completed',
+    status: errors.length ? counts.valid ? 'partial' : 'failed' : counts.valid ? 'completed' : 'failed',
     plan, counts: { ...counts, attempted, inserted: stored, duplicates: Math.max(0, (counts.valid || 0) - stored) },
     errorCount: errors.length, skippedCount: skipped.length, errors: errors.slice(0, 30), skipped: skipped.slice(0, 30),
     coverage: { successRatePct: attempted ? Number(((counts.succeeded || 0) / attempted * 100).toFixed(2)) : 0 }
