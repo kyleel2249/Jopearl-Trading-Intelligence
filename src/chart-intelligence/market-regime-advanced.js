@@ -36,10 +36,10 @@ function detectChangePoint(returns){
 function hurstEstimate(returns){
   if(returns.length<40)return{status:'insufficient',exponent:null,interpretation:'insufficient history'};
   const lags=[2,4,8,16].filter(l=>l<returns.length/2),xs=[],ys=[];
-  for(const lag of lags){const blocks=[];for(let i=0;i+lag<=returns.length;i+=lag){const w=returns.slice(i,i+lag),m=mean(w);blocks.push(Math.sqrt(mean(w.map(x=>(x-m)**2))));}const v=mean(blocks);if(v>0){xs.push(Math.log(lag));ys.push(Math.log(v));}}
+  for(const lag of lags){const blocks=[];for(let i=0;i+lag<=returns.length;i+=lag)blocks.push(returns.slice(i,i+lag).reduce((a,b)=>a+b,0));const m=mean(blocks),v=Math.sqrt(mean(blocks.map(x=>(x-m)**2)));if(v>0){xs.push(Math.log(lag));ys.push(Math.log(v));}}
   if(xs.length<3)return{status:'insufficient',exponent:null,interpretation:'insufficient scale coverage'};
   const mx=mean(xs),my=mean(ys);let num=0,den=0;for(let i=0;i<xs.length;i++){num+=(xs[i]-mx)*(ys[i]-my);den+=(xs[i]-mx)**2;}
-  const h=clamp((den?num/den:1)/2,.05,.95);
+  const h=clamp(den?num/den:.5,.05,.95);
   return{status:'estimated',exponent:round(h),interpretation:h>.58?'persistent / trend-prone':h<.42?'anti-persistent / mean-reverting':'near-random / mixed',scales:lags,method:'variance-time scaling approximation',warning:'A short-window Hurst estimate is noisy and must not be treated as a standalone strategy trigger.'};
 }
 
