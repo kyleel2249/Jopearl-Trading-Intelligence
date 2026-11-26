@@ -21,7 +21,7 @@ async function loadHistoricalMarketEvents(db,query,from,to,env={}){
   db.prepare("SELECT exchange,observation_kind AS kind,observed_at,payload FROM jpti_microstructure_observations WHERE exchange=? AND market_type=? AND symbol=? AND observed_at>=? AND observed_at<=? ORDER BY observed_at ASC LIMIT 40000").bind(query.exchange,query.marketType,query.symbol,from,to).all().catch(()=>({results:[]}))
  ]);
  const remote=[];
- const base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\\/$/,'');
+ const base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\/$/,'');
  if(base&&env.JPTI_API_TOKEN){try{const url=new URL(base+'/history');url.searchParams.set('exchange',query.exchange);url.searchParams.set('marketType',query.marketType);url.searchParams.set('symbol',query.symbol);url.searchParams.set('since',from);url.searchParams.set('until',to);url.searchParams.set('limit','20000');const response=await fetch(url,{headers:{'x-jpti-api-token':env.JPTI_API_TOKEN,'accept':'application/json'}});if(response.ok){const body=await response.json();for(const row of body.events||[])remote.push({exchange:query.exchange,kind:row.event_kind,observed_at:row.observedAt,payload:row.payload});}}catch{}}
  const unique=new Map();for(const row of [...(stream.results||[]),...(micro.results||[]),...remote]){const p=safeJson(row.payload,{}),ts=Date.parse(row.observed_at);if(!Number.isFinite(ts))continue;const key=[row.exchange,row.kind,row.observed_at,JSON.stringify(p)].join('|');unique.set(key,{exchange:row.exchange,kind:row.kind,ts,payload:p});}
  return[...unique.values()].sort((a,b)=>a.ts-b.ts);
