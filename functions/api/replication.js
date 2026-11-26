@@ -1,6 +1,6 @@
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import {
-  normalizeReplicationPlan, marketTypesForExchange, selectReplicationMarkets,
+  normalizeReplicationPlan, boundReplicationPlanToSubrequestBudget, marketTypesForExchange, selectReplicationMarkets,
   normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey,
   detectCandleGaps, buildCrossExchangeConsensus, buildReplicationSummary
 } from '../../src/market-replication-engine.js';
@@ -127,6 +127,12 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
     try { plan = normalizeReplicationPlan(parsed.value, env); }
     catch (error) { return reply(error.status || 400, { error: error.message }); }
 
+    const tasks = [];
+    for (const exchange of plan.exchanges) {
+      for (const marketType of marketTypesForExchange(exchange, plan.marketTypes)) tasks.push({ exchange, marketType });
+    }
+    plan = boundReplicationPlanToSubrequestBudget(plan, tasks.length, 45);
+
     const startedAt = now().toISOString();
     const runId = crypto.randomUUID();
     const counts = { attempted: 0, succeeded: 0, valid: 0, inserted: 0, tickers: 0, candles: 0, markets: 0 };
@@ -134,11 +140,6 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
     await env.JPTI_DB.prepare(
       'INSERT INTO jpti_market_replication_runs (run_id,status,started_at,plan_json,counts_json,errors_json) VALUES (?,\'running\',?,?,?,?)'
     ).bind(runId, startedAt, JSON.stringify(plan), JSON.stringify(counts), '[]').run();
-
-    const tasks = [];
-    for (const exchange of plan.exchanges) {
-      for (const marketType of marketTypesForExchange(exchange, plan.marketTypes)) tasks.push({ exchange, marketType });
-    }
 
     await mapLimit(tasks, 3, async ({ exchange, marketType }) => {
       counts.attempted++;
