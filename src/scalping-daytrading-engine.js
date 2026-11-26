@@ -125,3 +125,19 @@ export function scoreShortTermStrategy(metrics = {}, policy = {}) {
   if (metrics.dataIntegrity !== 'verified') reasons.push('data-integrity-unverified');
   return { qualified: reasons.length === 0, status: reasons.length ? 'quarantined-or-observation' : 'eligible-for-controlled-paper-allocation', reasons, requiresHumanReview: true, liveExecutionAuthorized: false };
 }
+
+// Video-derived reproducible strategy specialists are exported through the shared
+// scalping/day-trading engine so agent desks can consume them without duplicate logic.
+export {
+  VIDEO_STRATEGY_AGENTS,
+  evaluateVideoStrategyAgents
+} from './strategies/video-strategy-agents.js';
+
+export {
+  VIDEO_STRATEGY_VERSION,
+  VIDEO_STRATEGY_IDS,
+  evaluateMa44332Strategy,
+  evaluateFirstWilliamsFractalBreakout,
+  evaluateVideoStrategyRisk,
+  qualifyVideoStrategy
+} from './strategies/video-derived-strategies.js';
