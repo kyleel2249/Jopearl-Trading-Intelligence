@@ -99,7 +99,7 @@ export function unrealizedPnlForSymbol(openTrades,symbol,lastPrice,feeRate){
   return sum+move-num(t.entryFeeUsd)-lastPrice*num(t.quantity)*feeRate;
  },0);
 }
-async function loadLiveMarketContext(db,marketSymbol){
+async function loadLiveMarketContext(db,marketSymbol,env={}){
  const pair=String(marketSymbol||'').endsWith('USDT')?String(marketSymbol).slice(0,-4)+'/USDT':String(marketSymbol||'');
  const safe=async sql=>{try{return(await db.prepare(sql).bind(pair).all()).results||[];}catch{return[];}};
  const [books,events,micro]=await Promise.all([
@@ -108,12 +108,20 @@ async function loadLiveMarketContext(db,marketSymbol){
   safe("SELECT exchange,market_type,symbol,observation_kind,event_id,observed_at,received_at,payload,quality FROM jpti_microstructure_observations WHERE symbol=? ORDER BY observed_at DESC LIMIT 120")
  ]);
  const parse=v=>{try{return JSON.parse(v||'{}')}catch{return{};}};
- return{symbol:pair,orderBooks:books.map(x=>({...x,book:parse(x.book_json)})),streamEvents:events.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),microstructure:micro.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),venues:[...new Set([...books,...events,...micro].map(x=>x.exchange))],freshestAt:[...books,...events,...micro].map(x=>x.received_at||x.updated_at).filter(Boolean).sort().at(-1)||null};
+ const remote=[];
+ const base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\/$/,'');
+ if(base&&env.JPTI_API_TOKEN){const since=new Date(Date.now()-120000).toISOString(),until=new Date().toISOString();const requests=[];for(const exchange of ['binance','bybit','okx','bitget'])for(const marketType of ['spot','usdt-m'])requests.push((async()=>{try{const url=new URL(base+'/history');url.searchParams.set('exchange',exchange);url.searchParams.set('marketType',marketType);url.searchParams.set('symbol',pair);url.searchParams.set('since',since);url.searchParams.set('until',until);url.searchParams.set('limit','2000');const response=await fetch(url,{headers:{'x-jpti-api-token':env.JPTI_API_TOKEN,'accept':'application/json'}});if(response.ok){const body=await response.json();remote.push(...(body.events||[]).map(x=>({exchange,market_type:marketType,event_kind:x.event_kind,observed_at:x.observedAt,received_at:x.received_at,payload:x.payload,quality:x.quality})));}}catch{}})());await Promise.all(requests);}
+ const parseEvents=[...events.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),...micro.map(x=>({...x,event_kind:x.observation_kind,payload:parse(x.payload),quality:parse(x.quality)})),...remote];
+ const latestBooks=new Map();for(const row of books){if(Number(row.book_valid)!==1)continue;const value=Number(row.notional_imbalance);if(Number.isFinite(value)&&!latestBooks.has(row.exchange))latestBooks.set(row.exchange,value);}
+ const eventBooks=new Map(),funding=new Map();let buy=0,sell=0;
+ for(const row of parseEvents){const p=row.payload||{};if(row.event_kind==='orderbook'){const value=Number(p.reconstructed?.notionalImbalance??p.notionalImbalance);if(Number.isFinite(value))eventBooks.set(row.exchange,value);}if(row.event_kind==='trade'){const value=Number(p.quoteNotional??Number(p.price)*Number(p.quantity));if(value>0&&p.side==='buy')buy+=value;else if(value>0&&p.side==='sell')sell+=value;}if(row.event_kind==='funding'&&Number.isFinite(Number(p.rate)))funding.set(row.exchange,Number(p.rate));}
+ const mergedBooks=new Map([...latestBooks,...eventBooks]),total=buy+sell;
+ return{symbol:pair,orderBooks:books.map(x=>({...x,book:parse(x.book_json)})),streamEvents:parseEvents,microstructure:micro,venues:[...new Set([...books,...parseEvents].map(x=>x.exchange))],orderBookImbalance:mergedBooks.size?[...mergedBooks.values()].reduce((a,b)=>a+b,0)/mergedBooks.size:null,tradeFlowImbalance:total?(buy-sell)/total:null,fundingRate:funding.size?[...funding.values()].reduce((a,b)=>a+b,0)/funding.size:null,freshestAt:[...books,...parseEvents].map(x=>x.received_at||x.updated_at||x.observed_at).filter(Boolean).sort().at(-1)||null};
 }
-export async function runCycle(db,symbol,options={}){
+export async function runCycle(db,symbol,options={},env={}){
  if(!options.agentsEnsured)await ensureAgents(db);
  const market=await marketSnapshot(symbol);
- const liveMarketContext=await loadLiveMarketContext(db,market.symbol);
+ const liveMarketContext=await loadLiveMarketContext(db,market.symbol,env);
  const report={mode:'PAPER_ONLY',liveMarketContext,source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
@@ -270,7 +278,7 @@ export async function onRequest({request,env,params}){
    return response(200,{reviews:(rows.results||[]).map(r=>JSON.parse(r.payload))});
   }
   if(request.method==='POST'&&path==='cycle'){
-   const body=await request.json().catch(()=>({}));return response(200,await runCycle(env.JPTI_DB,body.symbol||'BTCUSDT'));
+   const body=await request.json().catch(()=>({}));return response(200,await runCycle(env.JPTI_DB,body.symbol||'BTCUSDT',{},env));
   }
   if(request.method==='POST'&&path==='daily-review')return response(200,{review:await dailyReview(env.JPTI_DB)});
   return response(404,{error:'Unknown paper trading endpoint.'});
