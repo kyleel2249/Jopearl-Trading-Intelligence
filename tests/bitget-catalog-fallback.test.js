@@ -27,3 +27,17 @@ test('Bitget market catalog falls back from unavailable v3 instruments to curren
  assert.ok(calls.includes('/api/v2/margin/currencies'));
  for(const product of ['USDT-FUTURES','COIN-FUTURES','USDC-FUTURES'])assert.ok(calls.includes('/api/v2/mix/market/contracts?productType='+product));
 });
+
+test('Bitget catalog retries 404 through the documented legacy capi domain',async()=>{
+ const hosts=[];
+ const provider=createDirectProvider({fetchImpl:async url=>{
+  const u=new URL(url);hosts.push(u.hostname);
+  if(u.hostname==='capi.bitget.com'&&u.pathname==='/api/v2/spot/public/symbols')
+   return new Response(JSON.stringify({code:'00000',data:[{symbol:'BTCUSDT',baseCoin:'BTC',quoteCoin:'USDT',status:'online'}]}),{status:200,headers:{'content-type':'application/json'}});
+  return new Response(JSON.stringify({code:'404',msg:'route unavailable'}),{status:404,headers:{'content-type':'application/json'}});
+ }});
+ const result=await provider.request('/api/exchanges/bitget/markets?type=spot&search=BTC');
+ assert.equal(result.status,200);
+ assert.equal(result.body.count,1);
+ assert.ok(hosts.includes('capi.bitget.com'));
+});
