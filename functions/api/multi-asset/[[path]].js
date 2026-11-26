@@ -49,8 +49,15 @@ export async function onRequest({request,env}) {
    return json(200,{...result,persisted:true});
   }
   if(action==='replay-order'){
-   const events=replayEventsByEventTime(body.events||[]);
-   return json(200,{events,processed:events.length,lastEvent:events.at(-1)||null,checkpointSupported:true,liveExecutionAuthorized:false});
+   const replayId=id(body.replayId),streamId=id(body.streamId);
+   if(!replayId||!streamId||!Array.isArray(body.events))return json(400,{error:'replayId, streamId and an events array are required.'});
+   const events=replayEventsByEventTime(body.events),last=events.at(-1)||null;
+   if(last){
+    const eventTime=last.eventTime||last.observedAt||last.timestamp;
+    await env.JPTI_DB.prepare('INSERT INTO jpti_multi_asset_replay_checkpoints(replay_id,stream_id,last_event_time,last_sequence,processed_events,state_json,updated_at) VALUES(?,?,?,?,?,?,?) ON CONFLICT(replay_id,stream_id) DO UPDATE SET last_event_time=excluded.last_event_time,last_sequence=excluded.last_sequence,processed_events=jpti_multi_asset_replay_checkpoints.processed_events+excluded.processed_events,state_json=excluded.state_json,updated_at=excluded.updated_at')
+     .bind(replayId,streamId,new Date(typeof eventTime==='number'?(eventTime<1e11?eventTime*1000:eventTime):Date.parse(eventTime)).toISOString(),Number.isFinite(Number(last.sequence))?Number(last.sequence):null,events.length,JSON.stringify(body.state||{}),now).run();
+   }
+   return json(200,{events,processed:events.length,lastEvent:last,checkpointPersisted:!!last,liveExecutionAuthorized:false});
   }
   return json(400,{error:'Unknown action. Supported actions: evaluate, backfill-checkpoint, allocate, strategy-review, reconcile, replay-order.'});
  }catch(error){const missing=/no such table/i.test(String(error?.message||''));return json(missing?503:400,{error:missing?'Apply migration 0019_multi_asset_intelligence_3 before using this API.':String(error?.message||error).slice(0,300),liveExecutionAuthorized:false});}

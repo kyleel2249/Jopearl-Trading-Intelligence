@@ -193,7 +193,7 @@ export function evaluateStrategyLifecycle(metrics={},policy={}) {
  return {status,failures,closedTrades:trades,requiresFreshOutOfSample:true,requiresHumanReview:true,liveExecutionAuthorized:false};
 }
 export function replayEventsByEventTime(events=[]) {
- return (Array.isArray(events)?events:[]).map((event,index)=>({...event,_stableIndex:index,eventTime:Date.parse(event.eventTime||event.observedAt||event.timestamp||'')}))
+ return (Array.isArray(events)?events:[]).map((event,index)=>{const raw=event.eventTime??event.observedAt??event.timestamp??'';const eventTime=typeof raw==='number'?(raw<1e11?raw*1000:raw):Date.parse(raw);return {...event,_stableIndex:index,eventTime};})
   .filter(x=>Number.isFinite(x.eventTime)).sort((a,b)=>a.eventTime-b.eventTime||(Number(a.sequence)||0)-(Number(b.sequence)||0)||a._stableIndex-b._stableIndex)
   .map(({_stableIndex,...event})=>event);
 }
