@@ -102,7 +102,7 @@ export function evaluateSpecialistSquads(e={}) {
  };
  return AGENT_SQUADS.flatMap(squad=>squad.agents.map(([name,role,specialty,timeframe])=>{
   const spec=specs[specialty],missing=spec.required.filter(k=>e[k]===undefined||e[k]===null||e[k]==='');
-  const evaluated=missing.length===0,score=evaluated?Number(clamp(spec.score()).toFixed(4)):null;
+  const evaluated=missing.length===0,rawScore=evaluated?Number(spec.score()):null,score=evaluated&&Number.isFinite(rawScore)?Number(clamp(rawScore,-1,1).toFixed(4)):null;
   return {id:name.toLowerCase(),name,role,squadId:squad.id,style:squad.style,specialty,timeframe,status:evaluated?'evaluated':'abstain-missing-evidence',score,confidence:evaluated?Math.min(1,Math.abs(score)*.8+.2):0,missingEvidence:missing,rationale:evaluated?spec.rationale:'Specialist abstains; required evidence is unavailable.',executionPermission:'none'};
  }));
 }
