@@ -12,7 +12,7 @@ export function scoreAgentHealth(input={},policy=AGENT_SAFETY_POLICY){
   const heartbeat=String(input.heartbeatStatus||'unknown').toLowerCase();
   const latency=number(input.latencyMs),errorRate=number(input.errorRate,0);
   const age=number(input.heartbeatAgeMs);
-  if(['offline','blocked'].includes(heartbeat))score=0;
+  if(['offline','blocked','paused','stopped','error','unresponsive'].includes(heartbeat))score=0;
   else if(heartbeat==='degraded')score-=25;
   else if(heartbeat==='unknown')score-=15;
   if(latency!==null&&latency>policy.maxLatencyMs)score-=Math.min(25,10+(latency-policy.maxLatencyMs)/policy.maxLatencyMs*10);
@@ -47,6 +47,7 @@ export function evaluateAgentSafety(input={},policy={}){
   if(health.score<p.minimumHealthScore)add('AGENT_HEALTH_LOW','Agent health score is below policy.');
   if(trust<p.minimumTrustScore)add('AGENT_TRUST_LOW','Agent trust score is below policy.');
   const dailyLoss=number(input.dailyLossPct,0),drawdown=number(input.drawdownPct,0),lossStreak=number(input.consecutiveLosses,0);
+  if(number(input.riskViolations,0)>0)add('RISK_VIOLATION_HISTORY','Recorded risk-limit breaches require review before new entries.');
   if(dailyLoss>=p.maxDailyLossPct)add('DAILY_LOSS_LIMIT','Daily loss limit reached.');
   if(drawdown>=p.maxDrawdownPct)add('DRAWDOWN_LIMIT','Portfolio or agent drawdown limit reached.');
   if(lossStreak>=p.maxConsecutiveLosses)add('LOSS_STREAK_LIMIT','Consecutive-loss limit reached.');
@@ -55,7 +56,7 @@ export function evaluateAgentSafety(input={},policy={}){
   if(input.duplicateIntent===true)add('DUPLICATE_INTENT','A duplicate entry intent already exists.');
   if(input.oppositeIntentCollision===true)add('OPPOSITE_INTENT_COLLISION','Agents disagree on direction for the same instrument; entry is vetoed.');
   if(input.bookValid===false)add('ORDER_BOOK_INVALID','Order book is invalid after a sequence gap or recovery.');
-  for(const event of events)if(event.severity==='critical')add('CRITICAL_AGENT_ANOMALY',event.type+': '+event.summary);
+  for(const event of events){if(event.severity==='critical')add('CRITICAL_AGENT_ANOMALY',event.type+': '+event.summary);else if(event.severity==='high')add('HIGH_AGENT_ANOMALY',event.type+': '+event.summary);}
   const critical=events.some(event=>event.severity==='critical');
   const quarantine=critical||health.score<40||input.quarantineRequested===true||input.quarantined===true;
   return {
