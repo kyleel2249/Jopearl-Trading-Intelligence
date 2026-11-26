@@ -41,6 +41,9 @@ export class Orchestrator {
     this.paused = false;
     this.pauseUntil = 0;
     this.pauseReason = '';
+    this.drawdownTriggers = 0;
+    this.sessionHalted = false;
+    this.sessionHaltReason = '';
     this.peak = config.session.startBalance;
     this.finished = false;
     this.recap = null;
@@ -109,23 +112,45 @@ export class Orchestrator {
   }
 
   _drawdownPolicy(now) {
+    if (this.sessionHalted) return;
     const eq = this.equity.balance;
-    const limit = this.cfg.rules.drawdownLimitPct;
-    if (this.paused) {
-      if (now >= this.pauseUntil) {
-        this.paused = false;
-        this.peak = eq;
-        this.bus.emit('sys', { reason: `RESUME after ${this.cfg.rules.pauseMin}m pause · peak reset to $${eq.toFixed(2)}` });
-      }
+    const rules = this.cfg.rules;
+    const limit = rules.drawdownLimitPct;
+    const sessionLossLimit = Number(rules.sessionLossLimitPct) || Math.min(10, limit);
+    const lossStreakLimit = Number(rules.lossStreakLimit) || 4;
+    if (this.equity.lossStreak >= lossStreakLimit) {
+      this.sessionHalted = true; this.paused = true;
+      this.sessionHaltReason = `loss streak ${this.equity.lossStreak} reached the ${lossStreakLimit}-loss session limit`;
+      this.bus.emit('sys', { reason: `SESSION HALT: ${this.sessionHaltReason}. No new entries for the remainder of this session; open-position exits remain enabled.` });
+      return;
+    }
+    if (eq <= this.cfg.session.startBalance * (1 - sessionLossLimit / 100)) {
+      this.sessionHalted = true; this.paused = true;
+      this.sessionHaltReason = `session loss exceeded ${sessionLossLimit}%`;
+      this.bus.emit('sys', { reason: `SESSION HALT: ${this.sessionHaltReason}. No timed resume is permitted; open-position exits remain enabled.` });
       return;
     }
     if (eq > this.peak) this.peak = eq;
-    const dd = ((this.peak - eq) / this.peak) * 100;
+    const dd = this.peak > 0 ? ((this.peak - eq) / this.peak) * 100 : 0;
+    if (this.paused) {
+      if (now >= this.pauseUntil && !this.sessionHalted) {
+        this.paused = false;
+        this.bus.emit('sys', { reason: `RESUME after ${rules.pauseMin}m cooldown · original peak retained at $${this.peak.toFixed(2)} · trigger ${this.drawdownTriggers}/${Number(rules.maxDrawdownTriggers) || 2}` });
+      }
+      return;
+    }
     if (dd >= limit) {
-      this.paused = true;
-      this.pauseUntil = now + this.cfg.rules.pauseMin;
+      this.drawdownTriggers += 1;
+      const maxTriggers = Number(rules.maxDrawdownTriggers) || 2;
       this.pauseReason = `drawdown -${dd.toFixed(1)}% from peak $${this.peak.toFixed(2)}`;
-      this.bus.emit('sys', { reason: `PAUSE new entries: ${this.pauseReason} (limit -${limit}%). Open positions keep their exits.` });
+      if (this.drawdownTriggers >= maxTriggers) {
+        this.sessionHalted = true; this.paused = true;
+        this.sessionHaltReason = `${this.drawdownTriggers} drawdown triggers reached`;
+        this.bus.emit('sys', { reason: `SESSION HALT: ${this.pauseReason}; ${this.sessionHaltReason}. No timed resume; open-position exits remain enabled.` });
+      } else {
+        this.paused = true; this.pauseUntil = now + rules.pauseMin;
+        this.bus.emit('sys', { reason: `PAUSE new entries: ${this.pauseReason} (limit -${limit}%). Trigger ${this.drawdownTriggers}/${maxTriggers}; original peak retained. Open positions keep their exits.` });
+      }
     }
   }
 
@@ -257,6 +282,9 @@ export class Orchestrator {
       clock: { label: this.clock.label(), elapsed: this.clock.elapsed, length: this.clock.length, done: this.clock.done },
       finished: this.finished,
       paused: this.paused,
+      sessionHalted: this.sessionHalted,
+      sessionHaltReason: this.sessionHaltReason,
+      drawdownTriggers: this.drawdownTriggers,
       pauseReason: this.pauseReason,
       sharedContext: this.sharedContext ? { regime: this.sharedContext.regime, riskScore: this.sharedContext.riskScore, fetchedAt: this.sharedContext.fetchedAt } : null,
       sharedMacro: this.sharedMacro ? { marketCapChange24hPercent: this.sharedMacro.crypto?.marketCapChange24hPercent ?? null, btcDominancePercent: this.sharedMacro.crypto?.btcDominancePercent ?? null, defiTvlUsd: this.sharedMacro.defi?.totalValueLockedUsd ?? null, generatedAt: this.sharedMacro.generatedAt } : null,
