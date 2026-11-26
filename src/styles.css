@@ -333,3 +333,8 @@ html body .trading-chart-panel .candlestick-svg-wrap.chart-expanded{position:fix
  .jpti-dedicated-terminal-foot span:nth-child(2){display:none}
 }
 .ig-hero>input{min-width:0;flex:0 1 220px;padding:9px 11px;border:1px solid #6083ad;border-radius:7px;background:#0f2038;color:#eaf4ff;font-size:11px}.ig-hero>input::placeholder{color:#8aa6c9}@media(max-width:560px){.ig-hero>input{width:100%;flex-basis:auto}}
+
+/* Human-readable agent output (converted from JSON by src/lib/agent-report.js) */
+pre.agent-readable{white-space:pre-wrap;overflow-wrap:anywhere;font-family:inherit;line-height:1.55;max-height:520px;overflow:auto}
+details.agent-raw{margin-top:10px}
+details.agent-raw>summary{cursor:pointer;font-size:12px;opacity:.75}

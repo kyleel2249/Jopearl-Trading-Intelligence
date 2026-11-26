@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Activity, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, Play, RefreshCw, Search, ShieldCheck, Sparkles, Target, Users } from 'lucide-react';
 import { apiFetch } from './lib/api.js';
 import './AutonomousDepartments.css';
+import { humanizeAgentOutput } from './lib/agent-report.js';
 
 const LABELS = { research: 'Research & Intelligence', 'trading-social': 'Trading Social Intelligence', 'general-marketing': 'General Marketing Intelligence' };
 const shortDate = value => value ? new Date(value).toLocaleString() : '—';
@@ -144,7 +145,7 @@ export default function AutonomousDepartments() {
           <div className="org-panel-head"><div><span className="eyebrow">MISSION CONTROL</span><h4>Department mission history</h4></div><Activity size={17}/></div>
           <div className="org-mission-list">{missions.slice(0, 12).map(item => <article key={item.id}>
             <div><b>{item.title}</b><span className={'org-status org-' + item.status}>{item.status}</span></div><p>{item.objective}</p>
-            {item.result?.output && <details><summary>Read completed intelligence</summary><pre>{item.result.output}</pre></details>}
+            {item.result?.output && <details><summary>Read completed intelligence</summary><pre className="agent-readable">{humanizeAgentOutput(item.result.output)}</pre></details>}
             {item.status !== 'completed' && <button className="small-refresh" disabled={busy} onClick={() => runQueued(item)}>Run / retry mission</button>}
             <small>{shortDate(item.createdAt)} · {item.assignedAgents.length} assigned agents</small>
           </article>)}{!missions.length && <p className="subtle-note">No missions recorded for this department yet.</p>}</div>

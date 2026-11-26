@@ -1,4 +1,5 @@
 import { verifyPrivateToken } from './private-auth.js';
+import { humanizeAgentOutput } from '../src/lib/agent-report.js';
 
 const DEPARTMENTS = [
   { id: 'research', name: 'Research & Intelligence', short: 'RESEARCH', mission: 'Find, verify, synthesise and distribute useful intelligence across JPTI.', goals: [{ key: 'missions', label: 'Completed research missions', target: 3, unit: 'missions' }, { key: 'memory', label: 'Verified shared knowledge', target: 5, unit: 'records' }, { key: 'messages', label: 'Useful department handoffs', target: 3, unit: 'messages' }] },
@@ -115,7 +116,7 @@ async function runMission(db, env, mission, fetchImpl) {
         { role: 'user', content: JSON.stringify({ department: department?.name, mission: { title: mission.title, objective: mission.objective }, publicResearch: context, sharedInstitutionalMemory: sharedMemory }) }
       ], max_tokens: 850, temperature: 0.2
     });
-    specialistFindings.push({ agentId, agentName: agent.name, role: agent.role, analysis: clean(typeof output === 'string' ? output : output?.response || output?.result?.response || JSON.stringify(output), 6500) });
+    specialistFindings.push({ agentId, agentName: agent.name, role: agent.role, analysis: clean(humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output), 6500) });
   }
   const synthesis = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
     messages: [
@@ -123,7 +124,7 @@ async function runMission(db, env, mission, fetchImpl) {
       { role: 'user', content: JSON.stringify({ department: department?.name, mission: { title: mission.title, objective: mission.objective }, publicResearch: context, sharedInstitutionalMemory: sharedMemory, independentSpecialistFindings: specialistFindings }) }
     ], max_tokens: 1800, temperature: 0.2
   });
-  const output = typeof synthesis === 'string' ? synthesis : synthesis?.response || synthesis?.result?.response || JSON.stringify(synthesis);
+  const output = humanizeAgentOutput(typeof synthesis === 'string' ? synthesis : synthesis?.response || synthesis?.result?.response || synthesis);
   const completedAt = stamp();
   const result = { output: clean(output, 18000), specialistFindings, sharedMemoryRecords: sharedMemory.length, research: context, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: completedAt, evidenceStatus: context.status, sourceCount: context.items.length };
   await db.prepare("UPDATE jpti_org_missions SET status = 'completed', result_json = ?, completed_at = ?, updated_at = ? WHERE mission_id = ?")
