@@ -76,13 +76,16 @@ test('T-Bots proceeds to the existing independent entry preflight only after his
     calls.push(url);
     const body=url.includes('/validation/latest/')
       ? {paperTrialEligible:true}
-      : {allowed:true,maxEntrySizePct:0.5,reasons:[]};
+      : url.includes('/paper/safety')
+        ? {available:true,global:{status:'CLOSED',killSwitch:false,circuitBreaker:false}}
+        : {allowed:true,maxEntrySizePct:0.5,reasons:[]};
     return {ok:true,json:async()=>body};
   }});
   bridge.setToken('local-test-token');
   const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair',securityPassed:true});
   assert.equal(result.allowed,true);
-  assert.equal(calls.length,2);
+  assert.equal(calls.length,3);
   assert.match(calls[0],/validation\/latest/);
-  assert.match(calls[1],/entry-preflight/);
+  assert.match(calls[1],/paper\/safety/);
+  assert.match(calls[2],/entry-preflight/);
 });
