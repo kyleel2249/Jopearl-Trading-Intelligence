@@ -304,7 +304,13 @@ async function dashboard(db){
   agents.push({...agent,...stored,id:agent.id,tier:row?.tier||'RESEARCH',status:row?.status||'active',virtualEquityUsd:row?.virtual_equity_usd==null?PAPER_POLICY.initialEquityUsd:num(row.virtual_equity_usd),promotedAt:row?.promoted_at||null,metrics,kpi,openTrades:trades.filter(t=>t.status==='open').slice(0,5),recentTrades:trades.slice(0,8)});
  }
  const openTrades=agents.flatMap(a=>a.openTrades.map(t=>({...t,agentName:a.name})));
- return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,updatedAt:iso()};
+ let safety={available:false,global:{status:'UNKNOWN',killSwitch:false,circuitBreaker:false},agents:[]};
+ try{
+  const global=await db.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+  const states=await db.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 100').all();
+  safety={available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parse(global.reasons_json,[])}:{status:'CLOSED',killSwitch:false,circuitBreaker:false},agents:(states.results||[]).map(x=>({...x,reasons:parse(x.reasons_json,[])}))};
+ }catch{/* A migration-required state is surfaced instead of inventing healthy telemetry. */}
+ return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,safety,updatedAt:iso()};
 }
 export async function dailyReview(db){
  const dash=await dashboard(db),date=iso().slice(0,10);
@@ -325,6 +331,28 @@ export async function onRequest({request,env,params}){
  const path=String(params?.path||'').replace(/^\/+|\/+$/g,'');
  try{
   if(request.method==='GET'&&path==='overview')return response(200,await dashboard(env.JPTI_DB));
+  if(request.method==='GET'&&path==='safety'){
+   const global=await env.JPTI_DB.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+   const states=await env.JPTI_DB.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 200').all();
+   return response(200,{available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parse(global.reasons_json,[])}:null,agents:(states.results||[]).map(x=>({...x,reasons:parse(x.reasons_json,[])})),liveExecutionAuthorized:false});
+  }
+  if(request.method==='POST'&&path==='safety/kill-switch'){
+   const body=await request.json().catch(()=>({})),enabled=body.enabled===true,reason=String(body.reason||'').trim();
+   if(!reason||reason.length<8)return response(400,{error:'A reason of at least 8 characters is required.'});
+   const current=await env.JPTI_DB.prepare("SELECT circuit_breaker FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
+   if(!enabled&&body.acknowledge!==true)return response(409,{error:'Explicit acknowledge:true is required to clear the operator kill switch.'});
+   const circuitBreaker=enabled?1:Number(current?.circuit_breaker||0),status=enabled||circuitBreaker?'TRIPPED':'CLOSED',now=iso();
+   await env.JPTI_DB.prepare("UPDATE jpti_fleet_circuit_breakers SET status=?,kill_switch=?,circuit_breaker=?,manual_resume_required=?,reasons_json=?,tripped_at=CASE WHEN ?=1 THEN COALESCE(tripped_at,?) ELSE NULL END,resume_at=NULL,updated_by='authenticated-operator',updated_at=? WHERE scope_id='global'")
+    .bind(status,enabled?1:0,circuitBreaker,enabled||circuitBreaker?1:0,JSON.stringify(enabled?[{code:'OPERATOR_KILL_SWITCH',reason}]:circuitBreaker?[{code:'CIRCUIT_BREAKER_STILL_ACTIVE',reason:'Operator kill switch cleared; circuit breaker remains tripped.'}]:[]),enabled?1:0,now,now).run();
+   return response(200,{updated:true,enabled,status,killSwitch:enabled,circuitBreaker:!!circuitBreaker,manualResumeRequired:!!(enabled||circuitBreaker),reason,liveExecutionAuthorized:false});
+  }
+  if(request.method==='POST'&&path==='safety/resume'){
+   const body=await request.json().catch(()=>({})),reason=String(body.reason||'').trim();
+   if(body.acknowledge!==true||reason.length<8)return response(409,{error:'Explicit acknowledge:true and a reason of at least 8 characters are required to resume.'});
+   const now=iso();
+   await env.JPTI_DB.prepare("UPDATE jpti_fleet_circuit_breakers SET status='CLOSED',kill_switch=0,circuit_breaker=0,manual_resume_required=0,reasons_json='[]',tripped_at=NULL,resume_at=NULL,updated_by='authenticated-operator',updated_at=? WHERE scope_id='global'").bind(now).run();
+   return response(200,{updated:true,status:'CLOSED',killSwitch:false,circuitBreaker:false,reason,liveExecutionAuthorized:false,note:'Paper entries may resume only after the normal market, strategy and capital-protection gates pass.'});
+  }
   if(request.method==='GET'&&path==='reviews'){
    const rows=await env.JPTI_DB.prepare('SELECT payload FROM jpti_paper_reviews ORDER BY review_date DESC LIMIT 30').all();
    return response(200,{reviews:(rows.results||[]).map(r=>JSON.parse(r.payload))});
