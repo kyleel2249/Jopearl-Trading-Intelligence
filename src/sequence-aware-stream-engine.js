@@ -4,9 +4,10 @@ const n = v => v === null || v === undefined || v === '' ? null : Number.isFinit
 const iso = v => { const x=n(v); if(x===null)return null; const d=new Date(x<1e12?x*1000:x); return Number.isNaN(d.getTime())?null:d.toISOString(); };
 export function normalizeStreamRequest(input={}) {
  const exchange=String(input.exchange||'').toLowerCase(), marketType=String(input.marketType||'spot').toLowerCase();
- const symbol=String(input.symbol||'BTC/USDT').toUpperCase().trim();
+ let symbol=String(input.symbol||'BTC/USDT').toUpperCase().trim();
  if(!STREAM_EXCHANGES.includes(exchange)) throw new Error('Unsupported exchange.');
  if(!TYPES.includes(marketType)) throw new Error('Unsupported market type.');
+ if(!symbol.includes('/')){const quote=['USDT','USDC','BUSD','USD','BTC','ETH','EUR','GBP'].find(q=>symbol.endsWith(q)&&symbol.length>q.length);if(!quote)throw new Error('Use BASE/QUOTE notation or a recognised exchange symbol.');symbol=symbol.slice(0,-quote.length)+'/'+quote;}
  if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(symbol)) throw new Error('Use BASE/QUOTE symbol notation.');
  return {exchange,marketType,symbol,streamId:[exchange,marketType,symbol].join(':')};
 }
