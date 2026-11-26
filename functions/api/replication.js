@@ -149,6 +149,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
         errors.push({ exchange, marketType, stage: 'markets', error: marketResult?.body?.error || 'Market catalogue unavailable.' });
         return;
       }
+      counts.succeeded++;
       const markets = selectReplicationMarkets(marketResult.body?.markets, plan.symbols, plan.limit);
       counts.markets += markets.length;
       if (!markets.length) skipped.push({ exchange, marketType, reason: 'No configured symbols are listed in this market category.' });
