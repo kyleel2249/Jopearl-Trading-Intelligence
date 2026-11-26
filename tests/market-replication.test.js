@@ -153,6 +153,26 @@ test('replication acquires and durably deduplicates ticker and OHLCV observation
   assert.equal(db.runs.size, 2);
 });
 
+test('Bitget derivatives retain native instrument IDs across ticker and candle requests', async () => {
+  const db = makeDb();
+  const requested = [];
+  const provider = {
+    async request(path) {
+      requested.push(path);
+      if (path.includes('/markets?')) return { status: 200, body: { markets: [{ id: 'BTCUSDT_UMCBL', symbol: 'BTC/USDT:USDT', active: true }] } };
+      if (path.includes('/ticker/')) return { status: 200, body: { ...ticker, symbol: 'BTC/USDT:USDT' } };
+      if (path.includes('/ohlcv/')) return { status: 200, body: { candles } };
+      return { status: 404, body: { error: 'not found' } };
+    }
+  };
+  const handler = createMarketReplicationHandler({ provider, now: fixedNow, verifyToken: async () => ({ ok: true }) });
+  const response = await handler({ request: new Request('https://jpti.example/api/replication', { method: 'POST', body: JSON.stringify({ exchanges: ['bitget'], marketTypes: ['usdt-m'], symbols: ['BTC/USDT'], timeframes: ['1m'], marketLimit: 1 }) }), env: { JPTI_DB: db } });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.counts.inserted, 3);
+  assert.ok(requested.filter(path => path.includes('/ticker/') || path.includes('/ohlcv/')).every(path => path.includes('instrumentId=BTCUSDT_UMCBL')));
+});
+
 test('history endpoint reads persisted observations without exposing credentials', async () => {
   const db = makeDb();
   const provider = { request: async path => path.includes('/markets?') ? { status: 200, body: { markets: [{ symbol: 'BTC/USDT', active: true }] } } : path.includes('/ticker/') ? { status: 200, body: ticker } : { status: 200, body: { candles } } };
