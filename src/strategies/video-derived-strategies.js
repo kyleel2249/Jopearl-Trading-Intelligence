@@ -158,11 +158,12 @@ export function evaluateVideoStrategyRisk(input = {}, policy = {}) {
   if (input.executionCostsIncluded !== true) violations.push('spread-fees-slippage-not-accounted-for');
   if (input.strategyQualified !== true) violations.push('strategy-not-qualified');
   if (input.paperMode !== true) violations.push('paper-mode-required');
-  const riskUsd = violations.length ? 0 : equity * riskPct / 100;
   const stopDistancePct = Number(input.stopDistancePct);
-  const notionalCapUsd = riskUsd > 0 && positive(stopDistancePct) ? riskUsd / (stopDistancePct / 100) : 0;
   if (!positive(stopDistancePct)) violations.push('stop-distance-invalid');
-  return { allowedForPaper: violations.length === 0, violations, riskUsd: round(riskUsd, 2), notionalCapUsd: round(notionalCapUsd, 2), maxRiskPct, liveExecutionAuthorized: false };
+  const allowedForPaper = violations.length === 0;
+  const riskUsd = allowedForPaper ? equity * riskPct / 100 : 0;
+  const notionalCapUsd = allowedForPaper ? riskUsd / (stopDistancePct / 100) : 0;
+  return { allowedForPaper, violations, riskUsd: round(riskUsd, 2), notionalCapUsd: round(notionalCapUsd, 2), maxRiskPct, liveExecutionAuthorized: false };
 }
 
 export function qualifyVideoStrategy(metrics = {}, policy = {}) {
