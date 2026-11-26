@@ -31,7 +31,7 @@ function metric(candidate,key,window='90d') {
   return finite(windows[window]?.[key] ?? candidate[key]);
 }
 function scoreWindowStability(c) {
-  const values=['7d','30d','90d','180d'].map(w=>metric(c,'roiPct',w)).filter(v=>v!==null);
+  const values=['7d','30d','90d','180d'].map(w=>finite(c.windows?.[w]?.roiPct)).filter(v=>v!==null);
   if(values.length<3)return {score:0,coverage:values.length};
   const mean=values.reduce((a,b)=>a+b,0)/values.length;
   const variance=values.reduce((a,b)=>a+(b-mean)**2,0)/values.length;
