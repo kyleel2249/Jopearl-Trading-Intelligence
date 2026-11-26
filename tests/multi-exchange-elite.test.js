@@ -125,3 +125,17 @@ test('invalid position sides are ignored and buy/sell are normalized',()=>{
  assert.equal(result.positions.length,1);
  assert.equal(result.positions[0].side,'long');
 });
+
+test('rolling-return stability normalizes each horizon to daily return rates',()=>{
+ const record=candidate('binance',{windows:{
+  '7d':{roiPct:1.4,winRatePct:70,maxDrawdownPct:3},
+  '30d':{roiPct:6,winRatePct:70,maxDrawdownPct:4},
+  '90d':{roiPct:18,winRatePct:70,maxDrawdownPct:5},
+  '180d':{roiPct:36,winRatePct:70,maxDrawdownPct:6}
+ }});
+ const result=assessMultiExchangeTrader(record,now);
+ assert.ok(result.windowStability.dispersion<0.001);
+ assert.equal(result.windowStability.dailyReturnPctByWindow['7d'],0.2);
+ assert.equal(result.windowStability.dailyReturnPctByWindow['180d'],0.2);
+ assert.ok(result.windowStability.winRateStability>0.99);
+});
