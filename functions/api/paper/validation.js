@@ -17,7 +17,7 @@ function createTimeframesAt(series){return timestamp=>Object.fromEntries(Object.
 async function loadRiskPolicy(db){try{const row=await db.prepare("SELECT policy_json FROM jpti_risk_policies WHERE policy_id='default'").first();return row?.policy_json?safeJson(row.policy_json,{}):{};}catch{return{};}}
 async function loadForward(db,strategyId,symbol){const compact=symbol.replace('/','');const rows=await db.prepare("SELECT t.* FROM jpti_paper_trades t JOIN jpti_paper_agents a ON a.agent_id=t.agent_id WHERE t.status='closed' AND (a.agent_id=? OR json_extract(a.payload,'$.strategyId')=?) AND t.symbol IN (?,?) ORDER BY t.closed_at ASC LIMIT 12000").bind(strategyId,strategyId,symbol,compact).all();const trades=(rows.results||[]).map(mapTrade);const metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);return{...metrics,closedTrades:metrics.closedTrades,riskBreaches:metrics.riskBreaches,observationDays:metrics.observationDays};}
 const SUPPORTED_EXCHANGES=['binance','bybit','okx','bitget'];
-async function loadHistoricalMarketEvents(db,query,from,to,env={}){
+export async function loadHistoricalMarketEvents(db,query,from,to,env={}){
  const compact=query.symbol.replace('/','');
  const [stream,micro]=await Promise.all([
   db.prepare("SELECT exchange,event_kind AS kind,event_id,observed_at,payload FROM jpti_market_stream_events WHERE exchange IN ('binance','bybit','okx','bitget') AND market_type=? AND symbol IN (?,?) AND observed_at>=? AND observed_at<=? ORDER BY observed_at ASC LIMIT 80000").bind(query.marketType,query.symbol,compact,from,to).all().catch(()=>({results:[]})),
@@ -56,7 +56,7 @@ async function loadHistoricalMarketEvents(db,query,from,to,env={}){
  }
  return[...unique.values()].sort((a,b)=>a.ts-b.ts);
 }
-function createMarketDataAt(events,windowMs){
+export function createMarketDataAt(events,windowMs){
  let cursor=0,tradeQueue=[],buyNotional=0,sellNotional=0;
  const books=new Map(),funding=new Map(),oi=new Map();
  return timestamp=>{
@@ -70,7 +70,7 @@ function createMarketDataAt(events,windowMs){
    }else if(event.kind==='trade'){
     const value=Number(p.quoteNotional??(Number(p.price)*Number(p.quantity)));
     if(value>0&&(p.side==='buy'||p.side==='sell')){
-     tradeQueue.push({ts:event.ts,side:p.side,value});
+     tradeQueue.push({ts:event.ts,side:p.side,value,exchange:event.exchange});
      if(p.side==='buy')buyNotional+=value;else sellNotional+=value;
     }
    }else if(event.kind==='funding'&&Number.isFinite(Number(p.rate)))funding.set(event.exchange,{ts:event.ts,value:Number(p.rate)});
