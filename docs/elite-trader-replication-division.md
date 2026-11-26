@@ -26,7 +26,7 @@ POST body shape:
     {
       "traderId": "provider-trader-id",
       "displayName": "Trader display name",
-      "source": "provider-name",
+      "source": "provider-name",\n      "sourceAttested": true,
       "sourceUrl": "https://provider.example/profile",
       "retrievedAt": "2026-11-26T12:00:00.000Z",
       "totalTrades": 500,
@@ -44,7 +44,7 @@ POST body shape:
 }
 ```
 
-The sample above documents the schema only; it is not a real trader or a live result. Never submit synthetic metrics as actual candidates.
+The sample above documents the schema only; it is not a real trader or a live result. Never submit synthetic metrics as actual candidates. The sourceAttested flag is an operator attestation, not independent verification; the system continues to label the provenance unverified until reconciliation is implemented.
 
 ## Data-source and automation requirements
 
