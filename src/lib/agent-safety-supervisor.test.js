@@ -12,6 +12,9 @@ test('missing and stale market data fail closed',()=>{
 test('missing or invalid streamed order book blocks new entries',()=>{
  for(const bookValid of [false,undefined]){const result=evaluateAgentSafety({...healthy,bookValid});assert.equal(result.allowed,false);assert.ok(result.reasons.some(x=>x.code==='ORDER_BOOK_INVALID'));}
 });
+test('paused, disabled and error-state agents cannot open entries',()=>{
+ for(const agentStatus of ['paused','disabled','inactive','error','quarantined'])assert.equal(evaluateAgentSafety({...healthy,agentStatus}).allowed,false);
+});
 test('global kill switch, circuit breaker and quarantine veto entries',()=>{
  for(const key of ['killSwitch','circuitBreaker','quarantined'])assert.equal(evaluateAgentSafety({...healthy,[key]:true}).allowed,false);
 });
