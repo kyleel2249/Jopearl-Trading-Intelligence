@@ -270,7 +270,8 @@ export async function runCycle(db,symbol,options={},env={}){
    oppositeIntentCollision:collisionSymbols.has(market.symbol),
    // New risk requires at least one fresh, sequence-valid streamed order book; REST candles alone are insufficient.
    bookValid:liveMarketContext.bookValid===true,
-   riskViolations:metrics.riskBreaches
+   // Trade outcomes below -1.1R are strategy-performance evidence, not proof of a policy bypass.
+   // Actual policy violations are supplied through high/critical governance behaviour events.
   });
   report.agentSafety.push({agentId:agent.id,...safetyDecision});
   try{
