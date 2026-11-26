@@ -28,7 +28,7 @@ test('prompt: round-trips exactly through parser; unparsed fields are reported',
   const r = parsePrompt(DEFAULT_PROMPT);
   assert.deepEqual(r.config, DEFAULT_CONFIG);
   assert.deepEqual(r.errors, []);
-  assert.deepEqual(r.defaulted.sort(), ['executor.feePct', 'rules.noChasePullbackPct', 'rules.pauseMin', 'rules.reentryCooldownMin', 'scanner.holderGrowthMinPct']);
+  assert.deepEqual(r.defaulted.sort(), ['executor.feePct', 'scanner.holderGrowthMinPct']);
   assert.ok(DEFAULT_PROMPT.split(/\s+/).filter(Boolean).length > 345, 'universal prompt includes the added shared-intelligence controls');
 });
 
