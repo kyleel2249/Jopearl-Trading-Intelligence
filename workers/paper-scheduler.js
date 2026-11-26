@@ -29,7 +29,7 @@ export function normalizeBitgetPerpetualUniverse(contracts=[],tickers=[]) {
 export function selectRoundRobinBatch(symbols=[],offset=0,batchSize=10) {
   const rows=[...new Set((Array.isArray(symbols)?symbols:[]).map(x=>String(x).toUpperCase()).filter(x=>/^[A-Z0-9]{3,20}USDT$/.test(x)))];
   if(!rows.length)return {symbols:[],nextOffset:0,offset:0};
-  const start=((Math.floor(Number(offset)||0)%rows.length)+rows.length)%rows.length,count=Math.min(rows.length,Math.max(1,Math.floor(Number(batchSize)||10)));
+  const start=((Math.floor(Number(offset)||0)%rows.length)+rows.length)%rows.length,count=Math.min(rows.length-start,Math.max(1,Math.floor(Number(batchSize)||10)));
   return {symbols:Array.from({length:count},(_,i)=>rows[(start+i)%rows.length]),offset:start,nextOffset:(start+count)%rows.length};
 }
 const UNIVERSE_CURSOR_ID='scheduler:bitget:usdt-m:universe';
