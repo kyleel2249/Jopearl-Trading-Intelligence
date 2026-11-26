@@ -165,8 +165,8 @@ async function fetchBitgetInstrumentCategory(category, options) {
       return { payload, apiVersion: 'v2' };
     } catch (fallbackError) {
       throw new DirectError(
-        'Bitget ' + category + ' catalogue failed on v3 (' + String(primaryError?.message || primaryError).slice(0, 100) +
-        ') and v2 fallback (' + String(fallbackError?.message || fallbackError).slice(0, 120) + ').',
+        String(primaryError?.message || primaryError).slice(0, 120) +
+        '; v2 fallback failed: ' + String(fallbackError?.message || fallbackError).slice(0, 120),
         fallbackError?.status || primaryError?.status || 502
       );
     }
