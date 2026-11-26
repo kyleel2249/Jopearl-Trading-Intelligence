@@ -34,3 +34,6 @@ android/app/build/
 *service_account*.json
 *serviceAccount*.json
 *firebase-adminsdk*.json
+# Temporary GitHub Actions -> Cloudflare Pages configuration
+.wrangler-ci.toml
+.jpti-pages-secrets.json
