@@ -238,18 +238,19 @@ export async function runCycle(db,symbol,options={},env={}){
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   const validationEvidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
   const decayDetected=validationEvidence.verdict?.decayDetected===true;
-  const [storedSafety,heartbeat,behaviorRows]=await Promise.all([
+  const [storedSafety,heartbeat,behaviorRows,trustRow]=await Promise.all([
    db.prepare('SELECT status,quarantined_until FROM jpti_agent_safety_state WHERE agent_id=?').bind(agent.id).first().catch(()=>null),
    db.prepare('SELECT status,last_seen,latency_ms,error_count FROM jpti_agent_heartbeats WHERE agent_id=?').bind(agent.id).first().catch(()=>null),
-   db.prepare("SELECT event_type,severity,summary,observed_at FROM jpti_agent_behavior_events WHERE agent_id=? AND observed_at>=? ORDER BY observed_at DESC LIMIT 50").bind(agent.id,new Date(Date.now()-24*60*60*1000).toISOString()).all().catch(()=>({results:[]}))
+   db.prepare("SELECT event_type,severity,summary,observed_at FROM jpti_agent_behavior_events WHERE agent_id=? AND observed_at>=? ORDER BY observed_at DESC LIMIT 50").bind(agent.id,new Date(Date.now()-24*60*60*1000).toISOString()).all().catch(()=>({results:[]})),
+   db.prepare('SELECT trust_score FROM jpti_agent_trust_snapshots WHERE agent_id=? ORDER BY calculated_at DESC LIMIT 1').bind(agent.id).first().catch(()=>null)
   ]);
-  const quarantined=storedSafety?.status==='QUARANTINED'&&(!storedSafety.quarantined_until||Date.parse(storedSafety.quarantined_until)>Date.now());
+  const quarantineExpiry=Date.parse(storedSafety?.quarantined_until||''),quarantined=storedSafety?.status==='QUARANTINED'&&(!storedSafety.quarantined_until||!Number.isFinite(quarantineExpiry)||quarantineExpiry>Date.now());
   const dailyLossPct=Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100;
   const safetyDecision=evaluateAgentSafety({
    agentStatus:agent.status,heartbeatStatus:heartbeat?.status||'unknown',
    heartbeatAgeMs:heartbeat?.last_seen?Math.max(0,Date.now()-Date.parse(heartbeat.last_seen)):null,
    latencyMs:heartbeat?.latency_ms??null,errorRate:heartbeat?.error_count?Math.min(1,Number(heartbeat.error_count)/10):0,
-   trustScore:Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)),
+   trustScore:trustRow?.trust_score===undefined?Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)):Number(trustRow.trust_score),
    safetyStorageReady:fleetSafety.available,
    anomalies:(behaviorRows.results||[]).map(x=>({type:x.event_type,severity:x.severity,summary:x.summary,at:x.observed_at})),
    dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),
