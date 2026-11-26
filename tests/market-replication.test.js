@@ -79,6 +79,13 @@ test('replication planner stays within Cloudflare subrequest budget for all venu
   assert.ok(bounded.requestBudget.estimatedSubrequests <= 45);
 });
 
+test('default allowlist covers Bitget USDT, inverse and USDC contract symbols', () => {
+  const plan = normalizeReplicationPlan();
+  assert.ok(plan.symbols.includes('BTC/USDT'));
+  assert.ok(plan.symbols.includes('BTC/USD:BTC'));
+  assert.ok(plan.symbols.includes('BTC/USDC:USDC'));
+});
+
 test('only Bitget receives the five supported public product categories', () => {
   assert.deepEqual(marketTypesForExchange('binance'), ['spot']);
   assert.deepEqual(marketTypesForExchange('bitget'), ['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
