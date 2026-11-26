@@ -99,6 +99,17 @@ export function unrealizedPnlForSymbol(openTrades,symbol,lastPrice,feeRate){
   return sum+move-num(t.entryFeeUsd)-lastPrice*num(t.quantity)*feeRate;
  },0);
 }
+async function loadLiveMarketContext(db,marketSymbol){
+ const pair=String(marketSymbol||'').endsWith('USDT')?String(marketSymbol).slice(0,-4)+'/USDT':String(marketSymbol||'');
+ const safe=async sql=>{try{return(await db.prepare(sql).bind(pair).all()).results||[];}catch{return[];}};
+ const [books,events,micro]=await Promise.all([
+  safe("SELECT exchange,market_type,symbol,last_sequence,book_valid,best_bid,best_ask,spread_bps,depth_imbalance,notional_imbalance,book_json,updated_at FROM jpti_market_stream_books WHERE symbol=? ORDER BY updated_at DESC LIMIT 12"),
+  safe("SELECT exchange,market_type,symbol,event_kind,event_id,sequence,observed_at,received_at,payload,quality FROM jpti_market_stream_events WHERE symbol=? ORDER BY observed_at DESC LIMIT 120"),
+  safe("SELECT exchange,market_type,symbol,observation_kind,event_id,observed_at,received_at,payload,quality FROM jpti_microstructure_observations WHERE symbol=? ORDER BY observed_at DESC LIMIT 120")
+ ]);
+ const parse=v=>{try{return JSON.parse(v||'{}')}catch{return{};}};
+ return{symbol:pair,orderBooks:books.map(x=>({...x,book:parse(x.book_json)})),streamEvents:events.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),microstructure:micro.map(x=>({...x,payload:parse(x.payload),quality:parse(x.quality)})),venues:[...new Set([...books,...events,...micro].map(x=>x.exchange))],freshestAt:[...books,...events,...micro].map(x=>x.received_at||x.updated_at).filter(Boolean).sort().at(-1)||null};
+}
 export async function runCycle(db,symbol,options={}){
  if(!options.agentsEnsured)await ensureAgents(db);
  const market=await marketSnapshot(symbol);
@@ -163,7 +174,7 @@ export async function runCycle(db,symbol,options={}){
     report.closed.push({agentId:agent.id,tradeId:open.trade_id,...settled,reason});exposure.total=Math.max(0,exposure.total-1);exposure.bySymbol.set(open.symbol,Math.max(0,(exposure.bySymbol.get(open.symbol)||0)-1));exposure.byDirection.set(open.direction,Math.max(0,(exposure.byDirection.get(open.direction)||0)-1));
    }
   }
-  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id,{timeframes:market.timeframes});
+  const signal=derivePaperSignal(market.candles,market.ticker,agent.strategyId||agent.id,{timeframes:market.timeframes,marketData:liveMarketContext});
   const currentRows=await allTrades(db,agent.id),current=currentRows.map(toTrade);
   const openNow=current.filter(t=>t.status==='open').length;
   const metrics=calculatePaperMetrics(current,PAPER_POLICY.initialEquityUsd);
