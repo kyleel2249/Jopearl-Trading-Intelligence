@@ -110,6 +110,52 @@ export function replicationObservationKey(observation) {
     .map(value => encodeURIComponent(String(value || 'na'))).join('|');
 }
 
+
+export function detectCandleGaps(observations = []) {
+  const groups = new Map();
+  for (const row of observations) {
+    if (row?.kind !== 'ohlcv' || !row.timeframe) continue;
+    const key = [row.exchange, row.marketType, row.symbol, row.timeframe].join('|');
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(row);
+  }
+  const gaps = [];
+  for (const [key, rows] of groups) {
+    const interval = timeframeMs(rows[0].timeframe);
+    const sorted = [...rows].sort((a, b) => Date.parse(a.observedAt) - Date.parse(b.observedAt));
+    for (let index = 1; index < sorted.length; index += 1) {
+      const previous = Date.parse(sorted[index - 1].observedAt);
+      const current = Date.parse(sorted[index].observedAt);
+      const missing = Math.max(0, Math.floor((current - previous) / interval) - 1);
+      if (missing > 0) gaps.push({ key, exchange: sorted[index].exchange, marketType: sorted[index].marketType, symbol: sorted[index].symbol, timeframe: sorted[index].timeframe, missingCandles: missing, after: sorted[index - 1].observedAt, before: sorted[index].observedAt });
+    }
+  }
+  return { groups: groups.size, gapCount: gaps.length, missingCandles: gaps.reduce((sum, gap) => sum + gap.missingCandles, 0), gaps: gaps.slice(0, 100) };
+}
+
+export function buildCrossExchangeConsensus(observations = [], outlierThresholdPct = 0.5) {
+  const groups = new Map();
+  for (const row of observations) {
+    if (row?.kind !== 'ticker' || row.marketType !== 'spot' || !(row.last > 0)) continue;
+    if (!groups.has(row.symbol)) groups.set(row.symbol, []);
+    groups.get(row.symbol).push(row);
+  }
+  return [...groups.entries()].map(([symbol, rows]) => {
+    const prices = rows.map(row => row.last).sort((a, b) => a - b);
+    const middle = Math.floor(prices.length / 2);
+    const median = prices.length % 2 ? prices[middle] : (prices[middle - 1] + prices[middle]) / 2;
+    const min = prices[0], max = prices.at(-1);
+    const dispersionPct = median > 0 ? ((max - min) / median) * 100 : null;
+    return {
+      symbol, venueCount: rows.length, medianPrice: median, minPrice: min, maxPrice: max,
+      dispersionPct: dispersionPct === null ? null : Number(dispersionPct.toFixed(5)),
+      outliers: rows.filter(row => Math.abs((row.last - median) / median * 100) > outlierThresholdPct).map(row => ({ exchange: row.exchange, price: row.last, deviationPct: Number(((row.last - median) / median * 100).toFixed(5)) })),
+      sources: rows.map(row => ({ exchange: row.exchange, observedAt: row.observedAt, receivedAt: row.receivedAt })),
+      interpretation: rows.length < 2 ? 'single-venue-observation' : 'indicative-cross-venue-reference-not-executable'
+    };
+  }).sort((a, b) => a.symbol.localeCompare(b.symbol));
+}
+
 export function buildReplicationSummary({ startedAt, finishedAt, plan, counts, errors, skipped, runId }) {
   const attempted = counts.attempted || 0;
   const stored = counts.inserted || 0;
