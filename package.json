@@ -17,7 +17,7 @@
     "preview": "vite preview --host 0.0.0.0",
     "check": "node scripts/apply-tbots-adapter.mjs && node scripts/check-syntax.mjs",
     "check:syntax": "node scripts/check-syntax.mjs",
-    "test": "node --test && npm run verify:institutional-intelligence",
+    "test": "node --test && npm run verify:institutional-intelligence && npm run verify:trading-desk",
     "backtest:walkforward": "node scripts/walk-forward.mjs",
     "validate:strategy": "node scripts/validate-strategy.mjs",
     "deploy:market-streams": "wrangler deploy --config workers/market-stream-collector.wrangler.toml",
@@ -36,7 +36,8 @@
     "db:d1:apply": "wrangler d1 migrations apply JPTI_DB --remote --config ./wrangler.toml",
     "verify:bitget:live": "node scripts/verify-bitget-live.mjs",
     "verify:chart-intelligence": "node scripts/verify-chart-intelligence.mjs",
-    "verify:institutional-intelligence": "node scripts/verify-institutional-intelligence.mjs"
+    "verify:institutional-intelligence": "node scripts/verify-institutional-intelligence.mjs",
+    "verify:trading-desk": "node scripts/verify-trading-desk-agents.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.3.4",
