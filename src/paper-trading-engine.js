@@ -6,6 +6,10 @@ export const PAPER_POLICY=Object.freeze({
  minimumExpectancyR:0.15,minimumSharpe:0.8,minimumRegimeTrades:30,minimumOutOfSampleTrades:50,
  maximumConsecutiveLosses:5,maximumRiskBreaches:0,minimumNetProfitUsd:0.01
 });
+export function calculateAllInRiskPerUnit({entryPrice,stopDistance,feeRate=PAPER_POLICY.feeRate,slippageBps=PAPER_POLICY.slippageBps,spreadBps=PAPER_POLICY.spreadBps}={}) {
+ const price=Number(entryPrice),distance=Number(stopDistance);if(!(price>0&&distance>0))return 0;
+ return distance+price*(Number(feeRate)*2+(Number(slippageBps)*2+Number(spreadBps))/10000);
+}
 export const AGENT_RESOURCES=Object.freeze([
  'Bitget public spot and USDT-perpetual market feeds','Closed-candle history and 1m/5m/15m/1h signal context',
  'Fee, spread, slippage and latency simulator','Ten strategy archetypes with independent performance ledgers',
