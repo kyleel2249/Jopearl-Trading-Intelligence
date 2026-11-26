@@ -47,7 +47,7 @@ jobs:
             -X POST "$REPLICATION_URL" \
             -H "content-type: application/json" \
             -H "x-jpti-api-token: $JPTI_API_TOKEN" \
-            --data '{"includeCandles":true,"marketLimit":3,"candleLimit":80,"timeframes":["1m","5m","1h"]}' \
+            --data '{"includeCandles":true,"marketLimit":1,"candleLimit":80,"timeframes":["1m","5m","1h"]}' \
             --output replication-result.json
           cat replication-result.json
           node -e "const r=require('./replication-result.json'); if(!r.runId || !['completed','partial'].includes(r.status)) process.exit(1); console.log('Replication run:',r.runId,'status:',r.status,'inserted:',r.counts?.inserted ?? 0);"
