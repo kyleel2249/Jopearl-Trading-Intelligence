@@ -1,32 +1,27 @@
 // Regime detection, directional confluence scoring, conflict detection and setup grading. Pure functions.
 import { clamp, emaSeries, findSwings, structureEvents, normalizeCandles, splitClosed, timeframeMs } from '../gainz-alpha/indicators.js';
+import { analyzeMarketRegime } from './market-regime.js';
 
 const r3 = (v) => (Number.isFinite(v) ? Number(v.toFixed(3)) : null);
 
-/** Kaufman efficiency ratio + ATR percentile -> market regime. */
-export function detectRegime(rows, atrS) {
-  const n = Math.min(30, rows.length - 1);
-  if (n < 10) return { state: 'unknown', er: null, atrRank: null };
-  const closes = rows.map((c) => c[4]), net = Math.abs(closes[closes.length - 1] - closes[closes.length - 1 - n]);
-  let path = 0; for (let i = closes.length - n; i < closes.length; i++) path += Math.abs(closes[i] - closes[i - 1]);
-  const er = path > 0 ? net / path : 0;
-  const recent = atrS.filter((v) => v != null).slice(-100), cur = recent[recent.length - 1];
-  const sorted = [...recent].sort((x, y) => x - y), med = sorted.length ? sorted[Math.floor(sorted.length / 2)] : null;
-  const atrRatio = med ? cur / med : 1, atrRank = recent.length ? recent.filter((v) => v <= cur).length / recent.length : 0.5;
-  const dir = closes[closes.length - 1] >= closes[closes.length - 1 - n] ? 'up' : 'down';
-  const state = atrRatio >= 1.8 ? 'volatile' : atrRatio <= 0.55 ? 'compressed' : er >= 0.4 ? 'trending-' + dir : er <= 0.22 ? 'ranging' : 'transitional';
-  return { state, er: r3(er), atrRatio: r3(atrRatio), atrRank: r3(atrRank), direction: dir };
+/** Compatibility adapter: MR-2.0 is the single source of regime classification. */
+export function detectRegime(rows, atrS, options = {}) {
+  return analyzeMarketRegime(rows, { atrSeries: atrS, higherTimeframes: options.higherTimeframes || [], now: options.now || Date.now() });
 }
 
-/** Adaptive minimum |score| and per-regime weight multipliers (trend factors dominate in trends, location factors in ranges). */
+/** Regime-aware confluence weights and conservative risk posture. */
 export function adaptiveConfig(regime) {
-  const s = regime.state;
-  const minScore = s.startsWith('trending') ? 0.26 : s === 'ranging' ? 0.36 : s === 'volatile' ? 0.42 : s === 'compressed' ? 0.4 : 0.3;
-  const w = { structure: 1, location: 1, levels: 1, flow: 1, liquidity: 1, blocks: 1, mtf: 1, liquidation: 0.6 };
-  if (s.startsWith('trending')) { w.structure = 1.4; w.mtf = 1.4; w.location = 0.6; }
-  if (s === 'ranging') { w.location = 1.5; w.levels = 1.4; w.liquidity = 1.2; w.structure = 0.7; w.mtf = 0.7; }
-  if (s === 'volatile') { w.flow = 0.7; w.levels = 0.8; w.liquidity = 1.2; }
-  return { minScore, weights: w };
+  const s=regime.state;
+  const minScore=s.startsWith('trending')?0.26:s==='ranging'?0.36:s==='volatile'?0.46:s==='compressed'?0.4:s==='transitional'?0.42:0.5;
+  const w={structure:1,location:1,levels:1,flow:1,liquidity:1,blocks:1,mtf:1,liquidation:0.7};
+  if(s.startsWith('trending')){w.structure=1.45;w.mtf=1.5;w.location=0.65;w.flow=1.15;w.blocks=1.2;}
+  if(s==='ranging'){w.location=1.55;w.levels=1.45;w.liquidity=1.35;w.structure=0.65;w.mtf=0.65;w.flow=0.85;}
+  if(s==='volatile'){w.flow=0.65;w.levels=0.75;w.liquidity=1.3;w.liquidation=1.35;w.structure=0.8;}
+  if(s==='compressed'){w.levels=1.2;w.location=1.1;w.flow=0.8;w.liquidity=0.9;w.structure=0.8;}
+  if(s==='transitional'){w.structure=0.7;w.mtf=0.8;w.flow=0.75;w.liquidation=1.2;}
+  const confidence=Number.isFinite(regime.confidence)?regime.confidence:0.5,transition=Number.isFinite(regime.transitionRisk)?regime.transitionRisk:0.5;
+  const conviction=clamp(0.65+0.35*confidence-0.2*transition,0.4,1);
+  return{minScore,weights:w,riskMultiplier:s==='volatile'?0.55:s==='transitional'?0.7:s==='compressed'?0.8:1,positionSizeMultiplier:Number((conviction*(s==='volatile'?0.75:1)).toFixed(3)),requireExtraConfirmation:s==='volatile'||s==='transitional',breakoutWatch:s==='compressed',playbook:regime.playbook||'Wait for clearer regime evidence.'};
 }
 
 /** Multi-timeframe bias from fresh higher-timeframe candles (EMA stack + structure trend). */
