@@ -365,6 +365,7 @@ export async function onRequest({request,env,params}){
   if(request.method==='POST'&&path==='safety/kill-switch'){
    const body=await request.json().catch(()=>({})),enabled=body.enabled===true,reason=String(body.reason||'').trim();
    if(!reason||reason.length<8)return response(400,{error:'A reason of at least 8 characters is required.'});
+   await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_fleet_circuit_breakers(scope_id,status,kill_switch,circuit_breaker,manual_resume_required,reasons_json,updated_by,updated_at) VALUES('global','CLOSED',0,0,0,'[]','system',?)").bind(iso()).run();
    const current=await env.JPTI_DB.prepare("SELECT circuit_breaker FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
    if(!enabled&&body.acknowledge!==true)return response(409,{error:'Explicit acknowledge:true is required to clear the operator kill switch.'});
    const circuitBreaker=enabled?1:Number(current?.circuit_breaker||0),status=enabled||circuitBreaker?'TRIPPED':'CLOSED',now=iso();
@@ -374,6 +375,7 @@ export async function onRequest({request,env,params}){
   }
   if(request.method==='POST'&&path==='safety/resume'){
    const body=await request.json().catch(()=>({})),reason=String(body.reason||'').trim();
+   await env.JPTI_DB.prepare("INSERT OR IGNORE INTO jpti_fleet_circuit_breakers(scope_id,status,kill_switch,circuit_breaker,manual_resume_required,reasons_json,updated_by,updated_at) VALUES('global','CLOSED',0,0,0,'[]','system',?)").bind(iso()).run();
    if(body.acknowledge!==true||reason.length<8)return response(409,{error:'Explicit acknowledge:true and a reason of at least 8 characters are required to resume.'});
    const now=iso();
    await env.JPTI_DB.prepare("UPDATE jpti_fleet_circuit_breakers SET status='CLOSED',kill_switch=0,circuit_breaker=0,manual_resume_required=0,reasons_json='[]',tripped_at=NULL,resume_at=NULL,updated_by='authenticated-operator',updated_at=? WHERE scope_id='global'").bind(now).run();
