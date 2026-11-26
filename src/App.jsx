@@ -34,7 +34,7 @@ import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
   ChevronRight, CircleHelp, Command, Cpu, Database, Gauge, Globe2, TrendingUp, FlaskConical,
   LayoutDashboard, Menu, Network, Newspaper, Radio, RefreshCw, Search,
-  Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Wallet, X, Zap, Download, PackageCheck, ExternalLink
+  Settings2, ShieldCheck, SlidersHorizontal, Sparkles, Wallet, X, Zap, Download, PackageCheck, ExternalLink, Target
 } from 'lucide-react';
 
 // Workspaces are loaded on demand so first paint stays fast on low-end Android devices,
