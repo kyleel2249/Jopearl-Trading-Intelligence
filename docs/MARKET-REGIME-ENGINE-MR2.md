@@ -1,4 +1,4 @@
-# JPTI Market Regime Engine MR-2.0
+# JPTI Market Regime Engine MR-3.0
 
 MR-2.0 replaces the former efficiency-ratio/ATR label with a multi-factor closed-candle regime ensemble.
 
