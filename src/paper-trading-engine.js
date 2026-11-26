@@ -1,4 +1,5 @@
 // Deterministic paper-trading research engine. No exchange order API is imported or exposed.
+import { analyzeSmc } from './chart-intelligence/smc.js';
 export const PAPER_POLICY=Object.freeze({
  mode:'PAPER_ONLY',initialEquityUsd:1,riskPerTradePct:0.25,maxDailyLossPct:2,maxDrawdownPct:5,
  maxOpenPositions:1,maxConcurrentPerAgent:1,maxFleetOpenPositions:10,maxOpenPerSymbol:2,maxSameDirectionOpenPositions:6,maxLeverage:1,feeRate:0.0006,slippageBps:5,spreadBps:3,
@@ -12,7 +13,8 @@ export function calculateAllInRiskPerUnit({entryPrice,stopDistance,feeRate=PAPER
 }
 export const AGENT_RESOURCES=Object.freeze([
  'Bitget public spot and USDT-perpetual market feeds','Closed-candle history and 1m/5m/15m/1h signal context',
- 'Fee, spread, slippage and latency simulator','Ten strategy archetypes with independent performance ledgers',
+ 'Fee, spread, slippage and latency simulator','Sixteen strategy archetypes with independent performance ledgers',
+ 'Scalping and day-trading profiles with SMC sweep/FVG and session-aware confirmation',
  'Market regime, volatility and session classifiers','Fleet exposure, direction concentration and capital-survival monitor',
  'Trade attribution, fee/slippage analysis and daily review','Walk-forward and untouched forward-validation window'
 ]);
@@ -26,7 +28,13 @@ const definitions=[
  ['capital-warden','Warden','Capital Protection Officer','Vetoes entries under drawdown, spread, volatility or exposure stress.','risk'],
  ['microstructure-fox','Fox','Microstructure Analyst','Evaluates executable spread and quote quality before simulated entry.','microstructure'],
  ['regime-weaver','Weaver','Market Regime Analyst','Classifies trend, range and high-volatility conditions; adapts setup selection.','regime'],
- ['council-prime','Prime','Multi-Agent Strategy Chair','Requires agreement across independent signals and records dissent.','ensemble']
+ ['council-prime','Prime','Multi-Agent Strategy Chair','Requires agreement across independent signals and records dissent.','ensemble'],
+ ['liquidity-scalper','Sweep','Liquidity Sweep Scalper','Requires a confirmed liquidity sweep, reclaim, displacement and a tight invalidation point.','liquidity-scalp'],
+ ['momentum-scalper','Impulse','Momentum Continuation Scalper','Trades short-horizon momentum only when trend, participation and execution conditions agree.','momentum-scalp'],
+ ['trend-day','DayTrend','Trend Day Trader','Requires directional trend and fresh higher-timeframe agreement; avoids counter-trend entries.','trend-day'],
+ ['range-day','Range','Range Rotation Day Trader','Targets mean-reversion rotations only when the market regime is range-bound.','range-day'],
+ ['breakout-day','Breakout','Compression Breakout Day Trader','Requires a compression release, a confirmed range break and relative-volume expansion.','breakout-day'],
+ ['fvg-retest','Retest','FVG Retest Specialist','Waits for price to retest a fresh same-direction fair-value gap after displacement.','fvg-retest']
 ];
 export const PAPER_AGENTS=Object.freeze(definitions.map(([id,name,role,responsibility,strategyId])=>({
  id,name,role,responsibility,strategyId,edge:responsibility,tier:'RESEARCH',generation:1,
@@ -52,6 +60,15 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  const hour=new Date(last[0]).getUTCHours(),session=hour>=13&&hour<16?'London-New York overlap':hour>=7&&hour<16?'London':hour>=13&&hour<22?'New York':'Asia-Pacific';
  const sessionWeight=session==='London-New York overlap'?1:session==='London'||session==='New York'?.75:.4;
  const strategy=String(agentId).replace(/^.*:/,'');
+ const needsSmc=['liquidity-scalp','fvg-retest'].includes(strategy);
+ const smc=needsSmc&&closed.length>=40?analyzeSmc(closed):null;
+ const smcItems=smc?.items||[];
+ const lastClosedIndex=closed.length-1;
+ const recentItems=smcItems.filter(item=>item.ts>=last[0]-8*(closed.at(-1)[0]-closed.at(-2)[0]));
+ const sweepDirection=recentItems.some(item=>item.kind==='LIQUIDITY_SWEEP'&&item.direction==='bullish')?1:recentItems.some(item=>item.kind==='LIQUIDITY_SWEEP'&&item.direction==='bearish')?-1:0;
+ const fvgNear=smcItems.filter(item=>item.layer==='fvg'&&['fresh','mitigated','partially-mitigated'].includes(item.status)&&last[4]<=item.top+range*.25&&last[4]>=item.bottom-range*.25).sort((a,b)=>b.ts-a.ts)[0]||null;
+ const alignedTimeframes=Object.values(timeframeBias).filter(v=>v!==0);
+ const alignedRatio=alignedTimeframes.length?alignedTimeframes.filter(v=>v===Math.sign(momentum)).length/alignedTimeframes.length:0;
  let score=strategy==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5)
  :strategy==='breakout'?breakout
  :strategy==='volume'?Math.sign(momentum)*(rvol>=1.25?1:0)
@@ -61,6 +78,12 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  :strategy==='session'?(trend===Math.sign(momentum)?Math.sign(momentum)*sessionWeight:0)
  :strategy==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend)
  :strategy==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2)
+ :strategy==='liquidity-scalp'?(sweepDirection&&sweepDirection===Math.sign(momentum)&&fvgNear? sweepDirection*Math.min(1,Math.abs(momentum)/.8):0)
+ :strategy==='momentum-scalp'?(trend===Math.sign(momentum)&&Math.abs(momentum)>=.15&&rvol>=1.2?Math.sign(momentum)*clamp(Math.abs(momentum)/1.2,.45,1):0)
+ :strategy==='trend-day'?(trend===Math.sign(momentum)&&alignedRatio>=.6&&Math.abs(momentum)>=.2?Math.sign(momentum)*Math.min(1,.55+alignedRatio*.45):0)
+ :strategy==='range-day'?(regime==='range'&&Math.abs(momentum)>=.12?-Math.sign(momentum)*Math.min(.8,Math.abs(momentum)/.8):0)
+ :strategy==='breakout-day'?(breakout&&rvol>=1.3&&atrPct<2.5?breakout*Math.min(1,rvol/2):0)
+ :strategy==='fvg-retest'?(fvgNear? (fvgNear.direction==='bullish'?1:-1):0)
  :clamp(trend*.25+Math.sign(momentum)*.2+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0)+Math.sign(momentum)*timeframeAgreement*.15,-1,1);
  const marketData=context.marketData||{};
  const microInputs=[marketData.orderBookImbalance,marketData.tradeFlowImbalance].map(v=>v===null||v===undefined?null:Number(v)).filter(v=>v!==null&&Number.isFinite(v)).map(v=>Math.max(-1,Math.min(1,v)));
@@ -69,7 +92,7 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  if(strategy!=='risk'&&microInputs.length)score=clamp(score+microstructureScore,-1,1);
  const direction=score>.25?'LONG':score<-.25?'SHORT':'FLAT';
  const signalAgreement=direction==='FLAT'?0:Object.values(timeframeBias).filter(v=>v===(direction==='LONG'?1:-1)).length;
- return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,timeframeBias,timeframeAgreement:signalAgreement,closedBars:closed.length,marketData:context.marketData||null,microstructureScore}};
+ return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,timeframeBias,timeframeAgreement:signalAgreement,timeframeAgreementRatio:alignedRatio,closedBars:closed.length,smcEvidence:needsSmc?{status:smc?.status||'insufficient',recentSweepDirection:sweepDirection,fvgNear:fvgNear?{direction:fvgNear.direction,top:fvgNear.top,bottom:fvgNear.bottom,ts:fvgNear.ts}:null}:null,marketData:context.marketData||null,microstructureScore}};
 }
 export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.initialEquityUsd,now=Date.now()){
  const closed=trades.filter(t=>t.status==='closed'),wins=closed.filter(t=>n(t.netPnlUsd)>0),losses=closed.filter(t=>n(t.netPnlUsd)<0);
