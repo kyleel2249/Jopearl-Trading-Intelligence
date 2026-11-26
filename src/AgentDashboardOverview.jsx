@@ -81,7 +81,7 @@ export default function AgentDashboardOverview({ activeNav }) {
     </div>
 
     {state.error && <div className="agent-overview-notice" role="status">
-      <ShieldCheck size={15}/><span>{state.error}{state.authRequired ? ' Enter the existing JPTI_JOURNAL_TOKEN in Connection Settings, then refresh this panel.' : ''}</span>
+      <ShieldCheck size={15}/><span>{state.error}{state.authRequired ? ' Enter the existing JPTI_JOURNAL_TOKEN in Connection Settings and choose Verify access token, then refresh this panel.' : ''}</span>
       {state.authRequired && <button type="button" onClick={() => activeNav('Connection Settings')}>Open settings</button>}
     </div>}
 

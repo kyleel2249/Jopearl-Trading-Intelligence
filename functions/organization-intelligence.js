@@ -1,3 +1,5 @@
+import { verifyPrivateToken } from './private-auth.js';
+
 const DEPARTMENTS = [
   { id: 'research', name: 'Research & Intelligence', short: 'RESEARCH', mission: 'Find, verify, synthesise and distribute useful intelligence across JPTI.', goals: [{ key: 'missions', label: 'Completed research missions', target: 3, unit: 'missions' }, { key: 'memory', label: 'Verified shared knowledge', target: 5, unit: 'records' }, { key: 'messages', label: 'Useful department handoffs', target: 3, unit: 'messages' }] },
   { id: 'trading-social', name: 'Trading Social Intelligence', short: 'TRADING SOCIAL', mission: 'Turn verified market context into useful trading education and audience engagement.', goals: [{ key: 'missions', label: 'Content / engagement missions', target: 3, unit: 'missions' }, { key: 'memory', label: 'Shared content intelligence', target: 4, unit: 'records' }, { key: 'messages', label: 'Cross-department handoffs', target: 2, unit: 'messages' }] },
@@ -23,14 +25,11 @@ function response(status, body, request) {
   if (allowed) { headers.set('access-control-allow-origin', origin); headers.append('vary', 'Origin'); }
   return new Response(JSON.stringify(body), { status, headers });
 }
-async function authorised(request, env) {
-  const expected = String(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN || '');
-  const provided = String(request.headers.get('x-jpti-api-token') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '');
-  if (!expected) return { ok: false, status: 503, error: 'Set the existing JPTI_JOURNAL_TOKEN Cloudflare secret to enable private department operations.' };
-  const [a, b] = await Promise.all([crypto.subtle.digest('SHA-256', new TextEncoder().encode(expected)), crypto.subtle.digest('SHA-256', new TextEncoder().encode(provided))]);
-  const left = new Uint8Array(a), right = new Uint8Array(b); let diff = 0;
-  for (let i = 0; i < left.length; i++) diff |= left[i] ^ right[i];
-  return diff === 0 ? { ok: true } : { ok: false, status: 401, error: 'Department API authorisation failed.' };
+function authorised(request, env) {
+  return verifyPrivateToken(request, env, {
+    unconfigured: 'Set the existing JPTI_JOURNAL_TOKEN Cloudflare secret to enable private department operations.',
+    rejected: 'Department API authorisation failed.'
+  });
 }
 
 async function ensureRegistry(db) {

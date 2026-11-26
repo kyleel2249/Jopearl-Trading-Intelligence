@@ -1,17 +1,13 @@
 import { PAPER_AGENTS, AGENT_RESOURCES, PAPER_POLICY, derivePaperSignal, calculatePaperMetrics, assessAgentKpis, simulatePaperFill, settlePaperTrade } from '../../../src/paper-trading-engine.js';
 import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartialExitPlan } from '../../../src/intelligence-foundation-engine.js';
+import { verifyPrivateToken } from '../../private-auth.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 const iso=()=>new Date().toISOString();
 const num=v=>Number.isFinite(Number(v))?Number(v):0;
-async function authorized(request,env){
- const expected=String(env.JPTI_JOURNAL_TOKEN||env.JPTI_API_TOKEN||'');
- const provided=String(request.headers.get('x-jpti-api-token')||request.headers.get('authorization')?.replace(/^Bearer\s+/i,'')||'');
- if(!expected)return{ok:false,status:503,error:'JPTI private API token is not configured.'};
- const [a,b]=await Promise.all([crypto.subtle.digest('SHA-256',new TextEncoder().encode(expected)),crypto.subtle.digest('SHA-256',new TextEncoder().encode(provided))]);
- const x=new Uint8Array(a),y=new Uint8Array(b);let d=0;for(let i=0;i<x.length;i++)d|=x[i]^y[i];
- return d===0?{ok:true}:{ok:false,status:401,error:'Private API authorization failed.'};
+function authorized(request,env){
+ return verifyPrivateToken(request,env,{unconfigured:'JPTI private API token is not configured.',rejected:'Private API authorization failed.'});
 }
 async function bitget(path){
  const res=await fetch('https://api.bitget.com'+path,{headers:{accept:'application/json'},cf:{cacheTtl:0}});

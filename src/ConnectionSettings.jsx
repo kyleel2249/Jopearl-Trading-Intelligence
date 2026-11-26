@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import './ConnectionSettings.css';
-import { getApiBaseUrl, getApiToken, setApiToken } from './lib/api.js';
+import { apiFetch, getApiBaseUrl, getApiToken, setApiToken } from './lib/api.js';
+import { describeTokenCheck } from './lib/token-check.js';
 
 const VAULT_KEY = 'jpti.connectionVault.v1';
 const PROFILE_KEY = 'jpti.connectionProfile.v2';
@@ -56,6 +57,8 @@ export default function ConnectionSettings() {
   const [savedToken, setSavedToken] = useState('');
   const [apiStatus, setApiStatus] = useState(null);
   const [apiBusy, setApiBusy] = useState(false);
+  const [tokenBusy, setTokenBusy] = useState(false);
+  const [tokenCheck, setTokenCheck] = useState(null);
   const [serverMessage, setServerMessage] = useState('');
   const [apiError, setApiError] = useState('');
   const [variables, setVariables] = useState(initialProfile.variables || {});
@@ -163,6 +166,23 @@ export default function ConnectionSettings() {
     } finally { setApiBusy(false); }
   };
 
+  // Proves the token against the server instead of assuming it works, so a typo or a wrong secret is
+  // caught here and not later as an unexplained 401 inside the private panels.
+  const verifyToken = async () => {
+    const candidate = token.trim();
+    if (!candidate) { setTokenCheck({ kind: 'missing', message: 'Enter your JPTI_JOURNAL_TOKEN value first.' }); return; }
+    setTokenBusy(true); setTokenCheck(null);
+    try {
+      setApiToken(candidate);
+      setSavedToken('ACTIVE IN THIS SESSION');
+      const response = await apiFetch('/api/auth/check', { cache: 'no-store', headers: { accept: 'application/json' } });
+      const payload = await response.json().catch(() => ({}));
+      setTokenCheck(describeTokenCheck(response.status, payload));
+    } catch (error) {
+      setTokenCheck({ kind: 'error', message: 'Could not reach the JPTI API to check the token: ' + (error?.message || 'network error') });
+    } finally { setTokenBusy(false); }
+  };
+
   const saveSettingsAndSync = async () => {
     try {
       const profile = { variables, apiBaseUrl: '', apiToken: '', savedAt: new Date().toISOString() };
@@ -174,6 +194,7 @@ export default function ConnectionSettings() {
       setApiError('');
       setServerMessage(token ? 'Device settings saved. Private agent, department and journal requests will use the token for this browser session; public charts remain token-free.' : 'Device settings saved. Public charts are available; private agent, department and journal requests need the existing JPTI_JOURNAL_TOKEN.');
       await testApi();
+      if (token.trim()) await verifyToken();
     } catch (error) {
       setApiError(error.message || 'Settings could not be saved.');
     }
@@ -198,7 +219,8 @@ export default function ConnectionSettings() {
       <label className="connection-label" htmlFor="jpti-private-token">Private JPTI access token</label>
       <input id="jpti-private-token" className="connection-url" type="password" autoComplete="off" spellCheck="false" value={token} onChange={event => setToken(event.target.value)} placeholder="Enter the existing JPTI_JOURNAL_TOKEN value" />
       <p className="subtle-note">The token is held in session storage and sent only to protected same-origin JPTI routes. It is excluded from the unencrypted device profile. Save device settings to activate it for this session.{savedToken ? ' Status: ' + savedToken + '.' : ''}</p>
-      <div className="news-search"><button type="button" onClick={testApi} disabled={apiBusy}>{apiBusy ? 'Checking…' : 'Check Cloudflare connection'}</button><button type="button" onClick={saveSettingsAndSync}>Save device settings</button></div>
+      <div className="news-search"><button type="button" onClick={testApi} disabled={apiBusy}>{apiBusy ? 'Checking…' : 'Check Cloudflare connection'}</button><button type="button" onClick={verifyToken} disabled={tokenBusy || !token.trim()}>{tokenBusy ? 'Verifying…' : 'Verify access token'}</button><button type="button" onClick={saveSettingsAndSync}>Save device settings</button></div>
+      {tokenCheck && <p className={tokenCheck.kind === 'ok' ? 'connection-success' : 'quote-error'} role="status" aria-live="polite">{tokenCheck.message}</p>}
       {apiError && <p className="quote-error">{apiError}</p>}
       {apiStatus && <p className="connection-success">Connected · {apiStatus.service} · {apiStatus.exchanges?.join(', ')} · public market data only.</p>}
       <p className="subtle-note">Public catalog, ticker and candlestick data are read-only. Private account access, order execution and durable server-side portfolio services are not yet available in this Cloudflare edge runtime.</p>

@@ -26,8 +26,8 @@ function classify(a,p,pp){
  if(p&&p.direction!==d&&b>=.45&&p.bodyPct>=.45&&a.open>=Math.min(p.open,p.close)&&a.open<=Math.max(p.open,p.close)&&a.close<=Math.min(p.open,p.close)&&d==='bearish')add('BEARISH_ENGULFING','bearish',70+Math.min(20,v*4),'Current body engulfs the prior bullish body.');
  if(p&&a.high<p.high&&a.low>p.low)add('INSIDE_BAR','neutral',55+Math.min(20,v*3),'Range contracts inside the previous candle.');
  if(p&&a.high>p.high&&a.low<p.low)add('OUTSIDE_BAR',d,54+Math.min(18,v*3),'Current range engulfs the previous candle range.');
- if(p&&pp&&pp.direction==='bearish'&&p.bodyPct>.55&&p.direction==='neutral'&&a.direction==='bullish'&&a.close>(pp.open+pp.close)/2)add('MORNING_STAR','bullish',72,'Three-candle reversal sequence; confirmation remains context-dependent.');
- if(p&&pp&&pp.direction==='bullish'&&p.bodyPct>.55&&p.direction==='neutral'&&a.direction==='bearish'&&a.close<(pp.open+pp.close)/2)add('EVENING_STAR','bearish',72,'Three-candle reversal sequence; confirmation remains context-dependent.');
+ if(p&&pp&&pp.direction==='bearish'&&pp.bodyPct>.55&&p.bodyPct<=.25&&a.direction==='bullish'&&a.close>(pp.open+pp.close)/2)add('MORNING_STAR','bullish',72,'Three-candle reversal sequence; confirmation remains context-dependent.');
+ if(p&&pp&&pp.direction==='bullish'&&pp.bodyPct>.55&&p.bodyPct<=.25&&a.direction==='bearish'&&a.close<(pp.open+pp.close)/2)add('EVENING_STAR','bearish',72,'Three-candle reversal sequence; confirmation remains context-dependent.');
  return out;
 }
 export function analyzeCandleFormation(candles,{atrSeries=[],lookback=120}={}){

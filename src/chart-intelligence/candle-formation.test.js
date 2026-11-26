@@ -18,6 +18,20 @@ test('CFIE detects morning-star and evening-star three-candle sequences',()=>{
  const evening=flat();evening[30]=[30*H,98,100.2,97.8,100,100];evening[31]=[31*H,100,100.2,99.8,100,100];evening[32]=[32*H,100,100.1,96.8,97,180];
  assert.ok(analyzeCandleFormation(evening).patterns.some(x=>x.kind==='EVENING_STAR'));
 });
+test('CFIE star patterns need a big first candle and a SMALL middle candle (regression: the body check was on the wrong candle)',()=>{
+ const kinds=(rows)=>analyzeCandleFormation(rows).patterns.map(x=>x.kind);
+ // Realistic star: the middle candle has a small but non-zero body, so it is not an exact doji.
+ const morning=flat();morning[30]=[30*H,100,100.2,97.8,98,100];morning[31]=[31*H,98,98.5,97.5,98.2,100];morning[32]=[32*H,98.2,101.2,98.1,101,180];
+ assert.ok(kinds(morning).includes('MORNING_STAR'));
+ const evening=flat();evening[30]=[30*H,98,100.2,97.8,100,100];evening[31]=[31*H,100,100.5,99.5,99.8,100];evening[32]=[32*H,99.8,99.9,96.8,97,180];
+ assert.ok(kinds(evening).includes('EVENING_STAR'));
+ // A large-bodied middle candle is not a star, so it must not form one.
+ const notStar=flat();notStar[30]=[30*H,100,100.2,97.8,98,100];notStar[31]=[31*H,98,99.6,97.9,99.5,100];notStar[32]=[32*H,99.5,101.2,99.4,101,180];
+ assert.ok(!kinds(notStar).includes('MORNING_STAR'));
+ // A weak first candle is not a star setup either.
+ const weakFirst=flat();weakFirst[30]=[30*H,100,102,97.8,99.9,100];weakFirst[31]=[31*H,99.9,100.1,99.7,99.9,100];weakFirst[32]=[32*H,99.9,101.2,99.8,101,180];
+ assert.ok(!kinds(weakFirst).includes('MORNING_STAR'));
+});
 test('CFIE computes bounded candle DNA, pressure, rejection and heuristic bias',()=>{
  const rows=flat();rows[30]=[30*H,100,101,98,100.8,500];
  const r=analyzeCandleFormation(rows);

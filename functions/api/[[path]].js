@@ -10,6 +10,7 @@ import { calibrationReport } from '../../src/gainz-alpha/calibration.js';
 import { runAgentFleet, buildAgentCatalog } from '../../src/agent-fleet-engine.js';
 import { summarizeAgentPerformance } from '../../src/agent-performance-engine.js';
 import { evaluateResearchCouncil } from '../../src/research-council-engine.js';
+import { verifyPrivateToken, configuredToken } from '../private-auth.js';
 import { handleOrganizationApi } from '../organization-intelligence.js';
 import { handleIntelligenceFoundationApi } from '../intelligence-foundation.js';
 import { normaliseDexTrade } from '../../src/chart-intelligence/chain-dex.js';
@@ -468,18 +469,11 @@ function json(status, body, request, extra = {}) {
 }
 
 
-async function verifyJournalToken(request, env) {
-  const expected = String(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN || '');
-  const provided = String(request.headers.get('x-jpti-api-token') || request.headers.get('authorization')?.replace(/^Bearer\s+/i, '') || '');
-  if (!expected) return { ok: false, status: 503, error: 'Private journal storage is not configured. Set the JPTI_JOURNAL_TOKEN Cloudflare secret.' };
-  const [a,b] = await Promise.all([
-    crypto.subtle.digest('SHA-256', new TextEncoder().encode(expected)),
-    crypto.subtle.digest('SHA-256', new TextEncoder().encode(provided))
-  ]);
-  const left = new Uint8Array(a), right = new Uint8Array(b);
-  let difference = 0;
-  for (let i = 0; i < left.length; i++) difference |= left[i] ^ right[i];
-  return difference === 0 ? { ok: true } : { ok: false, status: 401, error: 'Private journal authorization failed.' };
+function verifyJournalToken(request, env) {
+  return verifyPrivateToken(request, env, {
+    unconfigured: 'Private journal storage is not configured. Set the JPTI_JOURNAL_TOKEN Cloudflare secret.',
+    rejected: 'Private journal authorization failed.'
+  });
 }
 
 async function handleJournalRoute(request, env, url) {
@@ -922,6 +916,16 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       if (request.method !== 'GET') return json(405, { error: 'Event calendar supports GET only.' }, request, { allow: 'GET, OPTIONS' });
       return json(200, await fetchMarketEventCalendar({ fetchImpl, now: now().getTime(), env }), request);
     }
+    if (publicIntelPath === '/api/auth/check') {
+      // Lets the Connection Settings screen prove a token works before the private panels need it.
+      // No D1 dependency, never echoes the token, and a missing server secret is reported as 409
+      // (not 5xx) so it is not mistaken for an API outage by the client circuit breaker.
+      if (request.method !== 'GET') return json(405, { error: 'Token check supports GET only.' }, request, { allow: 'GET, OPTIONS' });
+      const auth = await verifyJournalToken(request, env);
+      if (auth.ok) return json(200, { status: 'ok', authorised: true }, request);
+      if (auth.status === 503) return json(409, { status: 'unconfigured', authorised: false, error: 'No JPTI_JOURNAL_TOKEN secret is configured on the server yet. Add it as an encrypted Cloudflare Pages secret and redeploy.' }, request);
+      return json(401, { status: 'rejected', authorised: false, error: 'The server rejected this token. Re-copy the JPTI_JOURNAL_TOKEN secret value exactly, without quotes or spaces.' }, request);
+    }
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/intelligence-foundation/')) return handleIntelligenceFoundationApi({ request, env });
     if (url.pathname.replace(/\/+$/, '').startsWith('/api/org/')) return handleOrganizationApi({ request, env, fetchImpl });
     const agentPath = url.pathname.replace(/\/+$/, '');
@@ -1035,16 +1039,16 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           bitgetCfd: true,
           bitgetCfdConfigured: Boolean(env.JPTI_BITGET_API_KEY && env.JPTI_BITGET_API_SECRET && (env.JPTI_BITGET_API_PASSPHRASE || env.JPTI_BITGET_PASSWORD)),
           bitgetCfdRequiresCloudflareSecrets: true,
-          journalAuthConfigured: Boolean(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN),
-          reflectiveJournal: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          sessionOutcomeMemory: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          calibrationReport: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          alertFeed: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          workersAiMentor: Boolean(env.AI && env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          agentFleet: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          agentPerformanceReporting: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
-          researchCouncil: Boolean(env.JPTI_DB && (env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN)),
+          journalAuthConfigured: Boolean(configuredToken(env)),
+          reflectiveJournal: Boolean(env.JPTI_DB && configuredToken(env)),
+          sessionOutcomeMemory: Boolean(env.JPTI_DB && configuredToken(env)),
+          gainzAlphaOutcomePersistence: Boolean(env.JPTI_DB && configuredToken(env)),
+          calibrationReport: Boolean(env.JPTI_DB && configuredToken(env)),
+          alertFeed: Boolean(env.JPTI_DB && configuredToken(env)),
+          workersAiMentor: Boolean(env.AI && env.JPTI_DB && configuredToken(env)),
+          agentFleet: Boolean(env.JPTI_DB && configuredToken(env)),
+          agentPerformanceReporting: Boolean(env.JPTI_DB && configuredToken(env)),
+          researchCouncil: Boolean(env.JPTI_DB && configuredToken(env)),
           fvgLiquidityIntelligence: true,
           crossExchangeFlowAggregation: true,
           bisInternationalBanking: true,
@@ -1063,7 +1067,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         },
         warnings: [
           ...(!env.JPTI_DB ? ['JPTI_DB is not bound; private journal and learning history are unavailable.'] : []),
-          ...(!(env.JPTI_JOURNAL_TOKEN || env.JPTI_API_TOKEN) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
+          ...(!configuredToken(env) ? ['Set the JPTI_JOURNAL_TOKEN Cloudflare secret to activate private journal and outcome routes.'] : []),
           ...(!env.AI ? ['Workers AI binding is unavailable; deterministic journal and trading features remain active.'] : []),
           ...(!env.BITQUERY_ACCESS_TOKEN ? ['BITQUERY_ACCESS_TOKEN is not configured; wallet labels remain limited to the manual evidence registry.'] : []),
           ...(!env.JPTI_VERIFIED_WALLET_REGISTRY ? ['JPTI_VERIFIED_WALLET_REGISTRY is not configured; no wallet flow will be attributed.'] : [])
@@ -1335,6 +1339,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         path: url.pathname,
         available: [
           '/api/health',
+          '/api/auth/check',
           '/api/exchanges',
           '/api/exchanges/compare/ticker',
           '/api/exchanges/:id/markets',

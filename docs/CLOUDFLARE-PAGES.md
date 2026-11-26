@@ -47,8 +47,23 @@ The Cloudflare Pages Functions expose these same-origin, private-token-protected
 | `/api/session/memory/batch` | POST | Idempotent import of session outcomes |
 | `/api/alpha/gainz/outcomes` | GET, POST | GainzAlpha supervised outcome history in `jpti_events` |
 | `/api/mentor/analyze` | POST | Optional Workers AI mentor review and public pair research |
+| `/api/auth/check` | GET | Token check used by Connection Settings. Needs no D1 binding and never echoes a token |
 
 Set the encrypted Cloudflare Pages secret `JPTI_JOURNAL_TOKEN`. In the app, connect the private journal with the same token. The token stays in browser session storage and is sent only to the private JPTI routes. The session and GainzAlpha outcome endpoints use the same authorization check. D1 writes are idempotent, payloads are bounded, and the existing `jpti_events_kind_time` index supports recent-history reads.
+
+All private routes (journal, session memory, GainzAlpha outcomes, agents, council, departments, paper fleet and intelligence foundation) share one authorization check in `functions/private-auth.js`. It trims whitespace from both the stored secret and the supplied token, accepts the token in `x-jpti-api-token` or as `Authorization: Bearer`, falls back to `JPTI_API_TOKEN` when `JPTI_JOURNAL_TOKEN` is blank, and compares SHA-256 digests in constant time. With no secret configured, private routes fail closed with HTTP 503.
+
+### Troubleshooting "Department API authorisation failed"
+
+That message means the server has a secret and the browser sent a different value, or none. In Connection Settings, paste the value of the `JPTI_JOURNAL_TOKEN` secret into **Private JPTI access token** and choose **Verify access token**. The result is one of:
+
+| Result | Meaning | Fix |
+| --- | --- | --- |
+| Token accepted | The server accepted the token for this browser session | Refresh the panel |
+| Server rejected this token | A secret exists but the value differs | Re-copy the secret exactly, with no quotes. The token is held in session storage, so re-enter it after closing the browser |
+| No secret configured (HTTP 409) | The deployment has no `JPTI_JOURNAL_TOKEN` or `JPTI_API_TOKEN` | Add it as an encrypted Pages secret for Production and Preview, then redeploy |
+
+The check reports a missing secret as 409 instead of 5xx so it is not mistaken for an API outage.
 
 The root `wrangler.toml` declares the Workers AI binding as `[ai] binding = "AI"`. Confirm the `AI` binding is present in the Pages Production and Preview environments, then redeploy after changing bindings. Workers AI does not require a third-party model API key; model usage is metered by Cloudflare. Local Pages development also requires an active Cloudflare account for Workers AI inference. The deterministic journal and trading engines continue to work when the optional AI binding is unavailable.
 
