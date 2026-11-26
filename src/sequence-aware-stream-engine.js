@@ -14,10 +14,10 @@ export function exchangeStreamConfig(config) {
  const {exchange,marketType,symbol}=config, [base,quote]=symbol.split('/'), spot=['spot','margin'].includes(marketType);
  if(exchange==='binance') {
   const coin=marketType==='coin-m', host=spot?'stream.binance.com:9443':coin?'dstream.binance.com':'fstream.binance.com';
-  const prefix=spot?'/ws/':'/ws/';
+  const prefix='/stream?';
   const s=base.toLowerCase()+quote.toLowerCase();
   const streams=spot?[s+'@depth@100ms',s+'@trade',s+'@ticker']:[s+'@depth@100ms',s+'@aggTrade',s+'@ticker',s+'@forceOrder'];
-  return {url:'wss://'+host+prefix+'?streams='+streams.join('/'),snapshotUrl:spot?'https://api.binance.com/api/v3/depth?symbol='+base+quote+'&limit=1000':(coin?'https://dapi.binance.com/dapi/v1/depth':'https://fapi.binance.com/fapi/v1/depth')+'?symbol='+base+quote+'&limit=1000',protocol:'binance',streams};
+  return {url:'wss://'+host+prefix+'streams='+streams.join('/'),snapshotUrl:spot?'https://api.binance.com/api/v3/depth?symbol='+base+quote+'&limit=1000':(coin?'https://dapi.binance.com/dapi/v1/depth':'https://fapi.binance.com/fapi/v1/depth')+'?symbol='+base+quote+'&limit=1000',protocol:'binance',streams};
  }
  if(exchange==='bybit') {
   const category=spot?'spot':marketType==='coin-m'?'inverse':'linear',s=base+quote;
