@@ -13,6 +13,7 @@
     "test": "node --test",
     "sweep": "node scripts/sweep.mjs",
     "build:env": "node scripts/build-env.mjs",
+    "deploy:firebase": "npm run build:env && firebase deploy",
     "deploy:cloudflare": "npm run build:env && wrangler pages deploy public --project-name grok-bot",
     "deploy:worker": "wrangler deploy --config worker/wrangler.toml"
   }

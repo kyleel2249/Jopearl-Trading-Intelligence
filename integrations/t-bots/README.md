@@ -40,10 +40,11 @@ Edit the prompt on the first screen, press **Run**. The prompt is parsed into th
 
 ## Deploy
 
-Cloudflare Pages (local run history is stored on-device):
+Firebase Hosting (+ optional run history):
 ```bash
-cp .env.example .env
-Deploy the built static output to the JPTI Cloudflare Pages project.
+cp .env.example .env     # fill Firebase values (optional)
+# edit .firebaserc with your project id
+npm run deploy:firebase
 ```
 Enable Anonymous auth and Firestore in the console; `firestore.rules` restricts each user to their own runs.
 
