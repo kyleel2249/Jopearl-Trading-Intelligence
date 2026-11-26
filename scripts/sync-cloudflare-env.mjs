@@ -1,18 +1,20 @@
 /**
- * Synchronize GitHub Actions configuration into Cloudflare Pages runtime config.
+ * Prepare GitHub-managed configuration for a Cloudflare Pages deployment.
+ * - GitHub Variables -> Pages [vars] config (production + preview).
+ * - GitHub Secrets JSON -> Wrangler Pages secret bulk input.
+ * - VITE_* variables -> .env.production.local for the Vite browser build.
  *
- * GitHub repository/environment Variables are supplied as JSON by toJSON(vars).
- * Sensitive values are supplied as one GitHub Actions secret containing a JSON
- * object (JPTI_CLOUDFLARE_SECRETS_JSON). Values are never logged.
- *
- * Sync is additive/update-only: existing Cloudflare bindings and unrelated
- * environment settings are preserved, and absent GitHub keys are not deleted.
+ * Existing wrangler.toml is copied intact, so all D1/KV/AI bindings remain.
+ * Synchronization is additive/update-only; omitted keys are never deleted.
  */
-const accountId = process.env.CLOUDFLARE_ACCOUNT_ID?.trim();
-const apiToken = process.env.CLOUDFLARE_API_TOKEN?.trim();
+import fs from 'node:fs';
+import path from 'node:path';
+
+const root = process.cwd();
 const project = (process.env.CLOUDFLARE_PAGES_PROJECT || 'jpti').trim();
-if (!accountId || !apiToken) throw new Error('CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN are required.');
 if (!/^[a-z0-9][a-z0-9-]*$/.test(project)) throw new Error('Invalid Cloudflare Pages project name.');
+const sourceConfig = path.join(root, 'wrangler.toml');
+if (!fs.existsSync(sourceConfig)) throw new Error('Root wrangler.toml was not found.');
 
 function parseObject(raw, label) {
   if (!raw?.trim()) return {};
@@ -36,7 +38,6 @@ const githubVars = parseObject(process.env.GITHUB_REPOSITORY_VARIABLES_JSON, 'Gi
 const customVars = parseObject(process.env.JPTI_CLOUDFLARE_VARS_JSON, 'JPTI_CLOUDFLARE_VARS_JSON');
 const selectedVars = {};
 for (const [key, value] of Object.entries(githubVars)) {
-  // Only application configuration is copied. CI/CD control variables remain in GitHub.
   if (/^VITE_[A-Z0-9_]+$/.test(key) || /^JPTI_(?:ALERT_|CORS_|EVENT_RISK_|TRADING_MODE$|ENABLE_[A-Z0-9_]+$|CROSS_VENUE_[A-Z0-9_]+$|TRUST_PROXY$)/.test(key)) {
     selectedVars[key] = value;
   }
@@ -44,38 +45,25 @@ for (const [key, value] of Object.entries(githubVars)) {
 const variables = normalizeMap({ ...selectedVars, ...customVars }, 'Cloudflare variables');
 const secrets = normalizeMap(parseObject(process.env.JPTI_CLOUDFLARE_SECRETS_JSON, 'JPTI_CLOUDFLARE_SECRETS_JSON'), 'Cloudflare secrets');
 for (const key of Object.keys(secrets)) {
-  if (key.startsWith('VITE_')) throw new Error('Refusing to sync secret ' + key + ': VITE_ values are public browser-build variables.');
+  if (key.startsWith('VITE_')) throw new Error('Refusing to expose secret ' + key + ': VITE_ variables are public browser-build values.');
   if (Object.hasOwn(variables, key)) throw new Error('Variable and secret maps contain the same key: ' + key);
 }
-if (!Object.keys(variables).length && !Object.keys(secrets).length) {
-  console.log('No Cloudflare runtime variables or secrets were supplied; existing configuration was left unchanged.');
-  process.exit(0);
-}
 
-const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${project}`;
-async function cfRequest(method, body) {
-  const response = await fetch(endpoint, {
-    method,
-    headers: { Authorization: 'Bearer ' + apiToken, 'Content-Type': 'application/json' },
-    ...(body ? { body: JSON.stringify(body) } : {})
-  });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok || payload.success === false) {
-    const messages = (payload.errors || []).map((item) => item.message).filter(Boolean).join('; ');
-    throw new Error(`Cloudflare Pages API ${method} failed (${response.status}): ${messages || 'request rejected'}`);
-  }
-  return payload.result;
+const config = fs.readFileSync(sourceConfig, 'utf8');
+if (/^\s*\[vars\]\s*$/m.test(config) || /^\s*\[env\.(?:production|preview)\.vars\]\s*$/m.test(config)) {
+  throw new Error('wrangler.toml already defines a vars table. Merge the configuration explicitly rather than generating a duplicate table.');
 }
+const toml = Object.entries(variables).map(([key, value]) => `${key} = ${JSON.stringify(value)}`).join('\n');
+const generatedConfig = config.trimEnd() + (toml ? `\n\n# Generated from GitHub Actions Variables during CI. Do not edit this generated file.\n[vars]\n${toml}\n` : '\n');
+fs.writeFileSync(path.join(root, '.wrangler-ci.toml'), generatedConfig, { mode: 0o600 });
 
-const current = await cfRequest('GET');
-const deploymentConfigs = current?.deployment_configs || {};
-const nextConfigs = {};
-for (const environment of ['production', 'preview']) {
-  const existing = deploymentConfigs[environment] || {};
-  const envVars = { ...(existing.env_vars || {}) };
-  for (const [key, value] of Object.entries(variables)) envVars[key] = { type: 'plain_text', value };
-  for (const [key, value] of Object.entries(secrets)) envVars[key] = { type: 'secret_text', value };
-  nextConfigs[environment] = { ...existing, env_vars: envVars };
-}
-await cfRequest('PATCH', { deployment_configs: nextConfigs });
-console.log(`Cloudflare Pages config synchronized for production and preview: ${Object.keys(variables).length} variable(s), ${Object.keys(secrets).length} secret(s). Values were not logged.`);
+const publicBuildVars = Object.fromEntries(Object.entries(variables).filter(([key]) => key.startsWith('VITE_')));
+const dotenv = Object.entries(publicBuildVars).map(([key, value]) => `${key}=${JSON.stringify(value)}`).join('\n');
+if (dotenv) fs.writeFileSync(path.join(root, '.env.production.local'), dotenv + '\n', { mode: 0o600 });
+
+const secretsPath = path.join(root, '.jpti-pages-secrets.json');
+if (Object.keys(secrets).length) fs.writeFileSync(secretsPath, JSON.stringify(secrets), { mode: 0o600 });
+else if (fs.existsSync(secretsPath)) fs.unlinkSync(secretsPath);
+
+console.log(`Prepared Cloudflare Pages sync for ${project}: ${Object.keys(variables).length} runtime variable(s), ${publicBuildVars ? Object.keys(publicBuildVars).length : 0} public build variable(s), ${Object.keys(secrets).length} encrypted secret(s).`);
+console.log('Generated files are temporary and git-ignored; configuration values are never printed.');
