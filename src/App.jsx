@@ -29,6 +29,7 @@ const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter
 const MarketDigitalTwin = lazy(() => import('./MarketDigitalTwin.jsx'));
 const AgentDeskLive = lazy(() => import('./AgentDeskLive.jsx'));
 const EliteTraderReplication = lazy(() => import('./EliteTraderReplication.jsx'));
+const MultiExchangeEliteReplication = lazy(() => import('./MultiExchangeEliteReplication.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -94,6 +95,7 @@ const navigation = [
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
   { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
   { label: 'Elite Trader Replication', icon: Target, group: 'INTELLIGENCE' },
+  { label: 'Multi-Exchange Elite Replication', icon: Globe2, group: 'INTELLIGENCE' },
   { label: 'Agent Desk Live', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Shared Intelligence Memory', icon: Database, group: 'INTELLIGENCE' },
@@ -565,6 +567,7 @@ function App() {
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
     if (page === 'Elite Trader Replication') return <EliteTraderReplication/>;
+    if (page === 'Multi-Exchange Elite Replication') return <MultiExchangeEliteReplication/>;
     if (page === 'Agent Desk Live') return <AgentDeskLive/>;
     if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
     if (page === 'Agent Governance & Approval Centre') return <AgentGovernance/>;

@@ -1,0 +1,148 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {assessMultiExchangeTrader,rankMultiExchangeTraders,MULTI_EXCHANGE_AGENTS,EXCHANGE_SOURCE_REGISTRY} from '../src/multi-exchange-elite-engine.js';
+const now=Date.parse('2026-11-26T12:00:00.000Z');
+const candidate=(exchange='bitget',overrides={})=>({
+ exchange,marketType:'usdt_perpetual',traderId:exchange+'-lead-001',displayName:'Provider lead profile',source:'official-profile-export',sourceAttested:true,retrievedAt:new Date(now).toISOString(),totalTrades:600,historyDays:300,averageHoldingHours:5,maxLeverage:3,averageSlippageBps:4,
+ windows:{
+  '7d':{roiPct:3,winRatePct:70,maxDrawdownPct:3,sharpe:3,sortino:3,profitFactor:3},
+  '30d':{roiPct:12,winRatePct:72,maxDrawdownPct:4,sharpe:3.5,sortino:3.5,profitFactor:3.5},
+  '90d':{roiPct:32,winRatePct:71,maxDrawdownPct:5,sharpe:4,sortino:4,profitFactor:4},
+  '180d':{roiPct:48,winRatePct:70,maxDrawdownPct:6,sharpe:4,sortino:4,profitFactor:4}
+ },...overrides
+});
+test('cross-exchange roster retains all three venue teams and cross-exchange agents',()=>{
+ assert.equal(MULTI_EXCHANGE_AGENTS.length,24);
+ assert.equal(new Set(MULTI_EXCHANGE_AGENTS.map(x=>x.id)).size,24);
+ assert.ok(MULTI_EXCHANGE_AGENTS.some(x=>x.id==='MX-12'));
+ assert.deepEqual(Object.keys(EXCHANGE_SOURCE_REGISTRY).sort(),['binance','bitget','bybit']);
+});
+test('same evidence policy can assess Bitget, Bybit and Binance records',()=>{
+ for(const exchange of ['bitget','bybit','binance']){
+  const result=assessMultiExchangeTrader(candidate(exchange),now);
+  assert.equal(result.exchange,exchange);
+  assert.equal(result.eligible,true,exchange+' should pass the shared quality gates');
+  assert.equal(result.provenance.independentlyReconciled,false);
+ }
+});
+test('copier PnL is optional and does not penalise venues that do not publish it',()=>{
+ const record=candidate('bybit');
+ for(const window of Object.values(record.windows))delete window.copierPnlUsd;
+ const result=assessMultiExchangeTrader(record,now);
+ assert.equal(result.eligible,true);
+ assert.equal(result.metrics.copierPnlUsd,null);
+});
+test('market types not supported by a venue are rejected',()=>{
+ const result=assessMultiExchangeTrader(candidate('bybit',{marketType:'coin_perpetual'}),now);
+ assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('source_or_exchange_integrity_failed'));
+});
+test('stale or unattested data never enters the eligible set',()=>{
+ const stale=assessMultiExchangeTrader(candidate('binance',{retrievedAt:'2020-01-01T00:00:00Z'}),now);
+ const unattested=assessMultiExchangeTrader(candidate('bybit',{sourceAttested:false}),now);
+ assert.equal(stale.eligible,false);assert.equal(unattested.eligible,false);
+});
+test('four-window coverage is based on real per-window records and missing windows are not inferred',()=>{
+ const sparse=candidate('binance',{windows:{'90d':{roiPct:32,winRatePct:71,maxDrawdownPct:5,sharpe:4,sortino:4,profitFactor:4}}});
+ const result=assessMultiExchangeTrader(sparse,now);
+ assert.equal(result.windowCoverage,1);assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('insufficient_window_coverage'));
+});
+test('impossible statistics are rejected before ranking',()=>{
+ const result=assessMultiExchangeTrader(candidate('bitget',{windows:{'7d':{roiPct:3,winRatePct:70,maxDrawdownPct:3},'30d':{roiPct:12,winRatePct:72,maxDrawdownPct:4},'90d':{roiPct:32,winRatePct:140,maxDrawdownPct:-5},'180d':{roiPct:48,winRatePct:70,maxDrawdownPct:6}}}),now);
+ assert.equal(result.eligible,false);assert.ok(result.failedGates.includes('invalid_metric_ranges'));
+});
+test('ranker creates independent exchange/market boards and removes duplicate trader identities',()=>{
+ const records=[candidate('bitget'),candidate('bybit'),candidate('binance'),candidate('binance')];
+ const result=rankMultiExchangeTraders(records,now);
+ assert.equal(result.candidateCount,3);assert.equal(result.audit.duplicateCandidatesRemoved,1);
+ assert.ok(result.boards['bitget:usdt_perpetual']);assert.ok(result.boards['bybit:usdt_perpetual']);assert.ok(result.boards['binance:usdt_perpetual']);
+ assert.equal(result.execution.liveExecutionAuthorized,false);assert.equal(result.execution.ordersCreated,0);
+});
+test('cross-venue position collision detector flags same and opposing directions',()=>{
+ const a=candidate('bitget',{positions:[{symbol:'BTC/USDT',side:'long',notionalUsd:1000}]});
+ const b=candidate('bybit',{positions:[{symbol:'BTC/USDT',side:'long',notionalUsd:800}]});
+ const c=candidate('binance',{positions:[{symbol:'BTC/USDT',side:'short',notionalUsd:700}]});
+ const result=rankMultiExchangeTraders([a,b,c],now);
+ assert.ok(result.crossExchangeCollisions.some(x=>x.classification==='duplicated-cross-venue-exposure'));
+ assert.ok(result.crossExchangeCollisions.some(x=>x.classification==='cross-venue-direction-conflict'));
+});
+test('strategy DNA fingerprints and downstream intelligence event envelopes are emitted',()=>{
+ const result=rankMultiExchangeTraders([candidate('bitget'),candidate('bybit')],now);
+ assert.ok(result.strategyClusters.length>0);
+ assert.ok(result.intelligenceEvents.some(x=>x.kind==='multi-exchange-elite-ranking'));
+ assert.ok(result.intelligenceEvents.some(x=>x.kind==='cross-exchange-exposure-collision'));
+});
+
+test('rolling-window coverage requires ROI, win rate and drawdown for each counted period',()=>{
+ const partial=candidate('binance',{windows:{
+  '7d':{roiPct:3},
+  '30d':{roiPct:12,winRatePct:72,maxDrawdownPct:4},
+  '90d':{roiPct:32,winRatePct:71,maxDrawdownPct:5,sharpe:4,sortino:4,profitFactor:4},
+  '180d':{roiPct:48}
+ }});
+ const result=assessMultiExchangeTrader(partial,now);
+ assert.equal(result.windowCoverage,2);
+ assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('insufficient_window_coverage'));
+});
+test('duplicate trader imports retain the freshest source snapshot',()=>{
+ const older=candidate('bitget',{retrievedAt:'2026-11-26T10:00:00.000Z',windows:{'7d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'30d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'90d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40},'180d':{roiPct:-10,winRatePct:20,maxDrawdownPct:40}}});
+ const newer=candidate('bitget',{retrievedAt:'2026-11-26T11:59:00.000Z'});
+ const result=rankMultiExchangeTraders([older,newer],now);
+ assert.equal(result.candidateCount,1);
+ assert.equal(result.assessments[0].eligible,true);
+ assert.equal(result.assessments[0].retrievedAt,'2026-11-26T11:59:00.000Z');
+});
+test('market type must be explicit instead of silently defaulting to derivatives',()=>{
+ const record=candidate('bybit');delete record.marketType;
+ const result=assessMultiExchangeTrader(record,now);
+ assert.equal(result.eligible,false);
+ assert.ok(result.failedGates.includes('source_or_exchange_integrity_failed'));
+});
+
+test('paper allocation optimizer caps every trader and never allocates real capital',()=>{
+ const result=rankMultiExchangeTraders([candidate('bitget'),candidate('bybit'),candidate('binance')],now);
+ const plan=result.allocationSimulation;
+ assert.equal(plan.realCapitalAllocated,0);
+ assert.equal(plan.liveExecutionAuthorized,false);
+ assert.ok(plan.targets.every(x=>x.targetPct<=10));
+ assert.ok(plan.totalTargetPct<=100);
+ assert.equal(plan.totalTargetPct+plan.cashReservePct,100);
+ assert.equal(result.agentActivity.length,24);
+ assert.ok(result.agentActivity.some(x=>x.id==='MX-12'));
+});
+
+test('malformed candidate rows are safely rejected instead of crashing the ranking batch',()=>{
+ const result=rankMultiExchangeTraders([null,[],candidate('bybit')],now);
+ assert.equal(result.candidateCount,3);
+ assert.equal(result.assessments.filter(x=>x.eligible).length,1);
+ assert.ok(result.assessments.some(x=>x.failedGates.includes('source_or_exchange_integrity_failed')));
+});
+test('invalid position sides are ignored and buy/sell are normalized',()=>{
+ const record=candidate('bitget',{positions:[null,{symbol:'BTCUSDT',side:'buy',notionalUsd:100},{symbol:'ETHUSDT',side:'hold',notionalUsd:50}]});
+ const result=assessMultiExchangeTrader(record,now);
+ assert.equal(result.positions.length,1);
+ assert.equal(result.positions[0].side,'long');
+});
+
+test('rolling-return stability normalizes each horizon to daily return rates',()=>{
+ const record=candidate('binance',{windows:{
+  '7d':{roiPct:1.4,winRatePct:70,maxDrawdownPct:3},
+  '30d':{roiPct:6,winRatePct:70,maxDrawdownPct:4},
+  '90d':{roiPct:18,winRatePct:70,maxDrawdownPct:5},
+  '180d':{roiPct:36,winRatePct:70,maxDrawdownPct:6}
+ }});
+ const result=assessMultiExchangeTrader(record,now);
+ assert.ok(result.windowStability.dispersion<0.001);
+ assert.equal(result.windowStability.dailyReturnPctByWindow['7d'],0.2);
+ assert.equal(result.windowStability.dailyReturnPctByWindow['180d'],0.2);
+ assert.ok(result.windowStability.winRateStability>0.99);
+});
+
+test('strategy transfer learning clusters comparable profiles across exchanges',()=>{
+ const result=rankMultiExchangeTraders([candidate('bitget'),candidate('bybit'),candidate('binance')],now);
+ const shared=result.strategyClusters.find(x=>x.count===3);
+ assert.ok(shared);
+ assert.ok(result.agentActivity.find(x=>x.id==='MX-09').count>=1);
+});
