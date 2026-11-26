@@ -257,5 +257,5 @@ test('settings: sanitised, persisted, shared by subscribers; alert ids are de-du
 
 test('MR-2.0 regime diagnostics and adaptive posture are fully integrated into canonical chart intelligence',()=>{
  const rows=walk(420,81,{drift:.18}),r=analyzeChartIntelligence(rows,{exchange:'bitget',symbol:'BTC/USDT',timeframe:'1h',now:nowFor(rows),higherTimeframes:[],ledger:createMemoryLedger()}),ev=toChartEvidence(r);
- assert.equal(r.status,'ready');assert.equal(r.regime.model,'JPTI-MR-2.0');assert.ok(r.regime.probabilities&&r.regime.metrics&&r.regime.multiTimeframe);assert.ok(r.adaptive&&Number.isFinite(r.adaptive.minScore)&&Number.isFinite(r.adaptive.positionSizeMultiplier));assert.equal(ev.regime.model,'JPTI-MR-2.0');assert.equal(ev.adaptive.positionSizeMultiplier,r.adaptive.positionSizeMultiplier);
+ assert.equal(r.status,'ready');assert.equal(r.regime.model,'JPTI-MR-2.0');assert.ok(r.regime.probabilities&&r.regime.metrics&&r.regime.multiTimeframe);assert.ok(r.adaptive&&Number.isFinite(r.adaptive.minScore)&&Number.isFinite(r.adaptive.positionSizeMultiplier));assert.equal(ev.regime,r.regime.state);assert.equal(ev.regimeAnalysis.model,'JPTI-MR-2.0');assert.equal(ev.adaptive.positionSizeMultiplier,r.adaptive.positionSizeMultiplier);
 });
