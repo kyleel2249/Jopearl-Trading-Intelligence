@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {normalizeMicrostructurePlan,buildMicrostructureUrl,normalizeMicrostructurePayload,microstructureObservationKey} from '../src/microstructure-replication-engine.js';
+import {normalizeMicrostructurePlan,buildMicrostructureUrl,normalizeMicrostructurePayload,microstructureObservationKey,summarizeMicrostructureObservations} from '../src/microstructure-replication-engine.js';
 import {createMicrostructureReplicationHandler} from '../functions/api/replication/microstructure.js';
 
 test('microstructure plan validates and bounds exchanges, symbols, kinds and request budget',()=>{
@@ -19,6 +19,18 @@ test('venue URL builders select the correct public product endpoints',()=>{
 test('orderbook normalizer computes spread and flags crossed books',()=>{
  const rows=normalizeMicrostructurePayload({exchange:'okx',symbol:'BTC/USDT',marketType:'spot',kind:'orderbook',payload:{code:'0',data:[{ts:'1795683600000',bids:[['90000','2']],asks:[['90010','3']]}]},receivedAt:1795683601000});
  assert.equal(rows.length,1);assert.equal(rows[0].payload.spread,10);assert.equal(rows[0].payload.midPrice,90005);assert.equal(rows[0].quality.crossed,false);
+});
+test('order-book normalizer calculates spread basis points and depth imbalance',()=>{
+ const rows=normalizeMicrostructurePayload({exchange:'binance',symbol:'BTC/USDT',marketType:'spot',kind:'orderbook',payload:{bids:[['100','4'],['99','2']],asks:[['101','2'],['102','2']]},receivedAt:1795683601000});
+ assert.equal(rows.length,1);assert.ok(rows[0].payload.spreadBps>0);assert.ok(rows[0].payload.depthImbalance>0);
+});
+test('microstructure analytics derives aggressive flow and liquidation exposure',()=>{
+ const summary=summarizeMicrostructureObservations([
+  {exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT',kind:'trade',observedAt:'2026-11-26T09:00:00.000Z',payload:{side:'buy',quantity:2,quoteQuantity:200}},
+  {exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT',kind:'trade',observedAt:'2026-11-26T09:00:01.000Z',payload:{side:'sell',quantity:1,quoteQuantity:100}},
+  {exchange:'okx',marketType:'usdt-m',symbol:'BTC/USDT',kind:'liquidation',observedAt:'2026-11-26T09:00:01.000Z',payload:{side:'sell',notional:500}}
+ ]);
+ assert.equal(summary.tradeFlow[0].netAggressorNotional,100);assert.equal(summary.liquidations[0].longNotional,500);
 });
 test('trade, funding, open interest and liquidation events are normalized with stable IDs',()=>{
  const cases=[
