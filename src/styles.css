@@ -351,3 +351,36 @@ details.agent-raw>summary{cursor:pointer;font-size:12px;opacity:.75}
 .agent-report-body code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.9em}
 .agent-report-body pre{white-space:pre-wrap;overflow-x:auto}
 .agent-report-body blockquote{margin:8px 0;padding-left:10px;border-left:3px solid rgba(148,163,184,.5)}
+
+/* Evidence badges (fact / inference / unknown / recommendation) */
+.ev-badge{display:inline-block;font-size:11px;font-weight:600;line-height:1;padding:3px 7px;border-radius:999px;border:1px solid transparent;vertical-align:baseline;white-space:nowrap}
+.ev-verified{background:rgba(34,197,94,.15);color:#4ade80;border-color:rgba(34,197,94,.4)}
+.ev-inferred{background:rgba(250,204,21,.13);color:#facc15;border-color:rgba(250,204,21,.4)}
+.ev-unknown{background:rgba(248,113,113,.13);color:#f87171;border-color:rgba(248,113,113,.4)}
+.ev-recommendation{background:rgba(96,165,250,.14);color:#60a5fa;border-color:rgba(96,165,250,.4)}
+.ev-summary{display:flex;flex-wrap:wrap;gap:6px;padding:8px 10px;border-bottom:1px solid rgba(148,163,184,.2)}
+.agent-report-actions button:disabled{opacity:.6;cursor:progress}
+
+/* Report comparison */
+.report-compare{margin:12px 0;padding:12px;border:1px solid rgba(148,163,184,.3);border-radius:10px}
+.report-compare-head{display:flex;justify-content:space-between;align-items:flex-start;gap:8px}
+.report-compare-section h5{margin:12px 0 4px}
+.report-compare-section ul{list-style:none;margin:0;padding:0}
+.report-compare-section li{padding:3px 6px;border-radius:4px;margin:2px 0;overflow-wrap:anywhere}
+.diff-add{background:rgba(34,197,94,.12);color:#86efac}
+.diff-del{background:rgba(248,113,113,.12);color:#fca5a5;text-decoration:line-through}
+.diff-same{opacity:.75}
+
+/* Handoff alerts */
+.handoff-alert{padding:8px 10px;margin:6px 0;border-left:3px solid #60a5fa;border-radius:4px;background:rgba(96,165,250,.08)}
+.handoff-alert p{margin:4px 0}
+.handoff-urgent{border-left-color:#f87171;background:rgba(248,113,113,.09)}
+.handoff-high{border-left-color:#facc15;background:rgba(250,204,21,.08)}
+
+/* Saved reports + output reliability */
+.rj-saved-reports{margin-top:14px}
+.rj-saved-report{margin:8px 0}
+.oq-panel{margin:10px 0}
+.oq-table{width:100%;border-collapse:collapse;font-size:12px}
+.oq-table th,.oq-table td{text-align:left;padding:4px 6px;border-bottom:1px solid rgba(148,163,184,.2)}
+.org-compare-pick{display:block;margin-top:6px}

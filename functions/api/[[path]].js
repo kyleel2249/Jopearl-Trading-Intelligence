@@ -6,6 +6,8 @@
 import { createDirectProvider, DIRECT_EXCHANGES } from '../../src/lib/browser-direct.js';
 import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { humanizeAgentOutput } from '../../src/lib/agent-report.js';
+import { guardedGeneration } from '../../src/lib/agent-output-guard.js';
+import { recordOutputQuality } from '../output-quality.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
 import { calibrationReport } from '../../src/gainz-alpha/calibration.js';
 import { runAgentFleet, buildAgentCatalog } from '../../src/agent-fleet-engine.js';
@@ -901,10 +903,9 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
     'Return Markdown with headings: Executive assessment; Pair research; Technical assessment; Trade and risk review; Trader profile; Strengths; Weaknesses and blind spots; Coaching plan; Journal narrative; Uncertainties and source quality.'
   ].join(' ');
   try {
-    const output = await env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', {
-      messages: [{ role: 'system', content: system }, { role: 'user', content: 'Analyze this trading record and evidence. Be candid, detailed and source-aware.\n\n' + context }],
-      max_tokens: 2600, temperature: 0.25
-    });
+    const guarded = await guardedGeneration({ messages: [{ role: 'system', content: system }, { role: 'user', content: 'Analyze this trading record and evidence. Be candid, detailed and source-aware.\n\n' + context }], generate: messages => env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages, max_tokens: 2600, temperature: 0.25 }) });
+    await recordOutputQuality(env.JPTI_DB, { agentKey: 'mentor-review', source: 'journal-mentor', result: guarded });
+    const output = guarded.text;
     const review = humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output);
     return json(200, { ok: true, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: new Date().toISOString(), symbol, research, review, source: 'cloudflare-workers-ai' }, request);
   } catch (error) {

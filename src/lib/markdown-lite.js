@@ -88,3 +88,41 @@ export function markdownToPlainText(markdown) {
     return parseInline(block.text).map((t) => t.text).join('');
   }).join('\n\n');
 }
+
+// Evidence labels used by the agent prompts ("Separate facts, inference, unknowns and
+// recommendations"). A leading label becomes a badge in the UI; the text itself is unchanged.
+const EVIDENCE_LABEL = /^(verified(?:\s+fact)?|facts?|inferences?|inferred|unknowns?|unverified|assumptions?|recommendations?)\s*[:\-–—]\s+/i;
+export function splitEvidenceLabel(text) {
+  const match = String(text ?? '').match(EVIDENCE_LABEL);
+  if (!match) return { kind: null, label: '', rest: String(text ?? '') };
+  const word = match[1].toLowerCase();
+  const kind = word.startsWith('verified') || word.startsWith('fact') ? 'verified' : word.startsWith('infer') || word.startsWith('assum') ? 'inferred' : word.startsWith('recommend') ? 'recommendation' : 'unknown';
+  return { kind, label: match[1].replace(/^./, (c) => c.toUpperCase()), rest: String(text).slice(match[0].length) };
+}
+
+const escapeHtml = (value) => String(value ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const inlineHtml = (text) => parseInline(text).map((t) => {
+  const body = escapeHtml(t.text);
+  if (t.type === 'strong') return '<strong>' + body + '</strong>';
+  if (t.type === 'em') return '<em>' + body + '</em>';
+  if (t.type === 'code') return '<code>' + body + '</code>';
+  if (t.type === 'link') return '<a href="' + escapeHtml(t.href) + '">' + body + '</a>';
+  return body;
+}).join('');
+
+// Self-contained, print-optimised HTML document (every text node escaped; no scripts).
+export function markdownToHtmlDocument(markdown, { title = 'JPTI report', generatedAt = new Date() } = {}) {
+  const body = parseMarkdown(markdown).map((block) => {
+    if (block.type === 'heading') { const n = Math.min(block.level + 1, 5); return '<h' + n + '>' + inlineHtml(block.text) + '</h' + n + '>'; }
+    if (block.type === 'list') { const tag = block.ordered ? 'ol' : 'ul'; return '<' + tag + '>' + block.items.map((i) => '<li' + (i.depth ? ' style="margin-left:' + i.depth * 16 + 'px"' : '') + '>' + inlineHtml(i.text) + '</li>').join('') + '</' + tag + '>'; }
+    if (block.type === 'code') return '<pre>' + escapeHtml(block.text) + '</pre>';
+    if (block.type === 'quote') return '<blockquote>' + inlineHtml(block.text) + '</blockquote>';
+    if (block.type === 'rule') return '<hr>';
+    return '<p>' + inlineHtml(block.text) + '</p>';
+  }).join('\n');
+  return '<!doctype html><html lang="en"><head><meta charset="utf-8"><title>' + escapeHtml(title) + '</title><style>'
+    + 'body{font:14px/1.6 system-ui,Segoe UI,Arial,sans-serif;color:#111;margin:32px auto;max-width:760px;padding:0 16px}h1{font-size:22px;margin:0 0 4px}.meta{color:#555;font-size:12px;margin-bottom:18px}'
+    + 'h2,h3,h4,h5{margin:18px 0 6px;page-break-after:avoid}li,p{page-break-inside:avoid}pre{white-space:pre-wrap;background:#f3f4f6;padding:8px;border-radius:4px}blockquote{margin:8px 0;padding-left:10px;border-left:3px solid #bbb}a{color:#0b57d0}.note{margin-top:24px;font-size:11px;color:#666;border-top:1px solid #ddd;padding-top:8px}'
+    + '@media print{body{margin:0;max-width:none}}</style></head><body><h1>' + escapeHtml(title) + '</h1><div class="meta">Generated ' + escapeHtml(new Date(generatedAt).toISOString().replace('T', ' ').slice(0, 16)) + ' UTC · JPTI</div>'
+    + body + '<div class="note">Research output only. Not investment advice. No orders were placed.</div></body></html>';
+}

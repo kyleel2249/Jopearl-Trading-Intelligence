@@ -4,6 +4,8 @@ import { apiFetch, setApiToken } from './lib/api.js';
 import { analyzeTimeframe, buildTradingDevelopmentAssessment, buildReflectiveReport } from './trading-development-engine.js';
 import './ReflectiveJournal.css';
 import AgentReport from './AgentReport.jsx';
+import SavedReportsPanel from './SavedReportsPanel.jsx';
+import { isReportEntry, mergeReports, readSavedReports, writeSavedReports } from './lib/saved-reports.js';
 
 const STORAGE_KEY = 'jpti.reflective-journal.v1';
 const INITIAL_ENTRY = {
@@ -142,7 +144,9 @@ export default function ReflectiveJournal() {
       const response = await apiFetch('/api/journal/entries', { cache: 'no-store' });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Cloudflare journal connection failed.');
-      const remote = Array.isArray(data.entries) ? data.entries : [];
+      const remoteAll = Array.isArray(data.entries) ? data.entries : [];
+      const remote = remoteAll.filter(entry => !isReportEntry(entry));
+      try { writeSavedReports(localStorage, mergeReports(readSavedReports(localStorage), remoteAll)); window.dispatchEvent(new CustomEvent('jpti:reports-changed')); } catch { /* saved reports are best effort */ }
       if (remote.length) {
         const merged = new Map(remote.map(entry => [entry.id, entry]));
         for (const local of entries) {
@@ -384,7 +388,8 @@ export default function ReflectiveJournal() {
         <p className="rj-lead">The AI review researches the pair through public asset and news sources, then assesses your journal, technical evidence, risk and behaviour. It must identify source conflicts and missing evidence.</p>
         <div className="rj-ai-actions"><button className="rj-primary" onClick={runMentorReview} disabled={mentorState === 'loading'}><Brain size={15}/>{mentorState === 'loading' ? 'Researching and reviewing…' : 'Run full AI mentor review'}</button><span className="rj-footnote">{mentorState === 'complete' ? 'Review saved to this trade record.' : 'Requires Cloudflare D1 connection and the Workers AI binding.'}</span></div>
         {mentorError && <div className="rj-callout danger"><AlertTriangle size={17}/><div>{mentorError}</div></div>}
-        {(mentorReview || active.mentorReview) && <div className="rj-ai-report"><div className="rj-panel-title"><b>Latest AI mentor report</b><span className="rj-footnote">{active.aiReviewAt ? new Date(active.aiReviewAt).toLocaleString() : ''}</span></div><AgentReport content={mentorReview || active.mentorReview} title="ai-mentor-report" /></div>}
+        {(mentorReview || active.mentorReview) && <div className="rj-ai-report"><div className="rj-panel-title"><b>Latest AI mentor report</b><span className="rj-footnote">{active.aiReviewAt ? new Date(active.aiReviewAt).toLocaleString() : ''}</span></div><AgentReport content={mentorReview || active.mentorReview} title="ai-mentor-report" source="journal-mentor" /></div>}
+        <SavedReportsPanel />
         <div className="rj-divider"/>
         <span className="rj-eyebrow">RULES-BASED PROFILE · LOW CONFIDENCE</span><h2>What this first decision suggests</h2>
         <div className="rj-callout warn"><Brain size={18}/><div><b>Honest capability boundary</b><p>This workspace currently provides deterministic, rules-based coaching and a structured journal. It does not contain a connected generative AI model, and it will not pretend to perform autonomous research or exchange actions. The conversational research, writing, mentoring and pair-specific analysis will be supplied here and recorded in the journal as you share updates.</p></div></div>

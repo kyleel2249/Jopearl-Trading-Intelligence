@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { apiFetch } from './lib/api.js';
+import HandoffAlerts from './HandoffAlerts.jsx';
 import { PRODUCTS, productLabel } from './lib/bitget-search.js';
 import { resolveInstrument, instrumentQuery } from './lib/bitget-instruments.js';
 import { ALERT_TYPES, MAX_ALERTS, STORAGE_KEY, createAlert, evaluateAlerts, parseAlerts, quoteKey, serializeAlerts, describeAlert } from './lib/alerts.js';
@@ -100,5 +101,6 @@ export default function AlertsCenter() {
       <div className="wb-head"><b>TRIGGERED</b>{log.length > 0 && <button className="ac-btn" type="button" onClick={() => setLog([])}>Clear</button>}</div>
       {log.length === 0 ? <p className="wb-note">Nothing has triggered in this session.</p> : <div className="ac-log">{log.map((entry) => <div key={entry.id}><b>{new Date(entry.at).toLocaleTimeString()}</b> {entry.message}</div>)}</div>}
     </section>
+    <HandoffAlerts notify={notify} />
   </div>;
 }

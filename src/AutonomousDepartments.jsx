@@ -3,6 +3,8 @@ import { Activity, CheckCircle2, CircleAlert, Clock3, Database, MessageSquare, P
 import { apiFetch } from './lib/api.js';
 import './AutonomousDepartments.css';
 import AgentReport from './AgentReport.jsx';
+import ReportCompare from './ReportCompare.jsx';
+import OutputQualityPanel from './OutputQualityPanel.jsx';
 
 const LABELS = { research: 'Research & Intelligence', 'trading-social': 'Trading Social Intelligence', 'general-marketing': 'General Marketing Intelligence' };
 const shortDate = value => value ? new Date(value).toLocaleString() : '—';
@@ -13,6 +15,7 @@ export default function AutonomousDepartments() {
   const [data, setData] = useState(null);
   const [department, setDepartment] = useState('research');
   const [mission, setMission] = useState(initialMission);
+  const [compareIds, setCompareIds] = useState([]);
   const [query, setQuery] = useState('');
   const [busy, setBusy] = useState(false);
   const [pulseBusy, setPulseBusy] = useState(false);
@@ -97,6 +100,14 @@ export default function AutonomousDepartments() {
   const selected = data?.departments?.find(item => item.id === department);
   const team = (data?.agents || []).filter(item => item.departmentId === department);
   const missions = (data?.missions || []).filter(item => item.departmentId === department);
+  const toggleCompare = id => setCompareIds(old => old.includes(id) ? old.filter(x => x !== id) : [...old.slice(-1), id]);
+  const comparePair = (() => {
+    const picked = compareIds.map(id => (data?.missions || []).find(m => m.id === id)).filter(m => m?.result?.output);
+    if (picked.length !== 2) return null;
+    const [older, newer] = [...picked].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
+    const label = m => m.title + ' · ' + String(m.createdAt || '').slice(0, 10);
+    return [{ label: label(older), content: older.result.output }, { label: label(newer), content: newer.result.output }];
+  })();
   const review = (data?.reviews || []).find(item => item.departmentId === department && item.date === new Date().toISOString().slice(0, 10));
   const goals = (data?.goals || []).find(item => item.departmentId === department)?.goals || selected?.goals || [];
   const todayMetrics = review?.metrics?.actual || { missions: 0, memory: 0, messages: 0 };
@@ -143,9 +154,13 @@ export default function AutonomousDepartments() {
         </section>
         <section className="glass-panel org-panel">
           <div className="org-panel-head"><div><span className="eyebrow">MISSION CONTROL</span><h4>Department mission history</h4></div><Activity size={17}/></div>
+          <OutputQualityPanel />
+          {comparePair && <ReportCompare before={comparePair[0]} after={comparePair[1]} onClose={() => setCompareIds([])} />}
+          {compareIds.length === 1 && <p className="subtle-note">Select one more completed mission to compare.</p>}
           <div className="org-mission-list">{missions.slice(0, 12).map(item => <article key={item.id}>
             <div><b>{item.title}</b><span className={'org-status org-' + item.status}>{item.status}</span></div><p>{item.objective}</p>
-            {item.result?.output && <details><summary>Read completed intelligence</summary><AgentReport content={item.result.output} title={item.title} /></details>}
+            {item.result?.output && <details><summary>Read completed intelligence</summary><AgentReport content={item.result.output} title={item.title} meta={item.result} source="department-mission" /></details>}
+            {item.result?.output && <label className="subtle-note org-compare-pick"><input type="checkbox" checked={compareIds.includes(item.id)} onChange={() => toggleCompare(item.id)} /> Select to compare</label>}
             {item.status !== 'completed' && <button className="small-refresh" disabled={busy} onClick={() => runQueued(item)}>Run / retry mission</button>}
             <small>{shortDate(item.createdAt)} · {item.assignedAgents.length} assigned agents</small>
           </article>)}{!missions.length && <p className="subtle-note">No missions recorded for this department yet.</p>}</div>
