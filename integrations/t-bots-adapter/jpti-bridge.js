@@ -111,6 +111,18 @@ export class JptiBridge {
   }
   async preflightEntry({ token, profileId = 'meme_new_pair', securityPassed = false } = {}) {
     if (!this.enabled) return { allowed:false, reasons:['JPTI bridge is not configured'] };
+    // Historical qualification is required before a live-market forward paper trial.
+    // The forward paper results are subsequently assessed by the same control plane.
+    try {
+      const validation = await this._request('/validation/latest/' + encodeURIComponent(profileId));
+      if (validation?.paperTrialEligible !== true) {
+        const failed = validation?.assessment?.failedChecks || ['no_validation_record'];
+        return { allowed:false, reasons:['Historical validation gate has not qualified this bot for a forward paper trial.', ...failed.map(String)] };
+      }
+    } catch (error) {
+      this.lastValidationError = error.message;
+      return { allowed:false, reasons:['JPTI strategy validation unavailable; bot entry fails closed.', error.message] };
+    }
     // Always consult the authoritative JPTI gate for every new entry.
     // Cached approvals could outlive a newly engaged kill switch or risk pause.
     const relativeVolume=Number(token?.volume5mAvgUsd)>0?Number(token.volume5mUsd)/Number(token.volume5mAvgUsd):null;
