@@ -30,6 +30,7 @@ const MarketDigitalTwin = lazy(() => import('./MarketDigitalTwin.jsx'));
 const AgentDeskLive = lazy(() => import('./AgentDeskLive.jsx'));
 const EliteTraderReplication = lazy(() => import('./EliteTraderReplication.jsx'));
 const MultiExchangeEliteReplication = lazy(() => import('./MultiExchangeEliteReplication.jsx'));
+const MultiAssetIntelligence = lazy(() => import('./MultiAssetIntelligence.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -70,6 +71,7 @@ const navigation = [
   { label: 'Futures', icon: Activity, group: 'MARKETS' },
   { label: 'Futures Intelligence', icon: Radio, group: 'MARKETS' },
   { label: 'Market Stream', icon: Radio, group: 'MARKETS' },
+  { label: 'Multi-Asset Intelligence', icon: Globe2, group: 'INTELLIGENCE' },
   { label: 'Asset Intelligence', icon: Network, group: 'MARKETS' },
   { label: 'Market Digital Twin & Intelligence Lab', icon: FlaskConical, group: 'RESEARCH' },
   { label: 'AI Intelligence', icon: BrainCircuit, group: 'INTELLIGENCE' },
@@ -564,6 +566,7 @@ function App() {
     if (page === 'Opportunity Radar') return <OpportunityRadar exchange={forecastExchange} timeframe={forecastTimeframe}/>;
     if (['Portfolio Stress','Pre-trade Gate','Strategy Registry','Market Replay','System Diagnostics','Production Readiness'].includes(page)) return <Phase15To21Workspaces key={page} page={page}/>;
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
+    if (page === 'Multi-Asset Intelligence') return <MultiAssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
     if (page === 'Elite Trader Replication') return <EliteTraderReplication/>;
