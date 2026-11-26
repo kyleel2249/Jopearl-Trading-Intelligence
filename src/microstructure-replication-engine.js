@@ -1,0 +1,92 @@
+export const MICROSTRUCTURE_EXCHANGES = Object.freeze(['binance','bybit','okx','bitget']);
+export const MICROSTRUCTURE_KINDS = Object.freeze(['orderbook','trade','funding','open_interest','liquidation']);
+const SYMBOL_RE=/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
+const n=v=>v===null||v===undefined||v===''?null:Number.isFinite(Number(v))?Number(v):null;
+const iso=v=>{const x=n(v);if(!(x>0))return null;const d=new Date(x<1e12?x*1000:x);return Number.isNaN(d.getTime())?null:d.toISOString();};
+const enc=encodeURIComponent;
+export function normalizeMicrostructurePlan(input={}){
+ const exchanges=[...new Set((Array.isArray(input.exchanges)?input.exchanges:MICROSTRUCTURE_EXCHANGES).map(x=>String(x).toLowerCase()).filter(x=>MICROSTRUCTURE_EXCHANGES.includes(x)))].slice(0,4);
+ const symbols=[...new Set((Array.isArray(input.symbols)?input.symbols:['BTC/USDT','ETH/USDT']).map(x=>String(x).trim().toUpperCase()).filter(x=>SYMBOL_RE.test(x)))].slice(0,8);
+ const kinds=[...new Set((Array.isArray(input.kinds)?input.kinds:MICROSTRUCTURE_KINDS).map(x=>String(x).toLowerCase()).filter(x=>MICROSTRUCTURE_KINDS.includes(x)))].slice(0,5);
+ const marketType=String(input.marketType||'spot').toLowerCase();
+ if(!exchanges.length||!symbols.length||!kinds.length)throw Object.assign(new Error('Select at least one supported exchange, symbol and observation kind.'),{status:400});
+ if(!['spot','usdt-m','coin-m','usdc-m'].includes(marketType))throw Object.assign(new Error('marketType must be spot, usdt-m, coin-m or usdc-m.'),{status:400});
+ return {exchanges,symbols,kinds,marketType,depthLimit:Math.max(5,Math.min(100,Number(input.depthLimit)||20)),tradeLimit:Math.max(10,Math.min(100,Number(input.tradeLimit)||50)),maxRequests:Math.max(1,Math.min(24,Number(input.maxRequests)||18))};
+}
+export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',limit=50){
+ const [pair,settle]=symbol.split(':');const [base,quote]=pair.split('/');
+ const bitgetSymbol=base+quote, okxSpot=base+'-'+quote, okxSwap=base+'-'+(marketType==='coin-m'?base:quote)+'-SWAP';
+ const derivative=marketType!=='spot';
+ if(exchange==='binance'){
+  const sym=base+quote;
+  if(kind==='orderbook')return 'https://'+(derivative?'fapi.binance.com':'api.binance.com')+(derivative?'/fapi/v1/depth':'/api/v3/depth')+'?symbol='+sym+'&limit='+limit;
+  if(kind==='trade')return 'https://'+(derivative?'fapi.binance.com':'api.binance.com')+(derivative?'/fapi/v1/aggTrades':'/api/v3/aggTrades')+'?symbol='+sym+'&limit='+limit;
+  if(kind==='funding')return 'https://fapi.binance.com/fapi/v1/fundingRate?symbol='+sym+'&limit=20';
+  if(kind==='open_interest')return 'https://fapi.binance.com/fapi/v1/openInterest?symbol='+sym;
+  if(kind==='liquidation')return 'https://fapi.binance.com/fapi/v1/forceOrders?symbol='+sym+'&limit=20';
+ }
+ if(exchange==='bybit'){
+  const category=derivative?(marketType==='coin-m'?'inverse':'linear'):'spot',sym=base+quote;
+  if(kind==='orderbook')return 'https://api.bybit.com/v5/market/orderbook?category='+category+'&symbol='+sym+'&limit='+Math.min(50,limit);
+  if(kind==='trade')return 'https://api.bybit.com/v5/market/recent-trade?category='+category+'&symbol='+sym+'&limit='+Math.min(100,limit);
+  if(kind==='funding')return 'https://api.bybit.com/v5/market/funding/history?category='+category+'&symbol='+sym+'&limit=20';
+  if(kind==='open_interest')return 'https://api.bybit.com/v5/market/open-interest?category='+category+'&symbol='+sym+'&intervalTime=5min&limit=20';
+ }
+ if(exchange==='okx'){
+  const inst=derivative?okxSwap:okxSpot;
+  if(kind==='orderbook')return 'https://www.okx.com/api/v5/market/books?instId='+inst+'&sz='+Math.min(400,limit);
+  if(kind==='trade')return 'https://www.okx.com/api/v5/market/trades?instId='+inst+'&limit='+Math.min(500,limit);
+  if(kind==='funding')return 'https://www.okx.com/api/v5/public/funding-rate-history?instId='+inst+'&limit=20';
+  if(kind==='open_interest')return 'https://www.okx.com/api/v5/public/open-interest?instType=SWAP&instId='+inst;
+  if(kind==='liquidation')return 'https://www.okx.com/api/v5/public/liquidation-orders?instType=SWAP&uly='+base+'-'+quote+'&state=filled&limit=20';
+ }
+ if(exchange==='bitget'){
+  const product=marketType==='coin-m'?'COIN-FUTURES':marketType==='usdc-m'?'USDC-FUTURES':'USDT-FUTURES';
+  if(kind==='orderbook')return derivative?'https://api.bitget.com/api/v2/mix/market/merge-depth?productType='+product+'&symbol='+bitgetSymbol+'&limit='+Math.min(100,limit):'https://api.bitget.com/api/v2/spot/market/orderbook?symbol='+bitgetSymbol+'&limit='+Math.min(150,limit);
+  if(kind==='trade')return derivative?'https://api.bitget.com/api/v2/mix/market/fills?productType='+product+'&symbol='+bitgetSymbol+'&limit='+Math.min(100,limit):'https://api.bitget.com/api/v2/spot/market/fills?symbol='+bitgetSymbol+'&limit='+Math.min(100,limit);
+  if(kind==='funding')return 'https://api.bitget.com/api/v2/mix/market/history-fund-rate?productType='+product+'&symbol='+bitgetSymbol+'&pageSize=20';
+  if(kind==='open_interest')return 'https://api.bitget.com/api/v2/mix/market/open-interest?productType='+product+'&symbol='+bitgetSymbol;
+ }
+ return null;
+}
+function rowsOf(payload){if(Array.isArray(payload))return payload;if(Array.isArray(payload?.data))return payload.data;if(Array.isArray(payload?.result?.list))return payload.result.list;if(Array.isArray(payload?.result))return payload.result;return [];}
+export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,payload,receivedAt=Date.now()}){
+ if(!payload||typeof payload!=='object')return [];
+ const stamp=iso(receivedAt),out=[];
+ const push=(id,observedAt,data,quality={})=>{const at=iso(observedAt)||stamp;out.push({exchange,symbol,marketType,kind,eventId:String(id??at),observedAt:at,receivedAt:stamp,payload:data,quality});};
+ if(kind==='orderbook'){
+  const data=payload.result||payload.data||payload;
+  const bids=data.b||data.bids||data.asks&&data.bids||[],asks=data.a||data.asks||[];
+  const clean=levels=>(Array.isArray(levels)?levels:[]).slice(0,100).map(x=>[n(x[0]??x.price),n(x[1]??x.size??x.qty)]).filter(x=>x[0]>0&&x[1]>=0);
+  const bid=clean(bids),ask=clean(asks),bestBid=bid.length?Math.max(...bid.map(x=>x[0])):null,bestAsk=ask.length?Math.min(...ask.map(x=>x[0])):null;
+  if(bid.length||ask.length)push(data.ts||data.timestamp||payload.ts||receivedAt,'', {bids:bid,asks:ask,bestBid,bestAsk,spread:bestBid&&bestAsk?bestAsk-bestBid:null,midPrice:bestBid&&bestAsk?(bestBid+bestAsk)/2:null,depth:bid.length+ask.length},{validLevels:true,crossed:!!(bestBid&&bestAsk&&bestBid>=bestAsk)});
+ }else{
+  for(const row of rowsOf(payload)){
+   let id,time,data;
+   if(kind==='trade'){
+    id=row.execId||row.tradeId||row.id||row.ts+'-'+row.price+'-'+row.size;time=row.time||row.ts||row.T||row.timestamp;
+    data={price:n(row.price||row.p),quantity:n(row.size||row.qty||row.q),side:String(row.side|| (row.m?'sell':'unknown')).toLowerCase(),tradeId:String(id),quoteQuantity:n(row.price||row.p)*n(row.size||row.qty||row.q)};
+    if(!(data.price>0&&data.quantity>0))continue;
+   }else if(kind==='funding'){
+    id=row.fundingRateTimestamp||row.fundingTime||row.fundingRateTime||row.ts||row.id;time=id;
+    data={rate:n(row.fundingRate??row.fundingRateValue??row.fundingRate),fundingTime:iso(time),symbol:row.symbol||symbol};
+    if(data.rate===null)continue;
+   }else if(kind==='open_interest'){
+    id=row.timestamp||row.ts||row.time||row.symbol||receivedAt;time=row.timestamp||row.ts||row.time;
+    data={openInterest:n(row.openInterest??row.openInterestValue??row.oi),openInterestValue:n(row.openInterestValue),unit:row.unit||null,symbol:row.symbol||symbol};
+    if(data.openInterest===null)continue;
+   }else if(kind==='liquidation'){
+    id=row.orderId||row.ts+'-'+row.price+'-'+row.size;time=row.updatedTime||row.ts||row.time;
+    data={side:String(row.side||row.S||'unknown').toLowerCase(),price:n(row.price||row.p),quantity:n(row.qty||row.size||row.sz),notional:n(row.price||row.p)*n(row.qty||row.size||row.sz),orderId:String(id)};
+    if(!(data.price>0&&data.quantity>0))continue;
+   }
+   push(id,time,data,{validated:true});
+  }
+ }
+ return out;
+}
+export function microstructureObservationKey(row){return [row.exchange,row.marketType,row.symbol,row.kind,row.eventId].map(x=>encodeURIComponent(String(x??''))).join('|');}
+export function summarizeMicrostructureCoverage(results=[]){
+ const supported=results.filter(x=>x.status==='stored'||x.status==='empty').length;
+ return {requested:results.length,supported,unsupported:results.filter(x=>x.status==='unsupported').length,failed:results.filter(x=>x.status==='failed').length,observations:results.reduce((n,x)=>n+(x.count||0),0),results};
+}
