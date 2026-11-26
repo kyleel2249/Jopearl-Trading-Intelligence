@@ -1,0 +1,21 @@
+name = "jpti-market-stream-collector"
+main = "market-stream-collector.js"
+compatibility_date = "2026-11-23"
+compatibility_flags = ["nodejs_compat"]
+
+[[d1_databases]]
+binding = "JPTI_DB"
+database_name = "jopearl-trading-intelligence-db"
+database_id = "3c0a6ec7-8d89-41e3-a1c7-16bb3391f841"
+migrations_dir = "../migrations/d1"
+
+[[durable_objects.bindings]]
+name = "MARKET_STREAMS"
+class_name = "MarketStreamHub"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["MarketStreamHub"]
+
+[triggers]
+crons = ["*/1 * * * *"]
