@@ -59,8 +59,9 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  :strategy==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2)
  :clamp(trend*.25+Math.sign(momentum)*.2+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0)+Math.sign(momentum)*timeframeAgreement*.15,-1,1);
  const marketData=context.marketData||{};
- const microInputs=[marketData.orderBookImbalance,marketData.tradeFlowImbalance].map(v=>Number.isFinite(Number(v))?Math.max(-1,Math.min(1,Number(v))):null).filter(v=>v!==null);
- const microstructureScore=microInputs.length?clamp(microInputs.reduce((a,b)=>a+b,0)/microInputs.length*.2,-.2,.2):0;
+ const microInputs=[marketData.orderBookImbalance,marketData.tradeFlowImbalance].map(v=>v===null||v===undefined?null:Number(v)).filter(v=>v!==null&&Number.isFinite(v)).map(v=>Math.max(-1,Math.min(1,v)));
+ const fundingValue=marketData.fundingRate===null||marketData.fundingRate===undefined?null:Number(marketData.fundingRate),fundingScore=fundingValue!==null&&Number.isFinite(fundingValue)?clamp(-fundingValue*400,-.1,.1):0;
+ const microstructureScore=clamp((microInputs.length?microInputs.reduce((a,b)=>a+b,0)/microInputs.length*.2:0)+fundingScore,-.25,.25);
  if(strategy!=='risk'&&microInputs.length)score=clamp(score+microstructureScore,-1,1);
  const direction=score>.25?'LONG':score<-.25?'SHORT':'FLAT';
  const signalAgreement=direction==='FLAT'?0:Object.values(timeframeBias).filter(v=>v===(direction==='LONG'?1:-1)).length;
