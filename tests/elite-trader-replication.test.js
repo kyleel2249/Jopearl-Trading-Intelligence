@@ -43,3 +43,11 @@ test('ranker never authorizes live execution and selects only eligible candidate
   assert.equal(result.execution.liveExecutionAuthorized,false);
   assert.equal(result.execution.ordersCreated,0);
 });
+
+test('rolling-window coverage cannot be fabricated from a top-level ROI fallback',()=>{
+  const sparse=candidate({roiPct:99,windows:{'90d':{roiPct:18,winRatePct:63,maxDrawdownPct:9,copierPnlUsd:1800,sharpe:1.8,sortino:2.1,calmar:1.6}}});
+  const result=assessEliteTrader(sparse,now);
+  assert.equal(result.windowCoverage,1);
+  assert.equal(result.eligible,false);
+  assert.ok(result.failedGates.includes('insufficient_window_coverage'));
+});
