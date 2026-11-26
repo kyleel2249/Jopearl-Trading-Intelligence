@@ -64,3 +64,12 @@ The weekday scheduler policy prevents weekend paper candidates. Session-open fla
 3. Open **Multi-Asset Intelligence** in the sidebar and provide the existing private JPTI API token to load persisted records.
 4. Configure verified data providers and licensed instrument universes before enabling a module for paper evaluation.
 5. Keep live execution locked until independent broker/exchange execution testing and explicit operator approval.
+
+
+## Live chart liquidity, entry and target zones
+
+The shared live candlestick chart now renders price bands for observed/derived buy-side and sell-side liquidity levels, while preserving the underlying level line and source provenance. Existing FVG and order-block rectangles remain separate zones with their lifecycle states.
+
+Every canonical trade plan includes an entry zone and now generates a third runner target (TP3) alongside TP1 and TP2. The chart renders an individual narrow target band and labeled horizontal price line for each of the first three targets, including its reward/risk and reached state. The price-axis auto-range includes the TP3 runner so the band is not silently clipped when it lies beyond the normal candle range.
+
+Zone geometry is shared and unit-tested in `src/chart-intelligence/chart-zones.js`. Liquidity widths use a narrow ATR-scaled tolerance; target widths use ATR and stop-distance scaling. These are visual price tolerances, not measured resting-order depth, guaranteed fill prices or promises of target execution. The same `LiveCandlestickChart` component is used by the single-chart terminal and multi-chart workstation, so the annotations stay consistent across those workspaces.
