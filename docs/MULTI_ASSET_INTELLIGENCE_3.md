@@ -11,6 +11,19 @@ All agent permissions are `none`. Outputs are research findings or paper candida
 - **CROSS-MARKET INTELLIGENCE DIVISION:** Echo (cross-venue price discovery), Orion (macro/intermarket), Satoshi (on-chain/DeFi), Meridian (equities/indices/commodities).
 - **CAPITAL PRESERVATION COMMAND:** Aegis (portfolio risk), Sentinel (data/event safety), Quanta (strategy validation and decay).
 
+
+## Dedicated Scalping and Day-Trading Intelligence
+The short-term engine is implemented in `src/scalping-daytrading-engine.js` and is evaluated as part of every multi-asset opportunity. It adds two distinct divisions with sixteen deterministic specialist agents:
+
+- **Scalping (Nyx, Vega, Cipher, Razor, Pulse, Wraith, Vector, Shade):** microstructure, order-book/trade-flow imbalance, liquidity sweep/reclaim, SMC/FVG, spread/slippage/fee-adjusted expected edge, momentum bursts, absorption/exhaustion, breakout/retest and VWAP mean reversion.
+- **Day trading (Atlas, Lyra, Kestrel, Morpheus, Oracle, Titan, Solstice, Meridian):** multi-timeframe structure, exchange session/opening range, VWAP/EMA/ADX trend, reversal exhaustion, scheduled event risk, position sizing, market-regime fit and cross-market confirmation.
+
+Each squad has its own quorum, directional-conflict test, evidence freshness requirements, risk sizing output and paper eligibility result. Scalping requires fresh book observations and a net expected move greater than the configured multiple of round-trip spread, fees and slippage. Day trading requires a verified venue calendar. Both require strategy qualification, forward validation, valid portfolio equity/stop-distance inputs, event-risk clearance and drawdown headroom. Missing inputs cause abstention; no missing values are inferred from synthetic data.
+
+The API persists these evaluations as part of the multi-asset decision evidence, and the Multi-Asset Intelligence workspace displays the sixteen specialist roles and the two squad assessments. The existing crypto paper scheduler continues to require its independent risk gate and the original multi-asset specialist gate. The new short-term squads are additional parallel validators and do not silently bypass or replace those existing controls. A squad that has not passed its data, cost, session, forward-validation and risk requirements remains research-only. No live order permission is granted.
+
+The short-term strategy qualification helper requires a minimum out-of-sample trade sample, positive net expectancy, minimum profit factor, bounded drawdown, explicit fee/slippage modelling, walk-forward success, paper-forward success and verified data integrity. A failure quarantines the strategy or keeps it under observation; requalification requires fresh evidence and human review.
+
 ## Six market modules and data prerequisites
 The crypto module reuses the existing Binance/Bybit/OKX/Bitget market-stream, D1 observations and replay infrastructure. The scheduled paper worker now discovers the active Bitget USDT perpetual contract catalogue, ranks the universe with public 24-hour ticker volume, and rotates through it in ten-symbol batches every five minutes. Each active symbol receives USDT-M stream subscriptions across all four supported exchanges; the previous batch is stopped only after the new batch starts. The complete Bitget contract catalogue is persisted in the instrument registry, and the existing ten-symbol watchlist remains a fallback if public catalog acquisition fails. This is a rolling universe, not simultaneous execution of every pair in one scheduler invocation. Stocks, commodities, indices, forex and on-chain modules define canonical asset-class contracts and provider capabilities. They remain `provider-required` until a compatible feed is configured and verified. This prevents synthetic or guessed market data from being presented as live.
 
