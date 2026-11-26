@@ -238,12 +238,17 @@ export async function runCycle(db,symbol,options={},env={}){
   const dailyLoss=current.filter(t=>t.status==='closed'&&String(t.closedAt||'').slice(0,10)===iso().slice(0,10)).reduce((s,t)=>s+Math.min(0,num(t.netPnlUsd)),0);
   const validationEvidence=await loadPromotionEvidence(db,agent.strategyId||agent.id);
   const decayDetected=validationEvidence.verdict?.decayDetected===true;
-  const storedSafety=await db.prepare('SELECT status,quarantined_until FROM jpti_agent_safety_state WHERE agent_id=?').bind(agent.id).first().catch(()=>null);
+  const [storedSafety,heartbeat]=await Promise.all([
+   db.prepare('SELECT status,quarantined_until FROM jpti_agent_safety_state WHERE agent_id=?').bind(agent.id).first().catch(()=>null),
+   db.prepare('SELECT status,last_seen,latency_ms,error_count FROM jpti_agent_heartbeats WHERE agent_id=?').bind(agent.id).first().catch(()=>null)
+  ]);
   const quarantined=storedSafety?.status==='QUARANTINED'&&(!storedSafety.quarantined_until||Date.parse(storedSafety.quarantined_until)>Date.now());
   const dailyLossPct=Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100;
   const safetyDecision=evaluateAgentSafety({
-   agentStatus:agent.status,heartbeatStatus:agent.status==='active'||agent.status==='live_ready'?'healthy':agent.status,
-   healthScore:100,trustScore:Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)),
+   agentStatus:agent.status,heartbeatStatus:heartbeat?.status||'unknown',
+   heartbeatAgeMs:heartbeat?.last_seen?Math.max(0,Date.now()-Date.parse(heartbeat.last_seen)):null,
+   latencyMs:heartbeat?.latency_ms??null,errorRate:heartbeat?.error_count?Math.min(1,Number(heartbeat.error_count)/10):0,
+   trustScore:Math.min(100,65+Math.min(35,current.filter(t=>t.status==='closed').length)),
    dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),
    dailyLossPct,drawdownPct:metrics.maxDrawdownPct,consecutiveLosses:metrics.maxConsecutiveLosses,
    killSwitch:fleetSafety.killSwitch||independentPolicy.killSwitch===true,
@@ -257,7 +262,7 @@ export async function runCycle(db,symbol,options={},env={}){
   });
   report.agentSafety.push({agentId:agent.id,...safetyDecision});
   try{
-   const evaluatedAt=iso(),quarantinedUntil=safetyDecision.quarantine?new Date(Date.now()+24*60*60*1000).toISOString():null;
+   const evaluatedAt=iso(),quarantinedUntil=safetyDecision.quarantine?(quarantined?storedSafety.quarantined_until:new Date(Date.now()+24*60*60*1000).toISOString()):null;
    await db.prepare("INSERT INTO jpti_agent_safety_state(agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status,health_score=excluded.health_score,trust_score=excluded.trust_score,reasons_json=excluded.reasons_json,quarantined_until=excluded.quarantined_until,last_evaluated_at=excluded.last_evaluated_at,updated_at=excluded.updated_at")
     .bind(agent.id,safetyDecision.status,safetyDecision.health.score,safetyDecision.trustScore,JSON.stringify(safetyDecision.reasons),quarantinedUntil,evaluatedAt,evaluatedAt).run();
    if(safetyDecision.quarantine){
