@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {evaluateAgentSafety,scoreAgentHealth,detectAgentAnomalies,arbitrateAgentIntents} from './agent-safety-supervisor.js';
 
-const healthy={agentStatus:'active',heartbeatStatus:'healthy',healthScore:100,trustScore:80,dataAgeMs:1000,dataFresh:true,dailyLossPct:0,drawdownPct:0,consecutiveLosses:0,sessionAllowed:true};
+const healthy={agentStatus:'active',heartbeatStatus:'healthy',healthScore:100,trustScore:80,dataAgeMs:1000,dataFresh:true,bookValid:true,dailyLossPct:0,drawdownPct:0,consecutiveLosses:0,sessionAllowed:true};
 test('healthy agent may submit a paper candidate but never receives live authority',()=>{
  const result=evaluateAgentSafety(healthy);assert.equal(result.allowed,true);assert.equal(result.status,'HEALTHY');assert.equal(result.permissions.live,false);assert.equal(result.liveExecutionAuthorized,false);
 });
