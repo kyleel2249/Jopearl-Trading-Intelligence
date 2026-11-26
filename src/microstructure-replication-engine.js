@@ -9,13 +9,13 @@ export function normalizeMicrostructurePlan(input={}){
  const kinds=[...new Set((Array.isArray(input.kinds)?input.kinds:MICROSTRUCTURE_KINDS).map(x=>String(x).toLowerCase()).filter(x=>MICROSTRUCTURE_KINDS.includes(x)))].slice(0,5);
  const marketType=String(input.marketType||'spot').toLowerCase();
  if(!exchanges.length||!symbols.length||!kinds.length)throw Object.assign(new Error('Select at least one supported exchange, symbol and observation kind.'),{status:400});
- if(!['spot','usdt-m','coin-m','usdc-m'].includes(marketType))throw Object.assign(new Error('marketType must be spot, usdt-m, coin-m or usdc-m.'),{status:400});
+ if(!['spot','margin','usdt-m','coin-m','usdc-m'].includes(marketType))throw Object.assign(new Error('marketType must be spot, usdt-m, coin-m or usdc-m.'),{status:400});
  return {exchanges,symbols,kinds,marketType,depthLimit:Math.max(5,Math.min(100,Number(input.depthLimit)||20)),tradeLimit:Math.max(10,Math.min(100,Number(input.tradeLimit)||50)),maxRequests:Math.max(1,Math.min(24,Number(input.maxRequests)||24))};
 }
 export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',limit=50){
  const [pair]=symbol.split(':');const [base,quote]=pair.split('/');
  const bitgetSymbol=base+quote, okxSpot=base+'-'+quote, okxSwap=base+'-'+quote+'-SWAP';
- const derivative=marketType!=='spot';
+ const derivative=['usdt-m','coin-m','usdc-m'].includes(marketType);
  if(exchange==='binance'){
   const sym=base+quote,host=marketType==='coin-m'?'dapi.binance.com':derivative?'fapi.binance.com':'api.binance.com',prefix=marketType==='coin-m'?'/dapi/v1/':derivative?'/fapi/v1/':'/api/v3/';
   if(kind==='orderbook')return 'https://'+host+prefix+'depth'+'?symbol='+sym+'&limit='+limit;
