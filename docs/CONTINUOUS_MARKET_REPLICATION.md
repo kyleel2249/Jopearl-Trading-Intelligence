@@ -36,7 +36,7 @@ Example request:
 }
 ```
 
-The API enforces caps on exchange count, category count, symbols, timeframes, market count, candle history and request body size. Unsupported categories are not silently routed to another exchange.
+The API enforces caps on exchange count, category count, symbols, timeframes, market count, candle history and request body size. Unsupported categories are not silently routed to another exchange. It also calculates a per-cycle upstream subrequest budget (45 by default), automatically trims the requested timeframe set and market count when necessary, and reports the effective budget in each run plan. This protects the Cloudflare runtime from exceeding its subrequest allowance when all exchange categories are enabled.
 
 ## Durable storage
 
