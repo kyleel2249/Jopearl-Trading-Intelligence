@@ -1,8 +1,8 @@
 import {
  normalizeMicrostructurePlan, buildMicrostructureUrl, normalizeMicrostructurePayload,
  microstructureObservationKey, summarizeMicrostructureCoverage, summarizeMicrostructureObservations
-} from '../../src/microstructure-replication-engine.js';
-import { verifyPrivateToken } from '../private-auth.js';
+} from '../../../src/microstructure-replication-engine.js';
+import { verifyPrivateToken } from '../../private-auth.js';
 
 const H={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers:H});
