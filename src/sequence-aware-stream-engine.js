@@ -71,21 +71,18 @@ export function parseStreamMessage(config,raw,receivedAt=Date.now()) {
 }
 export function advanceBookSequence(state={},update={}) {
  const next={...state,valid:state.valid!==false};
- if(update.quality?.snapshot||update.payload?.type==='snapshot') return {state:{...next,lastSequence:update.sequence?.last??update.sequence?.sequence??null,valid:true,snapshotAt:update.receivedAt},action:'snapshot'};
- const first=n(update.sequence?.first),last=n(update.sequence?.last),previous=n(update.sequence?.previous);
- const current=n(state.lastSequence);
- if(current===null||!state.valid) return {state:{...next,valid:false,gapReason:'delta_without_snapshot'},action:'gap'};
- if(previous!==null&&previous!==current) return {state:{...next,valid:false,gapReason:'previous_sequence_mismatch',expectedPrevious:current,receivedPrevious:previous},action:'gap'};
- if(first!==null&&last!==null) {
-  if(last<=current)return {state:next,action:'duplicate'};
-  if(first>current+1)return {state:{...next,valid:false,gapReason:'sequence_gap',expected:first,current},action:'gap'};
-  return {state:{...next,lastSequence:last,valid:true},action:'applied'};
+ if(update.quality?.snapshot||update.payload?.type==='snapshot') return {state:{...next,lastSequence:update.sequence?.last??update.sequence?.sequence??null,valid:true,bridged:false,snapshotAt:update.receivedAt},action:'snapshot'};
+ const first=n(update.sequence?.first),last=n(update.sequence?.last),previous=n(update.sequence?.previous),current=n(state.lastSequence);
+ if(current===null||!state.valid)return{state:{...next,valid:false,gapReason:'delta_without_snapshot'},action:'gap'};
+ if(first!==null&&last!==null){
+  if(last<=current)return{state:next,action:'duplicate'};
+  if(first>current+1||last<current+1)return{state:{...next,valid:false,gapReason:'sequence_gap',expected:current+1,receivedFirst:first,receivedLast:last},action:'gap'};
+  if(state.bridged!==false&&previous!==null&&previous!==current)return{state:{...next,valid:false,gapReason:'previous_sequence_mismatch',expectedPrevious:current,receivedPrevious:previous},action:'gap'};
+  return{state:{...next,lastSequence:last,valid:true,bridged:true},action:'applied',continuity:'verified-contiguous'};
  }
- if(last!==null) {
-  if(last<=current)return {state:next,action:'duplicate'};
-  return {state:{...next,lastSequence:last,valid:true},action:'applied',continuity:'monotonic'};
- }
- return {state:next,action:'applied',continuity:'unsequenced'};
+ if(previous!==null&&previous!==current)return{state:{...next,valid:false,gapReason:'previous_sequence_mismatch',expectedPrevious:current,receivedPrevious:previous},action:'gap'};
+ if(last!==null){if(last<=current)return{state:next,action:'duplicate'};return{state:{...next,lastSequence:last,valid:true},action:'applied',continuity:'monotonic'};}
+ return{state:next,action:'applied',continuity:'unsequenced'};
 }
 
 export function applyOrderBookUpdate(book={},event={}) {
