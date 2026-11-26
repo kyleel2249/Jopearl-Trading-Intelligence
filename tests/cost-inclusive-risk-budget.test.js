@@ -1,0 +1,5 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {PAPER_POLICY,calculateAllInRiskPerUnit,simulatePaperFill,settlePaperTrade} from '../src/paper-trading-engine.js';
+test('all-in risk budget includes stop distance, round-trip fees, spread and slippage',()=>{const risk=calculateAllInRiskPerUnit({entryPrice:100,stopDistance:1});assert.ok(risk>1);assert.equal(risk,1+100*(PAPER_POLICY.feeRate*2+(PAPER_POLICY.slippageBps*2+PAPER_POLICY.spreadBps)/10000));});
+test('normal stop-out after execution costs remains within the all-in risk unit',()=>{const fill=simulatePaperFill({direction:'LONG',price:100,quantity:1});const riskUsd=calculateAllInRiskPerUnit({entryPrice:100,stopDistance:1});const position={direction:'LONG',entryPrice:fill.entryPrice,quantity:1,entryFeeUsd:fill.entryFeeUsd,riskUsd};const exit=fill.entryPrice-1;const settled=settlePaperTrade(position,exit,PAPER_POLICY.feeRate,PAPER_POLICY.slippageBps,PAPER_POLICY.spreadBps);assert.ok(settled.rMultiple>=-1.1,'normal stop-out flagged as risk breach: '+settled.rMultiple+'R');});
