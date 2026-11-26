@@ -268,7 +268,8 @@ export async function runCycle(db,symbol,options={},env={}){
    strategySuspended:agent.tier==='SUSPENDED'||validationEvidence.verdict?.status==='SUSPENDED',
    duplicateIntent:signal.action==='SIGNAL'&&!approvedIntentAgentIds.has(agent.id),
    oppositeIntentCollision:collisionSymbols.has(market.symbol),
-   bookValid:liveMarketContext.bookValid===false?false:undefined,
+   // New risk requires at least one fresh, sequence-valid streamed order book; REST candles alone are insufficient.
+   bookValid:liveMarketContext.bookValid===true,
    riskViolations:metrics.riskBreaches
   });
   report.agentSafety.push({agentId:agent.id,...safetyDecision});
