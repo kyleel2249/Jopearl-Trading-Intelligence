@@ -47,11 +47,14 @@ export function evaluateTradingValidation(input = {}, policy = VALIDATION_POLICY
 
   checks.push(pass('risk_controls', risk.preTradePassed === true && risk.dailyLossGuard === true && risk.drawdownGuard === true && risk.killSwitchTested === true, 'Independent pre-trade, daily-loss, drawdown and kill-switch tests must all pass.'));
   const failedChecks = checks.filter(item => !item.passed).map(item => item.id);
+  const preForwardFailedChecks = checks.filter(item => !item.passed && !item.id.startsWith('forward_')).map(item => item.id);
+  const paperTrialEligible = preForwardFailedChecks.length === 0;
   const eligibleForPaper = failedChecks.length === 0;
   return {
     policyVersion: policy.version,
     evaluatedAt: new Date().toISOString(),
-    status: eligibleForPaper ? 'paper_qualification_candidate' : 'research_only',
+    status: eligibleForPaper ? 'paper_qualification_candidate' : paperTrialEligible ? 'forward_paper_trial_required' : 'research_only',
+    paperTrialEligible, preForwardFailedChecks,
     checks, failedChecks, passedChecks: checks.length - failedChecks.length,
     permissions: {
       research: true, historicalBacktest: true, replay: true, paperTrading: true,
