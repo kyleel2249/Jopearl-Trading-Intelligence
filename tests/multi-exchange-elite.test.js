@@ -112,3 +112,16 @@ test('paper allocation optimizer caps every trader and never allocates real capi
  assert.equal(result.agentActivity.length,24);
  assert.ok(result.agentActivity.some(x=>x.id==='MX-12'));
 });
+
+test('malformed candidate rows are safely rejected instead of crashing the ranking batch',()=>{
+ const result=rankMultiExchangeTraders([null,[],candidate('bybit')],now);
+ assert.equal(result.candidateCount,3);
+ assert.equal(result.assessments.filter(x=>x.eligible).length,1);
+ assert.ok(result.assessments.some(x=>x.failedGates.includes('source_or_exchange_integrity_failed')));
+});
+test('invalid position sides are ignored and buy/sell are normalized',()=>{
+ const record=candidate('bitget',{positions:[null,{symbol:'BTCUSDT',side:'buy',notionalUsd:100},{symbol:'ETHUSDT',side:'hold',notionalUsd:50}]});
+ const result=assessMultiExchangeTrader(record,now);
+ assert.equal(result.positions.length,1);
+ assert.equal(result.positions[0].side,'long');
+});
