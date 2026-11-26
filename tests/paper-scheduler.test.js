@@ -1,9 +1,38 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {isDailyReviewDue} from '../workers/paper-scheduler.js';
+import {isDailyReviewDue,buildStreamStartPayload,startMarketStreamCollector} from '../workers/paper-scheduler.js';
 test('paper scheduler retains legacy dedicated daily cron compatibility',()=>{assert.equal(isDailyReviewDue({cron:'5 0 * * *'}),true);});
 test('paper scheduler runs the daily review from its single per-minute trigger at 00:05 UTC',()=>{assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,0,5)}),true);assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,0,4)}),false);assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:Date.UTC(2026,10,25,12,5)}),false);});
 test('paper scheduler ignores missing or invalid scheduled timestamps for the daily review',()=>{assert.equal(isDailyReviewDue({cron:'*/1 * * * *'}),false);assert.equal(isDailyReviewDue({cron:'*/1 * * * *',scheduledTime:'invalid'}),false);});
 
 test('paper scheduler Wrangler config preserves deployed triggers without attempting quota changes',async()=>{const config=await readFile(new URL('../workers/wrangler.toml',import.meta.url),'utf8');assert.doesNotMatch(config,/^\[triggers\]/m);assert.match(config,/currently deployed/);});
+
+test('stream start payload filters unsupported venues and markets and caps subscriptions',()=>{
+ const payload=buildStreamStartPayload([
+  {exchange:'binance',market_type:'spot',symbol:'BTCUSDT'},
+  {exchange:'bitget',market_type:'usdt-m',symbol:'ETHUSDT'},
+  {exchange:'unknown',market_type:'spot',symbol:'BADUSDT'}
+ ]);
+ assert.deepEqual(payload.streams,[
+  {exchange:'binance',marketType:'spot',symbol:'BTC/USDT'},
+  {exchange:'bitget',marketType:'usdt-m',symbol:'ETH/USDT'}
+ ]);
+ assert.equal(buildStreamStartPayload([]).streams.length,8);
+});
+test('paper scheduler authenticates and starts collector without blocking paper-cycle dependencies',async()=>{
+ let request;
+ const result=await startMarketStreamCollector({
+  JPTI_MARKET_STREAM_URL:'https://collector.example',
+  JPTI_API_TOKEN:'test-token',
+  JPTI_DB:{prepare(){return{async all(){return{results:[{exchange:'binance',market_type:'spot',symbol:'BTCUSDT'}]};}};}}
+ },async(url,options)=>{request={url:String(url),options};return new Response(JSON.stringify({started:1,requested:1}),{status:200,headers:{'content-type':'application/json'}});});
+ assert.deepEqual(result,{requested:1,started:1});
+ assert.equal(request.url,'https://collector.example/start');
+ assert.equal(request.options.headers['x-jpti-api-token'],'test-token');
+ assert.equal(JSON.parse(request.options.body).streams[0].symbol,'BTC/USDT');
+});
+test('collector configuration does not consume another account cron trigger',async()=>{
+ const config=await readFile(new URL('../workers/market-stream-collector.wrangler.toml',import.meta.url),'utf8');
+ assert.doesNotMatch(config,/^\[triggers\]/m);
+});
