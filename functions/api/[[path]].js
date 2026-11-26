@@ -110,6 +110,37 @@ async function readStoredMarketSnapshot(env, routeKey) {
   }
 }
 
+async function readReplicatedCandles(env, url) {
+  if (!env.JPTI_DB) return null;
+  const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/ohlcv\/([^/]+)$/i);
+  if (!match) return null;
+  let symbol;
+  try { symbol = decodeURIComponent(match[2]).toUpperCase(); } catch { return null; }
+  const exchange = match[1].toLowerCase();
+  const marketType = String(url.searchParams.get('type') || 'spot').toLowerCase();
+  const timeframe = String(url.searchParams.get('timeframe') || '1h');
+  const limit = Math.max(20, Math.min(500, Number.parseInt(url.searchParams.get('limit') || '200', 10) || 200));
+  try {
+    const result = await env.JPTI_DB.prepare(
+      "SELECT payload, observed_at FROM jpti_market_observations WHERE exchange = ? AND market_type = ? AND symbol = ? AND observation_kind = 'ohlcv' AND timeframe = ? ORDER BY observed_at DESC LIMIT ?"
+    ).bind(exchange, marketType, symbol, timeframe, limit).all();
+    const rows = (result?.results || []).map(row => {
+      try { return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { return null; }
+    }).filter(row => row && [row.open, row.high, row.low, row.close, row.volume].every(value => Number.isFinite(Number(value))));
+    if (rows.length < 21) return null;
+    rows.reverse();
+    return {
+      exchange, symbol, timeframe,
+      candles: rows.map(row => [Date.parse(row.observedAt), Number(row.open), Number(row.high), Number(row.low), Number(row.close), Number(row.volume)]),
+      stale: true, lastUpdatedAt: rows.at(-1).observedAt,
+      source: 'cloudflare-d1-replicated-history',
+      replication: { observations: rows.length, marketType, durable: true }
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
   if (!env.JPTI_KV) return;
   try {
@@ -1165,6 +1196,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         candlesResult = await marketProvider.request(candleUrl, { method: 'GET', signal: request.signal });
       }
       if (!candlesResult || candlesResult.status !== 200) {
+        const replicated = await readReplicatedCandles(env, url);
+        if (replicated) return json(200, replicated, request, { 'x-jpti-cache': 'd1-replicated-history' });
         const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
         if (snapshot) {
           const staleBody = { ...snapshot.body, stale: true, lastUpdatedAt: snapshot.occurredAt, source: 'cloudflare-d1-stale' };
@@ -1326,6 +1359,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       signal: request.signal
     });
     if ((!result || result.status >= 500) && isMarketDataRoute) {
+      const replicated = await readReplicatedCandles(env, url);
+      if (replicated) return json(200, replicated, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
       if (snapshot) {
         const staleBody = { ...snapshot.body, stale: true, lastUpdatedAt: snapshot.occurredAt, source: 'cloudflare-d1-stale' };

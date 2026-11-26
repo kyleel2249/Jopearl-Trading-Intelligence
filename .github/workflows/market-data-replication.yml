@@ -1,0 +1,53 @@
+name: JPTI Continuous Market Data Replication
+
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jpti-market-data-replication
+  cancel-in-progress: false
+
+jobs:
+  replicate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Validate replication endpoint and credentials
+        env:
+          REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
+          JPTI_API_TOKEN: ${{ secrets.JPTI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$REPLICATION_URL" ]; then
+            echo "::error::Set the GitHub Actions variable JPTI_REPLICATION_URL to the deployed Pages URL ending in /api/replication."
+            exit 1
+          fi
+          if [ -z "$JPTI_API_TOKEN" ]; then
+            echo "::error::Set the GitHub Actions secret JPTI_API_TOKEN to the same value configured as a Cloudflare Pages secret."
+            exit 1
+          fi
+          case "$REPLICATION_URL" in
+            https://*) ;;
+            *) echo "::error::Replication URL must use HTTPS."; exit 1 ;;
+          esac
+      - name: Run bounded exchange replication cycle
+        env:
+          REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
+          JPTI_API_TOKEN: ${{ secrets.JPTI_API_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --silent --show-error \
+            --connect-timeout 20 --max-time 240 \
+            --retry 2 --retry-delay 8 --retry-all-errors \
+            -X POST "$REPLICATION_URL" \
+            -H "content-type: application/json" \
+            -H "x-jpti-api-token: $JPTI_API_TOKEN" \
+            --data '{"includeCandles":true,"marketLimit":1,"candleLimit":80,"timeframes":["1m","5m","1h"]}' \
+            --output replication-result.json
+          cat replication-result.json
+          node -e "const r=require('./replication-result.json'); if(!r.runId || !['completed','partial'].includes(r.status)) process.exit(1); console.log('Replication run:',r.runId,'status:',r.status,'inserted:',r.counts?.inserted ?? 0);"
