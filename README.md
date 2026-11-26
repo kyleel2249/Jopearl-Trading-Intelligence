@@ -6,6 +6,10 @@ The repository retains the legacy Node/Express + CCXT service for desktop packag
 
 **Cloudflare production scope:** the current Pages runtime serves public spot markets, tickers and OHLCV candlesticks for Binance, Bybit, OKX and Bitget. Bitget's public market adapter also supports Margin, USDT-M, Coin-M and USDC-M catalogs, tickers and candles. Cross-venue ticker comparison and a limited single-timeframe chart-context score are available. The deployment workflow applies pending D1 migrations and then runs live post-deploy checks for all five Bitget categories. The remaining legacy server routes are not yet Cloudflare-native; they return an explicit unsupported response instead of silently calling another host. Private exchange accounts, order execution, a persistent trading ledger, scheduled engines and server-backed portfolio/intelligence services must not be treated as live until ported and verified on Cloudflare.
 
+## Continuous Multi-Exchange Data Acquisition and Replication
+
+A dedicated Cloudflare Pages replication API now stores timestamped Binance, Bybit, OKX and Bitget public market observations in D1. Bitget coverage includes spot, margin, USDT-M, Coin-M and USDC-M. The pipeline validates and deduplicates ticker and OHLCV observations, records replication runs and source coverage, and provides durable history queries. The existing chart API falls back to replicated D1 candles when live OHLCV retrieval fails, while clearly marking stale data. A GitHub Actions schedule invokes bounded replication cycles every five minutes; the application data plane and durable storage remain Cloudflare Pages/D1. Setup, endpoint contracts, limits and operational caveats are documented in [Continuous Market Replication](docs/CONTINUOUS_MARKET_REPLICATION.md).
+
 ## Implementation status
 
 **Implemented in this build**
