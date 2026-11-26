@@ -28,6 +28,7 @@ const AgentGovernance = lazy(() => import('./AgentGovernance.jsx'));
 const PaperTradingCommandCenter = lazy(() => import('./PaperTradingCommandCenter.jsx'));
 const MarketDigitalTwin = lazy(() => import('./MarketDigitalTwin.jsx'));
 const AgentDeskLive = lazy(() => import('./AgentDeskLive.jsx'));
+const EliteTraderReplication = lazy(() => import('./EliteTraderReplication.jsx'));
 import { apiFetch, apiUrl, isApiUnavailable } from './lib/api.js';
 import {
   Activity, BarChart3, Bell, Blocks, Bot, BrainCircuit, CandlestickChart, BookOpen,
@@ -92,6 +93,7 @@ const navigation = [
   { label: 'Institutional Governance', icon: ShieldCheck, group: 'OPERATIONS' },
   { label: 'Trading Bots', icon: Bot, group: 'OPERATIONS' },
   { label: 'AI Agent Command Center', icon: BrainCircuit, group: 'INTELLIGENCE' },
+  { label: 'Elite Trader Replication', icon: Target, group: 'INTELLIGENCE' },
   { label: 'Agent Desk Live', icon: Activity, group: 'INTELLIGENCE' },
   { label: 'Autonomous Departments', icon: Network, group: 'INTELLIGENCE' },
   { label: 'Shared Intelligence Memory', icon: Database, group: 'INTELLIGENCE' },
@@ -459,6 +461,7 @@ function App() {
     'Asset Intelligence': 'Normalized spot, perpetual, dated-futures, options and margin instrument discovery across supported venues.',
     'AI Intelligence': 'Signal evidence, market context and explainable analysis.',
     'AI Agent Command Center': 'Ten explainable specialist agents, multi-agent debate, risk vetoes and persistent research memory.',
+    'Elite Trader Replication': 'Independent 15-agent Bitget elite-trader scoring, eligibility gates, replica shortlist and paper-only performance tracking.',
     'Autonomous Departments': 'Research, trading social and general marketing workforces with shared memory, autonomous missions, interdepartmental exchange and daily KPI reviews.',
     'Shared Intelligence Memory': 'Persistent institutional memory with evidence provenance, confidence, freshness and linked knowledge.',
     'Agent Organisation': 'Autonomous agent tasking, department handoffs, shared knowledge and accountability.',
@@ -561,6 +564,7 @@ function App() {
     if (page === 'Asset Intelligence') return <AssetIntelligence/>;
     if (page === 'AI Intelligence') return <ResearchCouncil/>;
     if (page === 'AI Agent Command Center') return <AgentCommandCenter/>;
+    if (page === 'Elite Trader Replication') return <EliteTraderReplication/>;
     if (page === 'Agent Desk Live') return <AgentDeskLive/>;
     if (page === 'Autonomous Departments') return <AutonomousDepartments/>;
     if (page === 'Agent Governance & Approval Centre') return <AgentGovernance/>;
