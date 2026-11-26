@@ -5,6 +5,7 @@ import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';
 import { normalizeStreamRequest } from '../../../src/sequence-aware-stream-engine.js';
 import { loadPromotionEvidence } from '../../../src/strategy-validation-engine.js';
 import { evaluateAgentSafety, arbitrateAgentIntents } from '../../../src/lib/agent-safety-supervisor.js';
+import { evaluateMultiAssetOpportunity } from '../../../src/multi-asset-intelligence-engine.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -194,15 +195,29 @@ export async function loadLiveMarketContext(db,marketSymbol,env={}){
   openInterest:openInterest.size?[...openInterest.values()].reduce((a,b)=>a+b,0)/openInterest.size:null,
   liquidationFlow:{buyNotional:liquidationBuy,sellNotional:liquidationSell,netNotional:liquidationBuy-liquidationSell},
   ticker:bids.length&&asks.length?{bid:bids.reduce((a,b)=>a+b,0)/bids.length,ask:asks.reduce((a,b)=>a+b,0)/asks.length}:null,
-  freshestAt:[...books,...freshEvents].map(x=>x.received_at||x.updated_at||x.observed_at).filter(Boolean).sort().at(-1)||null
+  freshestAt:[...books,...freshEvents].map(x=>x.observed_at||x.received_at||x.updated_at).filter(Boolean).sort().at(-1)||null
  };
 }
+function buildMultiAssetEvidence(market,context,signal,tradingWindow){
+ const f=signal?.features||{},freshAt=Date.parse(context?.freshestAt||''),fresh=Number(market?.ageMs)<=60000&&Number.isFinite(freshAt)&&Date.now()-freshAt<=60000&&Date.now()-freshAt>=-5000;
+ const bookNotional=(context?.orderBooks||[]).reduce((sum,row)=>{const book=row.book||{};const levels=[...(book.bids||[]),...(book.asks||[])].slice(0,40);return sum+levels.reduce((total,level)=>{const price=Array.isArray(level)?Number(level[0]):Number(level.price),qty=Array.isArray(level)?Number(level[1]):Number(level.quantity??level.size);return total+(price>0&&qty>0?price*qty:0);},0);},0);
+ const bias=Object.values(f.timeframeBias||{}).map(Number).filter(v=>v===1||v===-1),alignment=bias.length?bias.reduce((sum,v)=>sum+v,0)/bias.length:null;
+ const closed=market?.candles?.filter(row=>Array.isArray(row)&&row.length>=6).slice(-2,-1)[0],displacementPct=closed&&Number(closed[1])>0?Math.abs(Number(closed[4])-Number(closed[1]))/Number(closed[1])*100:null;
+ const reliable=context?.bookValid===true&&(context?.freshStreamEvents||[]).length>0&&fresh;
+ return {timestamp:context?.freshestAt||null,eventTimeReliable:reliable,dataQuality:reliable?'verified':'unverified',
+  session:f.session||null,sessionOpen:tradingWindow?.eligible===true,price:Number(market.ticker.last),
+  spreadBps:f.spreadPct==null?null:Number(f.spreadPct)*100,volatilityPct:f.atrPct,liquidityUsd:bookNotional,
+  momentumPct:f.momentumPct,timeframeAlignment:alignment,relativeVolume:f.relativeVolume,
+  orderBookImbalance:context?.orderBookImbalance,depthImbalance:context?.orderBookImbalance,tradeFlowImbalance:context?.tradeFlowImbalance,
+  fundingRate:context?.fundingRate,displacementPct};
+}
+
 export async function runCycle(db,symbol,options={},env={}){
  if(!options.agentsEnsured)await ensureAgents(db);
  const tradingWindow=evaluateTradingWindow(options.now??Date.now());
  const market=await marketSnapshot(symbol,db);
  const liveMarketContext=await loadLiveMarketContext(db,market.symbol,env);
- const report={mode:'PAPER_ONLY',tradingWindow,liveMarketContext,source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
+ const report={mode:'PAPER_ONLY',tradingWindow,liveMarketContext,source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[],multiAssetReviews:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
  const exposure={total:0,bySymbol:new Map(),byDirection:new Map()};
  let independentPolicy={maxRiskPercent:PAPER_POLICY.riskPerTradePct,maxNotionalUsd:2500,maxOpenPositions:PAPER_POLICY.maxFleetOpenPositions,maxDailyLossPercent:PAPER_POLICY.maxDailyLossPct,maxDrawdownPercent:PAPER_POLICY.maxDrawdownPct,maxCorrelationExposure:PAPER_POLICY.maxOpenPerSymbol,minimumRewardRisk:1.5,maxSpreadPercent:.15,maxDataAgeMs:60000,requireFreshData:true,circuitBreaker:false,killSwitch:false};
@@ -350,10 +365,20 @@ export async function runCycle(db,symbol,options={},env={}){
    const quantity=Math.min(sizing.quantity||0,targetRiskUsd/allInRiskPerUnit,Math.max(0,metrics.equityUsd)/(price*(1+PAPER_POLICY.feeRate)));
    const riskUsd=quantity*allInRiskPerUnit;
    if(quantity>0&&Number.isFinite(quantity)){
-    const riskDecision=evaluateRiskGate({riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:exposure.total,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:3,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65},independentPolicy);
-    if(!riskDecision.allowed){
-     reason='Independent risk veto: '+riskDecision.violations.map(x=>x.code).join(', ');
-     report.riskVetoes.push({agentId:agent.id,decision:riskDecision});
+    const riskContext={riskUsd,riskBudgetUsd:Math.max(0,metrics.equityUsd*Number(independentPolicy.maxRiskPercent||.75)/100),riskPercent:riskUsd/Math.max(1,metrics.equityUsd)*100,notionalUsd:quantity*price,openPositions:exposure.total,dailyLossPercent:Math.abs(Math.min(0,dailyLoss))/Math.max(1,metrics.equityUsd)*100,drawdownPercent:metrics.maxDrawdownPct,rewardRisk:3,spreadPercent:signal.features.spreadPct,dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),correlatedOpenPositions:exposure.bySymbol.get(market.symbol)||0,confidence:Number(signal.confidence)||.65};
+    const riskDecision=evaluateRiskGate(riskContext,independentPolicy);
+    const multiAssetEvidence=buildMultiAssetEvidence(market,liveMarketContext,signal,tradingWindow);
+    const multiAssetDecision=evaluateMultiAssetOpportunity({assetClass:'crypto',symbol:market.symbol,marketType:'usdt-m',venue:'bitget',candles:market.candles,evidence:multiAssetEvidence,riskContext,riskPolicy:independentPolicy},{
+     maxAgeMs:independentPolicy.maxDataAgeMs||60000,maxSpreadBps:(Number(independentPolicy.maxSpreadPercent)||.15)*100,maxVolatilityPct:4,minLiquidityUsd:10000,minConfidence:.55
+    });
+    if(multiAssetDecision.direction!==String(signal.direction).toLowerCase()){
+     multiAssetDecision.veto.push('paper-signal-direction-disagreement');multiAssetDecision.eligible=false;multiAssetDecision.action='ABSTAIN';
+    }
+    report.multiAssetReviews.push({agentId:agent.id,decisionId:multiAssetDecision.decisionId,eligible:multiAssetDecision.eligible,direction:multiAssetDecision.direction,score:multiAssetDecision.score,confidence:multiAssetDecision.confidence,veto:multiAssetDecision.veto,specialistConsensus:multiAssetDecision.specialistConsensus,specialists:multiAssetDecision.specialists,shortTermIntelligence:multiAssetDecision.shortTermIntelligence});
+    try{await db.prepare('INSERT INTO jpti_multi_asset_decisions(decision_id,asset_class,symbol,venue,agent_squad,direction,score,confidence,eligible,action,veto_json,evidence_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(multiAssetDecision.decisionId,'crypto',market.symbol,'bitget',agent.id,multiAssetDecision.direction,multiAssetDecision.score,multiAssetDecision.confidence,multiAssetDecision.eligible?1:0,multiAssetDecision.action,JSON.stringify(multiAssetDecision.veto),JSON.stringify(multiAssetEvidence),iso()).run();}catch(error){console.error('[JPTI multi-asset] Decision persistence unavailable:',error?.message||error);}
+    if(!riskDecision.allowed||!multiAssetDecision.eligible){
+     reason=!riskDecision.allowed?'Independent risk veto: '+riskDecision.violations.map(x=>x.code).join(', '):'Multi-asset specialist veto: '+multiAssetDecision.veto.join(', ');
+     report.riskVetoes.push({agentId:agent.id,decision:riskDecision,multiAssetDecision});
      try{await db.prepare('INSERT INTO jpti_risk_events(event_id,event_type,severity,decision,reason,context_json,created_at) VALUES(?,?,?,?,?,?,?)').bind(crypto.randomUUID(),'paper-entry-veto','warning','REJECT',reason,JSON.stringify({agentId:agent.id,symbol:market.symbol,riskDecision}),iso()).run();}catch{/* Risk event persistence is available after migration 0010. */}
     }else{
     const fill=simulatePaperFill({direction:signal.direction,price,quantity});

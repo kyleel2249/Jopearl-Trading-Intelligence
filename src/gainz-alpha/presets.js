@@ -5,7 +5,7 @@ export const BASE = {
   minBars: 60, swingLen: 3, minScore: 0.3, minConfidence: 55, minConfluence: 3,
   requireTrend: false, requireMomentum: false, requireVolume: false, requireSweep: false, requireDisplacement: false, requireHtf: false,
   minRR: 1.5, cooldownBars: 3, expireBars: 12, reclaimWindow: 4, dispWindow: 5, dispBase: 0.5, dispAtrMult: 0.8, volMin: 1.1, minSweepDepthAtr: 0.2,
-  stopAtr: 1.5, maxStopAtr: 4, sessions: null, tp3: false, htf: [], maxFalseRate: null, requirePositiveExpectancy: false,
+  stopAtr: 1.5, maxStopAtr: 4, sessions: null, tp3: true, htf: [], maxFalseRate: null, requirePositiveExpectancy: false,
   costs: { spreadPct: 0.0002, slippagePct: 0.0002 },
   weights: { trend: 0.2, momentum: 0.15, volume: 0.08, structure: 0.12, liquidity: 0.2, displacement: 0.15, fvg: 0.05, location: 0.05 }
 };
