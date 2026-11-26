@@ -1,6 +1,6 @@
 import { verifyPrivateToken } from '../../private-auth.js';
 import { replayStrategy } from '../../../src/strategy-replay-engine.js';
-import { calculatePaperMetrics } from '../../../src/paper-trading-engine.js';
+import { calculatePaperMetrics, PAPER_POLICY } from '../../../src/paper-trading-engine.js';
 import { evaluateStrategyEvidence } from '../../../src/strategy-validation-engine.js';
 
 const H={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff'};
@@ -12,13 +12,16 @@ const TIMEFRAME_MS={'1m':60000,'3m':180000,'5m':300000,'15m':900000,'30m':180000
 function candle(row){const p=safeJson(row.payload,{});if(Array.isArray(p))return p.map(Number);const t=Date.parse(row.observed_at)||n(p.timestamp||p.ts);return[t,n(p.open??p.o),n(p.high??p.h),n(p.low??p.l),n(p.close??p.c),n(p.volume??p.v)];}
 function mapTrade(row){const p=safeJson(row.payload,{});return{...p,status:row.status,openedAt:row.opened_at,closedAt:row.closed_at,netPnlUsd:n(row.net_pnl_usd),rMultiple:n(row.r_multiple),riskBreach:p.riskBreach===true};}
 async function loadCandles(db,query){const rows=await db.prepare("SELECT observed_at,payload,quality FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol=? AND observation_kind='ohlcv' AND timeframe=? ORDER BY observed_at ASC LIMIT 12000").bind(query.exchange,query.marketType,query.symbol,query.timeframe).all();return(rows.results||[]).map(candle).filter(r=>r.length>=6&&r.every(Number.isFinite));}
-async function loadForward(db,strategyId){const rows=await db.prepare("SELECT t.* FROM jpti_paper_trades t JOIN jpti_paper_agents a ON a.agent_id=t.agent_id WHERE t.status='closed' AND (a.agent_id=? OR json_extract(a.payload,'$.strategyId')=?) ORDER BY t.closed_at ASC LIMIT 12000").bind(strategyId,strategyId).all();const trades=(rows.results||[]).map(mapTrade);const metrics=calculatePaperMetrics(trades,10000);return{...metrics,closedTrades:metrics.closedTrades,riskBreaches:metrics.riskBreaches,observationDays:metrics.observationDays};}
-async function loadHistoricalMarketEvents(db,query,from,to){
+async function loadForward(db,strategyId){const rows=await db.prepare("SELECT t.* FROM jpti_paper_trades t JOIN jpti_paper_agents a ON a.agent_id=t.agent_id WHERE t.status='closed' AND (a.agent_id=? OR json_extract(a.payload,'$.strategyId')=?) ORDER BY t.closed_at ASC LIMIT 12000").bind(strategyId,strategyId).all();const trades=(rows.results||[]).map(mapTrade);const metrics=calculatePaperMetrics(trades,PAPER_POLICY.initialEquityUsd);return{...metrics,closedTrades:metrics.closedTrades,riskBreaches:metrics.riskBreaches,observationDays:metrics.observationDays};}
+async function loadHistoricalMarketEvents(db,query,from,to,env={}){
  const [stream,micro]=await Promise.all([
   db.prepare("SELECT exchange,event_kind AS kind,observed_at,payload FROM jpti_market_stream_events WHERE exchange=? AND market_type=? AND symbol=? AND observed_at>=? AND observed_at<=? ORDER BY observed_at ASC LIMIT 40000").bind(query.exchange,query.marketType,query.symbol,from,to).all().catch(()=>({results:[]})),
   db.prepare("SELECT exchange,observation_kind AS kind,observed_at,payload FROM jpti_microstructure_observations WHERE exchange=? AND market_type=? AND symbol=? AND observed_at>=? AND observed_at<=? ORDER BY observed_at ASC LIMIT 40000").bind(query.exchange,query.marketType,query.symbol,from,to).all().catch(()=>({results:[]}))
  ]);
- const unique=new Map();for(const row of [...(stream.results||[]),...(micro.results||[])]){const p=safeJson(row.payload,{}),ts=Date.parse(row.observed_at);if(!Number.isFinite(ts))continue;const key=[row.exchange,row.kind,row.observed_at,JSON.stringify(p)].join('|');unique.set(key,{exchange:row.exchange,kind:row.kind,ts,payload:p});}
+ const remote=[];
+ const base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\\/$/,'');
+ if(base&&env.JPTI_API_TOKEN){try{const url=new URL(base+'/history');url.searchParams.set('exchange',query.exchange);url.searchParams.set('marketType',query.marketType);url.searchParams.set('symbol',query.symbol);url.searchParams.set('since',from);url.searchParams.set('until',to);url.searchParams.set('limit','20000');const response=await fetch(url,{headers:{'x-jpti-api-token':env.JPTI_API_TOKEN,'accept':'application/json'}});if(response.ok){const body=await response.json();for(const row of body.events||[])remote.push({exchange:query.exchange,kind:row.event_kind,observed_at:row.observedAt,payload:row.payload});}}catch{}}
+ const unique=new Map();for(const row of [...(stream.results||[]),...(micro.results||[]),...remote]){const p=safeJson(row.payload,{}),ts=Date.parse(row.observed_at);if(!Number.isFinite(ts))continue;const key=[row.exchange,row.kind,row.observed_at,JSON.stringify(p)].join('|');unique.set(key,{exchange:row.exchange,kind:row.kind,ts,payload:p});}
  return[...unique.values()].sort((a,b)=>a.ts-b.ts);
 }
 function createMarketDataAt(events,windowMs){
@@ -54,7 +57,7 @@ export async function onRequest({request,env}){
   const body=raw?JSON.parse(raw):{},query=normalizeQuery(body),candles=await loadCandles(env.JPTI_DB,query);
   if(candles.length<60)return json(409,{error:'Insufficient persisted OHLCV history for a defensible replay.',availableCandles:candles.length,requiredCandles:60,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const from=new Date(candles[0][0]).toISOString(),to=new Date(candles.at(-1)[0]).toISOString();
-  const marketEvents=await loadHistoricalMarketEvents(env.JPTI_DB,query,from,to),marketDataAt=createMarketDataAt(marketEvents,TIMEFRAME_MS[query.timeframe]);
+  const marketEvents=await loadHistoricalMarketEvents(env.JPTI_DB,query,from,to,env),marketDataAt=createMarketDataAt(marketEvents,TIMEFRAME_MS[query.timeframe]);
   const replay=replayStrategy({candles,strategyId:query.strategyId,startingEquity:10000,riskPerTradePct:.25,feeRate:.0006,slippageBps:5,spreadBps:3,maxDrawdownPct:10,monteCarloIterations:1000,marketDataAt});
   if(replay.status!=='completed')return json(409,{error:'Historical replay could not complete.',replay,promotion:'BLOCKED',liveExecutionAuthorized:false});
   const forward=await loadForward(env.JPTI_DB,query.strategyId);
