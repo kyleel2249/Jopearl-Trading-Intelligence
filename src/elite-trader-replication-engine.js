@@ -36,7 +36,7 @@ function scoreWindowStability(c) {
   const mean=values.reduce((a,b)=>a+b,0)/values.length;
   const variance=values.reduce((a,b)=>a+(b-mean)**2,0)/values.length;
   const cv=Math.sqrt(variance)/(Math.abs(mean)+1);
-  return {score:clamp(1-cv,0,1),coverage:values.length};
+  const positiveConsistency=values.filter(v=>v>0).length/values.length;\n  return {score:clamp(.7*positiveConsistency+.3*(1-cv),0,1),coverage:values.length};
 }
 function classifyStyle(c) {
   const days=finite(c.averageHoldingHours);
