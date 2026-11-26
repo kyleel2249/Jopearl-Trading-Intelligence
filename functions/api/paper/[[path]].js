@@ -344,7 +344,7 @@ async function dashboard(db){
  try{
   const global=await db.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
   const states=await db.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 100').all();
-  safety={available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parse(global.reasons_json,[])}:{status:'CLOSED',killSwitch:false,circuitBreaker:false},agents:(states.results||[]).map(x=>({...x,reasons:parse(x.reasons_json,[])}))};
+  safety={available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parseJson(global.reasons_json,[])}:{status:'CLOSED',killSwitch:false,circuitBreaker:false},agents:(states.results||[]).map(x=>({...x,reasons:parseJson(x.reasons_json,[])}))};
  }catch{/* A migration-required state is surfaced instead of inventing healthy telemetry. */}
  return {mode:'PAPER_ONLY',liveExecutionAuthorized:false,exchangeOrdersCreated:0,policy:PAPER_POLICY,agents,openTrades,safety,updatedAt:iso()};
 }
