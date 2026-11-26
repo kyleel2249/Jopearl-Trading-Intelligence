@@ -21,6 +21,12 @@ test('an existing quarantine remains active until its stored expiry is cleared',
 test('missing persistent safety state blocks new entries',()=>{
  const result=evaluateAgentSafety({...healthy,safetyStorageReady:false});assert.equal(result.allowed,false);assert.ok(result.reasons.some(x=>x.code==='SAFETY_STORAGE_UNAVAILABLE'));
 });
+test('high severity behaviour blocks new entries without auto-quarantining',()=>{
+ const result=evaluateAgentSafety({...healthy,anomalies:[{type:'unexpected-behaviour',severity:'HIGH'}]});assert.equal(result.allowed,false);assert.equal(result.quarantine,false);assert.ok(result.reasons.some(x=>x.code==='HIGH_AGENT_ANOMALY'));
+});
+test('risk breach history blocks further entries pending review',()=>{
+ const result=evaluateAgentSafety({...healthy,riskViolations:1});assert.equal(result.allowed,false);assert.ok(result.reasons.some(x=>x.code==='RISK_VIOLATION_HISTORY'));
+});
 test('critical security and policy anomalies quarantine the agent',()=>{
  const result=evaluateAgentSafety({...healthy,anomalies:[{type:'policy-bypass',summary:'attempted risk override'}]});assert.equal(result.allowed,false);assert.equal(result.quarantine,true);assert.equal(result.status,'QUARANTINED');
 });
