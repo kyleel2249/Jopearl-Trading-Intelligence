@@ -23,9 +23,10 @@ export async function onRequest({request,env}) {
   const raw=await request.text();if(raw.length>50000)return json(413,{error:'Request exceeds 50 KB.'});
   const body=raw?JSON.parse(raw):{},action=id(body.action),now=new Date().toISOString();
   if(action==='evaluate'){
-   const result=evaluateMultiAssetOpportunity(body,{});
+   const trustedInput={...body,riskContext:null,evidence:{...(body.evidence||{}),dataQuality:'unverified-client-input',eventTimeReliable:false}};
+   const result=evaluateMultiAssetOpportunity(trustedInput,{});
    await env.JPTI_DB.prepare('INSERT INTO jpti_multi_asset_decisions(decision_id,asset_class,symbol,venue,agent_squad,direction,score,confidence,eligible,action,veto_json,evidence_json,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)').bind(result.decisionId,result.instrument.assetClass,result.instrument.symbol,result.instrument.venue,String(body.agentSquad||'scalping'),result.direction,result.score,result.confidence,result.eligible?1:0,result.action,JSON.stringify(result.veto),JSON.stringify(body.evidence||{}),now).run();
-   return json(200,{...result,persisted:true,liveExecutionAuthorized:false});
+   return json(200,{...result,persisted:true,evidenceTrust:'unverified-client-input',liveExecutionAuthorized:false});
   }
   if(action==='backfill-stream-history'){
    if(!env.JPTI_MARKET_STREAM?.fetch)return json(503,{error:'JPTI_MARKET_STREAM service binding is unavailable.'});
@@ -50,7 +51,7 @@ export async function onRequest({request,env}) {
     const eventId=String(event.event_id||event.eventId||observedAt),kind=String(event.event_kind||event.kind||'unknown');
     const key=[page.streamId||cursorId,kind,eventId].join('|');
     return env.JPTI_DB.prepare('INSERT OR IGNORE INTO jpti_market_stream_events(event_key,stream_id,exchange,market_type,symbol,event_kind,event_id,sequence,observed_at,received_at,payload,quality) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)')
-     .bind(key,page.streamId||cursorId,exchange,instrument.marketType,instrument.symbol,kind,eventId,Number.isFinite(Number(event.sequence))?Number(event.sequence):null,new Date(observedAt).toISOString(),new Date(receivedAt).toISOString(),JSON.stringify(event.payload||{}),JSON.stringify(event.quality||{}));
+     .bind(key,page.streamId||cursorId,exchange,instrument.marketType,instrument.symbol,kind,eventId,event.sequence==null?null:(Number.isFinite(Number(event.sequence))?Number(event.sequence):null),new Date(observedAt).toISOString(),new Date(receivedAt).toISOString(),JSON.stringify(event.payload||{}),JSON.stringify(event.quality||{}));
    });
    let ingested=0;
    for(let i=0;i<statements.length;i+=100){const results=await env.JPTI_DB.batch(statements.slice(i,i+100));ingested+=results.reduce((sum,result)=>sum+(Number(result.meta?.changes)||0),0);}

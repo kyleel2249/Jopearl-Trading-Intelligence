@@ -32,7 +32,7 @@ The named specialist squad evaluations are deterministic, explainable rule modul
 ## API
 All endpoints require the configured JPTI private API token and D1 migration 0019:
 - `GET /api/multi-asset`: module, squad and persisted-state overview.
-- `POST /api/multi-asset` with `action=evaluate`: evaluate and persist timestamped evidence.
+- `POST /api/multi-asset` with `action=evaluate`: evaluate and persist timestamped evidence. Client-submitted fixtures are forcibly marked unverified and cannot qualify for a paper candidate.
 - `action=backfill-stream-history`: page retained crypto Durable Object events into D1 with a cursor advanced only after each D1 batch commits.
 - `action=backfill-checkpoint`: upsert a provider/asset/symbol cursor after a successful ingest page.
 - `action=allocate`: persist a paper risk allocation.
