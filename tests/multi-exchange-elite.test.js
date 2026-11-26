@@ -139,3 +139,10 @@ test('rolling-return stability normalizes each horizon to daily return rates',()
  assert.equal(result.windowStability.dailyReturnPctByWindow['180d'],0.2);
  assert.ok(result.windowStability.winRateStability>0.99);
 });
+
+test('strategy transfer learning clusters comparable profiles across exchanges',()=>{
+ const result=rankMultiExchangeTraders([candidate('bitget'),candidate('bybit'),candidate('binance')],now);
+ const shared=result.strategyClusters.find(x=>x.count===3);
+ assert.ok(shared);
+ assert.ok(result.agentActivity.find(x=>x.id==='MX-09').count>=1);
+});
