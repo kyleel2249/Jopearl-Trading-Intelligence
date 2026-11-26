@@ -26,7 +26,7 @@ export async function loadHistoricalMarketEvents(db,query,from,to,env={}){
  const remote=[],base=String(env.JPTI_MARKET_STREAM_URL||'').replace(/\/$/,'');
  const streamFetch=env.JPTI_MARKET_STREAM?.fetch?env.JPTI_MARKET_STREAM.fetch.bind(env.JPTI_MARKET_STREAM):fetch;
  const streamBase=env.JPTI_MARKET_STREAM?'https://jpti-market-stream-collector':base;
- if(streamBase&&env.JPTI_API_TOKEN){
+ if(streamBase){
   await Promise.all(SUPPORTED_EXCHANGES.map(async exchange=>{
    let cursor=to;
    for(let page=0;page<5;page++){
@@ -35,7 +35,7 @@ export async function loadHistoricalMarketEvents(db,query,from,to,env={}){
      url.searchParams.set('exchange',exchange);url.searchParams.set('marketType',query.marketType);
      url.searchParams.set('symbol',query.symbol);url.searchParams.set('since',from);
      url.searchParams.set('until',cursor);url.searchParams.set('limit','20000');
-     const response=await streamFetch(url,{headers:{'x-jpti-api-token':env.JPTI_API_TOKEN,'accept':'application/json'},signal:AbortSignal.timeout(12000)});
+     const response=await streamFetch(url,{headers:{'accept':'application/json'},signal:AbortSignal.timeout(12000)});
      if(!response.ok)break;
      const body=await response.json(),batch=body.events||[];
      for(const row of batch)remote.push({exchange,kind:row.event_kind,event_id:row.event_id,observed_at:row.observedAt,payload:row.payload});
