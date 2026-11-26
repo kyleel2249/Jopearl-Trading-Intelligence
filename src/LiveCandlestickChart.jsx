@@ -11,6 +11,8 @@ import GainzAlphaOverlays from './gainz-alpha/GainzAlphaOverlays.jsx';
 import { useChartIntelligence } from './chart-intelligence/useChartIntelligence.js';
 import ChartIntelligenceOverlays from './chart-intelligence/ChartIntelligenceOverlays.jsx';
 import ChartIntelligenceLegend from './chart-intelligence/ChartIntelligenceLegend.jsx';
+import TradingDeskAgentsPanel from './chart-intelligence/TradingDeskAgentsPanel.jsx';
+import './chart-intelligence/trading-desk-agents.css';
 import LiveOrderFlowPanel from './LiveOrderFlowPanel.jsx';
 import { resolvePrecision, formatInstrumentPrice } from './chart-intelligence/precision.js';
 import { candleCloseAt, candleCountdown, mergeLiveTick, resolvePipSize, pipDistance, axisWidthFor, applyPriceZoom } from './chart-live.js';
@@ -662,6 +664,7 @@ export default function LiveCandlestickChart({ exchange, symbol, onSymbolChange,
         </svg>
       </div>}
     <ChartIntelligenceLegend ci={ci.result} hook={ci} />
+    <TradingDeskAgentsPanel analysis={ci.result?.tradingAgents} />
     <LiveOrderFlowPanel exchange={exchange} symbol={symbol} marketType={marketType} instrumentId={marketInstrumentId} candles={candles} />
     <div className="market-context-panel">
       <div className="market-context-heading"><b>MARKET CONFLUENCE INTELLIGENCE</b><span>{marketContext?.generatedAt ? 'Updated ' + new Date(marketContext.generatedAt).toLocaleTimeString() : 'Awaiting evidence'}</span></div>
