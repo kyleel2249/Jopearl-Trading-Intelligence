@@ -920,6 +920,40 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
   }
 }
 
+
+// Forwards routes the edge does not implement to the optional JPTI Node API. Only same-path /api
+// requests are forwarded, the origin must be https (or localhost for development), and hop-by-hop
+// or credential-bearing browser headers other than the JPTI token are not passed through.
+const PROXY_FORWARD_HEADERS = ['content-type', 'accept', 'authorization', 'x-jpti-token'];
+function nodeApiOrigin(env) {
+  const raw = String(env?.JPTI_NODE_API_ORIGIN || '').trim().replace(/\/+$/, '');
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw);
+    const local = ['localhost', '127.0.0.1'].includes(parsed.hostname);
+    if (parsed.protocol !== 'https:' && !(local && parsed.protocol === 'http:')) return null;
+    return parsed.origin;
+  } catch { return null; }
+}
+async function proxyToNodeApi({ env, request, url, fetchImpl }) {
+  const origin = nodeApiOrigin(env);
+  if (!origin || !url.pathname.startsWith('/api/')) return null;
+  if (!['GET', 'HEAD', 'POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method)) return null;
+  try {
+    const headers = new Headers();
+    for (const name of PROXY_FORWARD_HEADERS) { const value = request.headers.get(name); if (value) headers.set(name, value); }
+    const hasBody = !['GET', 'HEAD'].includes(request.method);
+    const upstream = await fetchImpl(origin + url.pathname + url.search, {
+      method: request.method, headers, body: hasBody ? await request.arrayBuffer() : undefined,
+      signal: AbortSignal.timeout(20000)
+    });
+    const outHeaders = new Headers(JSON_HEADERS);
+    const type = upstream.headers.get('content-type'); if (type) outHeaders.set('content-type', type);
+    outHeaders.set('x-jpti-runtime', 'cloudflare-edge-node-proxy');
+    return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
+  } catch { return null; }
+}
+
 export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProvider = createBitgetCfdProvider(), now = () => new Date(), fetchImpl = fetch } = {}) {
   return async function onRequest({ request, env = {} }) {
     const url = new URL(request.url);
@@ -1377,9 +1411,17 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       }
     }
     if (!result) {
+      // Node-only routes (ledger, operations, universal engine, institutional feeds, ...) are served by
+      // the JPTI Node API when JPTI_NODE_API_ORIGIN points at one. Without it the route is reported as
+      // unavailable with an actionable message instead of an opaque failure.
+      const proxied = await proxyToNodeApi({ env, request, url, fetchImpl });
+      if (proxied) return proxied;
       return json(501, {
-        error: 'This endpoint is not implemented in the Cloudflare edge runtime.',
+        error: env.JPTI_NODE_API_ORIGIN
+          ? 'The JPTI Node API did not answer this request. Check that JPTI_NODE_API_ORIGIN is reachable.'
+          : 'This feature needs the JPTI Node API, which is not connected to this Cloudflare deployment. Set JPTI_NODE_API_ORIGIN (see .dev.vars.example) to enable it.',
         code: 'CLOUDFLARE_EDGE_ROUTE_UNAVAILABLE',
+        nodeApiConfigured: Boolean(env.JPTI_NODE_API_ORIGIN),
         path: url.pathname,
         available: [
           '/api/health',

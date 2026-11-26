@@ -37,16 +37,17 @@ export function useSignalIntelligence({ initialSymbol = 'BTC/USDT' } = {}) {
         apiFetch('/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(path) + query, { cache: 'no-store' }),
         apiFetch('/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(path) + '?type=' + encodeURIComponent(marketType), { cache: 'no-store' })
       ]);
-      const [candleData, ticker] = await Promise.all([candlesResponse.json(), tickerResponse.json()]);
-      if (!candlesResponse.ok) throw new Error(candleData.error || pair + ' candle request failed');
-      if (!tickerResponse.ok) throw new Error(ticker.error || pair + ' ticker request failed');
-      return { pair, candles: candleData.candles || [], ticker, signal: analyzeSignal(candleData.candles || [], { symbol: pair, exchange, timeframe }) };
+      const [candleData, ticker] = await Promise.all([candlesResponse.json().catch(() => ({})), tickerResponse.json().catch(() => ({}))]);
+      if (!candlesResponse.ok) throw new Error(candleData?.error || pair + ' candle request failed');
+      if (!tickerResponse.ok) throw new Error(ticker?.error || pair + ' ticker request failed');
+      const candles = Array.isArray(candleData?.candles) ? candleData.candles : Array.isArray(candleData) ? candleData : [];
+      return { pair, candles, ticker, signal: analyzeSignal(candles, { symbol: pair, exchange, timeframe }) };
     }));
     const nextSnapshots = {}, nextSignals = [];
     results.forEach((result) => {
       if (result.status !== 'fulfilled') return;
       nextSnapshots[result.value.pair] = result.value;
-      if (result.value.signal.score != null) nextSignals.push(result.value.signal);
+      if (result.value.signal?.score != null) nextSignals.push(result.value.signal);
     });
     setSnapshots(nextSnapshots);
     setSignals(nextSignals.sort((a, b) => b.score - a.score));

@@ -86,20 +86,29 @@ const INITIAL_ENTRY = {
 const money = (n, digits = 2) => Number.isFinite(Number(n)) ? '$' + Number(n).toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits }) : '—';
 const price = (n) => Number.isFinite(Number(n)) ? Number(n).toLocaleString(undefined, { maximumFractionDigits: 10 }) : '—';
 const pct = (n) => (Number(n) > 0 ? '+' : '') + Number(n).toFixed(2) + '%';
+// Every entry, whether created locally, restored from storage or merged from Cloudflare D1,
+// is normalised so list fields are always arrays. Older or remote records can omit them.
+const normalizeEntry = (entry) => {
+  if (!entry || typeof entry !== 'object') return null;
+  const base = entry.id === INITIAL_ENTRY.id ? { ...INITIAL_ENTRY, ...entry } : { ...entry };
+  return {
+    ...base,
+    id: base.id || 'entry-' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7),
+    rules: Array.isArray(base.rules) ? base.rules : INITIAL_ENTRY.rules,
+    reflection: Array.isArray(base.reflection) ? base.reflection : [],
+    liquidationPrice: base.liquidationPrice ?? INITIAL_ENTRY.liquidationPrice,
+    institutionalLiquidityLevel: base.institutionalLiquidityLevel ?? INITIAL_ENTRY.institutionalLiquidityLevel,
+    institutionalLiquidityHypothesis: base.institutionalLiquidityHypothesis || INITIAL_ENTRY.institutionalLiquidityHypothesis,
+    researchSnapshot: base.researchSnapshot && typeof base.researchSnapshot === 'object' ? base.researchSnapshot : INITIAL_ENTRY.researchSnapshot
+  };
+};
+const normalizeEntries = (list) => {
+  const cleaned = (Array.isArray(list) ? list : []).map(normalizeEntry).filter(Boolean);
+  return cleaned.length ? cleaned : [normalizeEntry(INITIAL_ENTRY)];
+};
 const safeLoad = () => {
-  try {
-    const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null');
-    if (!Array.isArray(parsed) || !parsed.length) return [INITIAL_ENTRY];
-    return parsed.map(entry => entry?.id === INITIAL_ENTRY.id ? {
-      ...INITIAL_ENTRY, ...entry,
-      liquidationPrice: entry.liquidationPrice ?? INITIAL_ENTRY.liquidationPrice,
-      institutionalLiquidityLevel: entry.institutionalLiquidityLevel ?? INITIAL_ENTRY.institutionalLiquidityLevel,
-      institutionalLiquidityHypothesis: entry.institutionalLiquidityHypothesis || INITIAL_ENTRY.institutionalLiquidityHypothesis,
-      researchSnapshot: entry.researchSnapshot || INITIAL_ENTRY.researchSnapshot,
-      rules: Array.isArray(entry.rules) ? entry.rules : INITIAL_ENTRY.rules,
-      reflection: Array.isArray(entry.reflection) ? entry.reflection : []
-    } : entry);
-  } catch { return [INITIAL_ENTRY]; }
+  try { return normalizeEntries(JSON.parse(localStorage.getItem(STORAGE_KEY) || 'null')); }
+  catch { return [normalizeEntry(INITIAL_ENTRY)]; }
 };
 const riskScenarios = (notional) => [-1, -2, -3, -4, -5].map(move => ({ move, pnl: notional * move / 100 }));
 
@@ -127,7 +136,7 @@ export default function ReflectiveJournal() {
   const [marketError, setMarketError] = useState('');
   const [tab, setTab] = useState('journal');
   const [toast, setToast] = useState('');
-  const active = entries.find(e => e.id === selectedId) || entries[0] || INITIAL_ENTRY;
+  const active = useMemo(() => normalizeEntry(entries.find(e => e.id === selectedId) || entries[0] || INITIAL_ENTRY), [entries, selectedId]);
   const scenarios = useMemo(() => riskScenarios(Number(active.notional || active.entryPrice * active.quantity)), [active]);
 
   useEffect(() => {
@@ -153,7 +162,7 @@ export default function ReflectiveJournal() {
           const existing = merged.get(local.id);
           if (!existing || String(local.updatedAt || local.createdAt || '') > String(existing.updatedAt || existing.createdAt || '')) merged.set(local.id, local);
         }
-        setEntries([...merged.values()]);
+        setEntries(normalizeEntries([...merged.values()]));
       } else {
         for (const entry of entries) {
           const saved = await apiFetch('/api/journal/entries', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entry }) });
@@ -205,7 +214,8 @@ export default function ReflectiveJournal() {
       if (failed >= 0) throw new Error(payloads[failed]?.error || 'Market data request failed for ' + timeframes[failed]);
       const analyzed = Object.fromEntries(timeframes.map((timeframe, index) => {
         const payload = payloads[index];
-        const candles = Array.isArray(payload) ? payload : payload.data || payload.candles || payload.ohlcv || payload.result?.list || [];
+        const raw = Array.isArray(payload) ? payload : payload?.candles || payload?.data || payload?.ohlcv || payload?.result?.list || [];
+        const candles = Array.isArray(raw) ? raw : [];
         return [timeframe, analyzeTimeframe(candles, timeframe)];
       }));
       const result = buildTradingDevelopmentAssessment({ direction: active.direction, timeframes: analyzed, trade: active });
@@ -320,8 +330,8 @@ export default function ReflectiveJournal() {
               </select>
             </label>
             {marketState === "live" && market && <div className="rj-live-result"><b>Technical assessment completed · {market.exchange.toUpperCase()}</b><span>Checked {new Date(market.checkedAt).toLocaleString()} · {market.symbol}</span>
-              <div className="rj-timeframe-grid">{Object.entries(market.timeframes).map(([tf, result]) => <div key={tf}><small>{tf}</small><b className={result.bias === "bullish" ? "positive" : result.bias === "bearish" ? "negative" : ""}>{result.bias}</b><span>Score {result.score ?? "—"} · RSI {result.rsi14?.toFixed?.(1) ?? "—"}</span><span>Trend {result.trend || "—"}</span></div>)}</div>
-              {assessment && <div className="rj-callout warn"><AlertTriangle size={17}/><div><b>Engine assessment: {assessment.decision.status.toUpperCase()}</b><p>Multi-timeframe bias: {assessment.market.bias}. Evidence status: {assessment.status}. Deterministic research assessment, not a probability or order instruction.</p></div></div>}
+              <div className="rj-timeframe-grid">{Object.entries(market?.timeframes || {}).map(([tf, result]) => <div key={tf}><small>{tf}</small><b className={result.bias === "bullish" ? "positive" : result.bias === "bearish" ? "negative" : ""}>{result.bias}</b><span>Score {result.score ?? "—"} · RSI {result.rsi14?.toFixed?.(1) ?? "—"}</span><span>Trend {result.trend || "—"}</span></div>)}</div>
+              {assessment && <div className="rj-callout warn"><AlertTriangle size={17}/><div><b>Engine assessment: {String(assessment.decision?.status || 'unavailable').toUpperCase()}</b><p>Multi-timeframe bias: {(assessment.market?.bias || 'neutral')}. Evidence status: {assessment.status}. Deterministic research assessment, not a probability or order instruction.</p></div></div>}
               <AgentReport content={{ market: assessment?.market, process: assessment?.process, risk: assessment?.risk, coaching: assessment?.coaching }} title="technical-assessment" maxChars={3200} />
             </div>}
             {marketState === "unavailable" && <p className="rj-footnote">{marketError}. No missing market values have been invented.</p>}
@@ -408,7 +418,7 @@ export default function ReflectiveJournal() {
     {tab === 'rules' && <section className="rj-panel">
       <span className="rj-eyebrow">YOUR TRADING CHARTER</span><h2>Rules you have declared</h2>
       <p className="rj-lead">These are recorded as your current preferences, not endorsed as safe risk-management practices. The journal will track rule adherence and flag conflicts.</p>
-      <div className="rj-rule-list">{active.rules.map((rule, index) => <div key={index}><span>{String(index + 1).padStart(2, '0')}</span><b>{rule}</b>{index === 4 && <em>High-risk policy · review recommended</em>}</div>)}</div>
+      <div className="rj-rule-list">{(active.rules || []).map((rule, index) => <div key={index}><span>{String(index + 1).padStart(2, '0')}</span><b>{rule}</b>{index === 4 && <em>High-risk policy · review recommended</em>}</div>)}</div>
       <div className="rj-callout danger"><AlertTriangle size={18}/><div><b>Recommended amendment: replace “no SLs” with defined maximum risk.</b><p>If you choose not to use a conventional stop order, define an alternative exit trigger, maximum monetary loss, monitoring plan and liquidation buffer before entering. An experiment should have a bounded cost.</p></div></div>
       <h3>Operating principles I will apply as your JPTI mentor</h3>
       <ul className="rj-principles"><li>Separate facts, hypotheses and opinions.</li><li>Do not fabricate live prices, order status, news or technical signals.</li><li>Research the specific asset and venue when you submit a trade.</li><li>Challenge trades that conflict with the market evidence or your written rules.</li><li>Evaluate process quality independently of profit or loss.</li><li>Track sample size and uncertainty before making strategy claims.</li><li>Never recommend increasing risk to recover losses.</li><li>Keep a dated audit trail when you revise a thesis or rule.</li></ul>

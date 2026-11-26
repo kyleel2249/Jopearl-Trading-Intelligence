@@ -39,3 +39,8 @@ TOKENOMIST_API_KEY=
 # Additional verified event calendar JSON. Official FOMC, ECB, BoE, BoJ, EIA and Treasury calendars are fetched automatically.
 # Entries are direction-neutral unless an actual/forecast mapping is explicitly provided.
 JPTI_EVENT_CALENDAR_JSON=[]
+
+# Optional: origin of a running JPTI Node API (api/server.js). Routes the Cloudflare edge does not
+# implement (ledger, operations, universal engine, institutional feeds, ...) are forwarded here.
+# Must be https:// (http:// is accepted only for localhost). Leave empty to report those routes as unavailable.
+JPTI_NODE_API_ORIGIN=

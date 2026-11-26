@@ -203,27 +203,66 @@ export const isDirectCapable = (path, method = 'GET') => matchDirectRoute(path, 
 // ---------------------------------------------------------------------------
 const CACHE_TTL = { ticker: 3000, ohlcv: 10000, markets: 10 * 60000 };
 
-async function getJson(url, { fetchImpl, signal, timeoutMs = 7000 }) {
+// Bitget (and some other venues) answer HTTP 403 to requests that carry no User-Agent, which is
+// exactly what a Cloudflare Worker sends by default, and to datacentre egress that trips their WAF.
+// Server-side runtimes therefore identify themselves, and a blocked or throttled response is retried
+// once on an alternate API host before it is reported. Browsers forbid overriding User-Agent, so it is
+// only set outside a window context.
+const IS_BROWSER = typeof window !== 'undefined' && typeof window.document !== 'undefined';
+const SERVER_USER_AGENT = 'Mozilla/5.0 (compatible; JPTI-MarketData/1.0; +https://github.com/kyleel2249/Jopearl-Trading-Intelligence)';
+const ALTERNATE_HOSTS = { 'https://api.bitget.com': ['https://api.bitgetapi.com'] };
+const RETRYABLE_STATUS = new Set([403, 429, 451, 502, 503, 504]);
+
+function alternateUrls(url) {
+  for (const [host, alternates] of Object.entries(ALTERNATE_HOSTS)) {
+    if (url.startsWith(host + '/')) return alternates.map((alt) => alt + url.slice(host.length));
+  }
+  return [];
+}
+
+async function fetchJsonOnce(url, { fetchImpl, signal, timeoutMs }) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   const onAbort = () => controller.abort();
   if (signal) { if (signal.aborted) controller.abort(); else signal.addEventListener('abort', onAbort, { once: true }); }
   try {
-    const response = await fetchImpl(url, { method: 'GET', cache: 'no-store', signal: controller.signal, headers: { accept: 'application/json' } });
+    const headers = { accept: 'application/json' };
+    if (!IS_BROWSER) { headers['user-agent'] = SERVER_USER_AGENT; headers['accept-language'] = 'en-US,en;q=0.9'; }
+    const response = await fetchImpl(url, { method: 'GET', cache: 'no-store', signal: controller.signal, headers });
     const payload = await response.json().catch(() => null);
     if (!response.ok) {
       const detail = String(payload?.msg || payload?.message || payload?.error || '').trim().slice(0, 180);
-      throw new DirectError('Exchange answered HTTP ' + response.status + (detail ? ': ' + detail : '.') , response.status === 404 ? 404 : 502);
+      const error = new DirectError('Exchange answered HTTP ' + response.status + (detail ? ': ' + detail : '.'), response.status === 404 ? 404 : 502);
+      error.upstreamStatus = response.status;
+      throw error;
     }
     if (payload === null) throw new DirectError('Exchange returned an invalid JSON response.', 502);
     return payload;
   } catch (error) {
     if (error instanceof DirectError) throw error;
-    throw new DirectError(error && error.name === 'AbortError' ? 'The exchange did not answer in time.' : 'The exchange could not be reached from this browser.', 502);
+    throw new DirectError(error && error.name === 'AbortError' ? 'The exchange did not answer in time.' : 'The exchange could not be reached from this runtime.', 502);
   } finally {
     clearTimeout(timer);
     if (signal) signal.removeEventListener('abort', onAbort);
   }
+}
+
+async function getJson(url, { fetchImpl, signal, timeoutMs = 7000 }) {
+  let firstError = null;
+  for (const candidate of [url, ...alternateUrls(url)]) {
+    try {
+      return await fetchJsonOnce(candidate, { fetchImpl, signal, timeoutMs });
+    } catch (error) {
+      if (signal?.aborted) throw error;
+      firstError = firstError || error;
+      const retryable = !error.upstreamStatus || RETRYABLE_STATUS.has(error.upstreamStatus);
+      if (!retryable) throw error;
+    }
+  }
+  if (firstError && firstError.upstreamStatus === 403) {
+    firstError.message += ' (Blocked by the exchange for this runtime; alternate hosts were tried and the last stored snapshot is served when one exists.)';
+  }
+  throw firstError;
 }
 
 export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {}) {
