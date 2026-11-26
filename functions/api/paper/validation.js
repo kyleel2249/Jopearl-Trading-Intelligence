@@ -66,8 +66,12 @@ export function createMarketDataAt(events,windowMs){
    if(event.kind==='orderbook'){
     const value=Number(p.reconstructed?.notionalImbalance??p.notionalImbalance);
     const bid=Number(p.reconstructed?.bestBid??p.bestBid),ask=Number(p.reconstructed?.bestAsk??p.bestAsk);
-    if(Number.isFinite(value))books.set(event.exchange,{ts:event.ts,imbalance:value});\n    if(bid>0&&ask>0)quotes.set(event.exchange,{ts:event.ts,bid,ask});
-   }else if(event.kind==='ticker'){\n    const bid=Number(p.bid??p.bidPrice??p.bidPr),ask=Number(p.ask??p.askPrice??p.askPr);\n    if(bid>0&&ask>0)quotes.set(event.exchange,{ts:event.ts,bid,ask});\n   }else if(event.kind==='trade'){
+    if(Number.isFinite(value))books.set(event.exchange,{ts:event.ts,imbalance:value});
+    if(bid>0&&ask>0)quotes.set(event.exchange,{ts:event.ts,bid,ask});
+   }else if(event.kind==='ticker'){
+    const bid=Number(p.bid??p.bidPrice??p.bidPr),ask=Number(p.ask??p.askPrice??p.askPr);
+    if(bid>0&&ask>0)quotes.set(event.exchange,{ts:event.ts,bid,ask});
+   }else if(event.kind==='trade'){
     const value=Number(p.quoteNotional??(Number(p.price)*Number(p.quantity)));
     if(value>0&&(p.side==='buy'||p.side==='sell')){
      tradeQueue.push({ts:event.ts,side:p.side,value,exchange:event.exchange});
@@ -76,12 +80,13 @@ export function createMarketDataAt(events,windowMs){
    }else if(event.kind==='funding'&&Number.isFinite(Number(p.rate)))funding.set(event.exchange,{ts:event.ts,value:Number(p.rate)});
    else if(event.kind==='open_interest'&&Number.isFinite(Number(p.openInterest)))oi.set(event.exchange,{ts:event.ts,value:Number(p.openInterest)});
   }
-  while(tradeQueue.length&&tradeQueue[0].ts<floor){const t=tradeQueue.shift();if(t.side==='buy')buyNotional-=t.value;else sellNotional-=t.value;}
-  for(const [exchange,value] of books)if(value.ts<floor)books.delete(exchange);\n  for(const [exchange,value] of quotes)if(value.ts<floor)quotes.delete(exchange);
+  while(tradeQueue.length&&tradeQueue[0].ts<floor){const trade=tradeQueue.shift();if(trade.side==='buy')buyNotional-=trade.value;else sellNotional-=trade.value;}
+  for(const [exchange,value] of books)if(value.ts<floor)books.delete(exchange);
+  for(const [exchange,value] of quotes)if(value.ts<floor)quotes.delete(exchange);
   for(const [exchange,value] of funding)if(value.ts<floor)funding.delete(exchange);
   for(const [exchange,value] of oi)if(value.ts<floor)oi.delete(exchange);
-  const bookValues=[...books.values()],flowTotal=buyNotional+sellNotional;
-  const bids=bookValues.map(x=>x.bid).filter(x=>x>0),asks=bookValues.map(x=>x.ask).filter(x=>x>0);
+  const bookValues=[...books.values()],quoteValues=[...quotes.values()],flowTotal=buyNotional+sellNotional;
+  const bids=quoteValues.map(x=>x.bid).filter(x=>x>0),asks=quoteValues.map(x=>x.ask).filter(x=>x>0);
   return{
    orderBookImbalance:bookValues.length?bookValues.reduce((sum,x)=>sum+x.imbalance,0)/bookValues.length:null,
    tradeFlowImbalance:flowTotal?(buyNotional-sellNotional)/flowTotal:null,
@@ -89,7 +94,7 @@ export function createMarketDataAt(events,windowMs){
    openInterest:oi.size?[...oi.values()].reduce((sum,x)=>sum+x.value,0)/oi.size:null,
    ticker:bids.length&&asks.length?{bid:bids.reduce((a,b)=>a+b,0)/bids.length,ask:asks.reduce((a,b)=>a+b,0)/asks.length}:null,
    venues:[...new Set([...books.keys(),...quotes.keys(),...funding.keys(),...oi.keys(),...tradeQueue.map(x=>x.exchange).filter(Boolean)])],
-   eventCount:tradeQueue.length+books.size+funding.size+oi.size
+   eventCount:tradeQueue.length+books.size+quotes.size+funding.size+oi.size
   };
  };
 }
