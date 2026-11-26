@@ -68,9 +68,10 @@ export function evaluateTradingValidation(input = {}, policy = VALIDATION_POLICY
 
 export function agentExecutionGate(validation, { requestedMode = 'paper' } = {}) {
   const valid = validation && validation.status === 'paper_qualification_candidate' && Array.isArray(validation.failedChecks) && validation.failedChecks.length === 0;
+  const historicalPass = Boolean(valid || validation?.paperTrialEligible === true);
   if (requestedMode === 'live') return { allowed: false, mode: 'blocked', reason: 'Autonomous live execution is disabled by policy.', liveOrders: false };
-  return { allowed: requestedMode === 'research' || requestedMode === 'backtest' || requestedMode === 'replay' || requestedMode === 'paper' && Boolean(valid),
-    mode: requestedMode === 'paper' && !valid ? 'research_only' : requestedMode,
-    reason: requestedMode === 'paper' && !valid ? 'Paper entry blocked until the unified validation gate passes.' : null,
+  return { allowed: requestedMode === 'research' || requestedMode === 'backtest' || requestedMode === 'replay' || requestedMode === 'paper' && historicalPass,
+    mode: requestedMode === 'paper' && !historicalPass ? 'research_only' : requestedMode,
+    reason: requestedMode === 'paper' && !historicalPass ? 'Paper entry blocked until historical, replay and independent risk gates pass.' : null,
     liveOrders: false };
 }
