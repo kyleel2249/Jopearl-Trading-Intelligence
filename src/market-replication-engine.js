@@ -46,8 +46,8 @@ export function selectReplicationMarkets(markets, symbols, limit) {
   const rows = (Array.isArray(markets) ? markets : []).filter(market => {
     if (!market || market.active === false || !market.symbol) return false;
     const symbol = String(market.symbol).toUpperCase();
-    const base = symbol.split('/')[0];
-    return allowed.has(symbol) || allowed.has(base + '/USDT') || allowed.has(base + '/USDC');
+    const pair = symbol.split(':')[0];
+    return allowed.has(symbol) || allowed.has(pair);
   });
   rows.sort((a, b) => {
     const rank = market => {
