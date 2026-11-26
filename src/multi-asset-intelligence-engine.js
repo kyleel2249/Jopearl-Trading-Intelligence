@@ -194,14 +194,19 @@ export function evaluateStrategyLifecycle(metrics={},policy={}) {
 }
 export function replayEventsByEventTime(events=[]) {
  return (Array.isArray(events)?events:[]).map((event,index)=>{const raw=event.eventTime??event.observedAt??event.timestamp??'';const eventTime=typeof raw==='number'?(raw<1e11?raw*1000:raw):Date.parse(raw);return {...event,_stableIndex:index,eventTime};})
-  .filter(x=>Number.isFinite(x.eventTime)).sort((a,b)=>a.eventTime-b.eventTime||(Number(a.sequence)||0)-(Number(b.sequence)||0)||a._stableIndex-b._stableIndex)
+  .filter(x=>Number.isFinite(x.eventTime)).sort((a,b)=>{
+   const timeOrder=a.eventTime-b.eventTime;if(timeOrder)return timeOrder;
+   const as=Number(a.sequence),bs=Number(b.sequence);
+   if(Number.isFinite(as)&&Number.isFinite(bs)&&as!==bs)return as-bs;
+   return a._stableIndex-b._stableIndex;
+  })
   .map(({_stableIndex,...event})=>event);
 }
 export function compareVenueLiquidity(quotes=[],policy={}) {
  const valid=quotes.filter(q=>finite(q.bid)&&finite(q.ask)&&Number(q.bid)>0&&Number(q.ask)>Number(q.bid)&&Number.isFinite(Date.parse(q.timestamp))&&Date.now()-Date.parse(q.timestamp)<=Number(policy.maxAgeMs||5000)&&Date.now()-Date.parse(q.timestamp)>=-5000);
  const sorted=valid.map(q=>({...q,mid:(Number(q.bid)+Number(q.ask))/2,spreadBps:(Number(q.ask)-Number(q.bid))/((Number(q.ask)+Number(q.bid))/2)*10000,allInCostBps:Number(q.feeBps||0)+Number(q.slippageBps||0)+Number(q.transferCostBps||0)})).sort((a,b)=>a.mid-b.mid);
  if(sorted.length<2)return {status:'insufficient-venues',opportunity:null,quotes:sorted};
- const buy=sorted[0],sell=sorted.at(-1),grossBps=(sell.mid-buy.mid)/buy.mid*10000,netBps=grossBps-buy.allInCostBps-sell.allInCostBps;
+ const buy=[...sorted].sort((a,b)=>a.ask-b.ask)[0],sell=[...sorted].sort((a,b)=>b.bid-a.bid)[0],grossBps=(sell.bid-buy.ask)/buy.ask*10000,netBps=grossBps-buy.allInCostBps-sell.allInCostBps;
  return {status:netBps>Number(policy.minNetEdgeBps??5)?'research-opportunity':'no-net-edge',opportunity:netBps>0?{buyVenue:buy.venue,sellVenue:sell.venue,grossEdgeBps:Number(grossBps.toFixed(3)),netEdgeBps:Number(netBps.toFixed(3)),transferAndSettlementRisk:'must be separately validated',paperOnly:true}:null,quotes:sorted};
 }
 export function reconcileExecutionLedgers(backtest=[],paper=[],actual=[]) {
@@ -209,7 +214,7 @@ export function reconcileExecutionLedgers(backtest=[],paper=[],actual=[]) {
  const b=index(backtest),p=index(paper),a=index(actual),ids=new Set([...b.keys(),...p.keys(),...a.keys()]);
  const discrepancies=[];
  for(const id of ids){const rows=[b.get(id),p.get(id),a.get(id)].filter(Boolean);if(rows.length!==3){discrepancies.push({id,presence:{backtest:b.has(id),paper:p.has(id),actual:a.has(id)},reason:'record-missing-from-one-or-more-ledgers'});continue;}
-  const pnl=rows.map(x=>Number(x.netPnl??x.pnl));if(pnl.some(Number.isFinite)&&Math.max(...pnl)-Math.min(...pnl)>Number(policyTolerance()))discrepancies.push({id,reason:'net-pnl-mismatch',values:pnl});
+  const pnl=rows.map(x=>Number(x.netPnl??x.pnl));if(pnl.some(x=>!Number.isFinite(x))||Math.max(...pnl)-Math.min(...pnl)>Number(policyTolerance()))discrepancies.push({id,reason:'net-pnl-mismatch-or-missing',values:pnl});
  }
  return {generatedAt:isoNow(),matched:ids.size-discrepancies.length,discrepancyCount:discrepancies.length,discrepancies,liveExecutionAuthorized:false};
 }
