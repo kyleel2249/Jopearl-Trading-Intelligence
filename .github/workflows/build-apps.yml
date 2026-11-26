@@ -192,7 +192,7 @@ jobs:
         run: |
           mkdir -p build-downloads/desktop
           if [ "${{ matrix.platform }}" = "windows" ]; then
-            find release -maxdepth 1 -type f \( -name '*.exe' -o -name '*.msi' \) -exec cp {} build-downloads/desktop/ \;
+            find release -maxdepth 1 -type f \( -name '*.exe' -o -name '*.msi' -o -name '*.blockmap' \) -exec cp {} build-downloads/desktop/ \;
           elif [ "${{ matrix.platform }}" = "macos" ]; then
             find release -maxdepth 1 -type f \( -name '*.dmg' -o -name '*.zip' \) -exec cp {} build-downloads/desktop/ \;
           else
