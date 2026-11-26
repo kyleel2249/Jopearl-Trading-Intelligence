@@ -21,4 +21,4 @@ The shared live candlestick component renders the same analysis in single-chart 
 
 ## Validation
 
-Run `npm run verify:trading-desk` for specialist roster, positive paper-review qualification, severe-conflict veto, missing-signal veto and MTF abstention checks. The standard CI `npm test` command includes this suite.
+Run `npm run verify:trading-desk` for specialist roster, positive paper-review qualification, severe-conflict veto, missing-signal veto and MTF abstention checks. Run `npm run verify:paper-desk` for the live paper-bot roster, momentum/trend/breakout signal checks and liquidity-evidence abstention. The standard CI `npm test` command includes both suites.
