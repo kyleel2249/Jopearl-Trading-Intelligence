@@ -15,6 +15,18 @@ test('MA44/332 engine abstains on insufficient bars and requires closed candles'
   assert.ok(result.reasons.includes('bars-invalid-or-not-strictly-ordered'));
 });
 
+test('MA44/332 produces a signal only on a newly confirmed crossover', () => {
+  const bars = Array.from({ length: 333 }, (_, i) => ({
+    timestamp: new Date(Date.UTC(2026, 0, 1) + i * 300000).toISOString(),
+    high: i === 332 ? 200 : 101, low: i === 332 ? 199 : 99, close: i === 332 ? 200 : 100
+  }));
+  const result = evaluateMa44332Strategy({ bars, previousDayHigh: 210, previousDayLow: 90, allBarsClosed: true });
+  assert.equal(result.status, 'signal');
+  assert.equal(result.signal.direction, 'long');
+  assert.equal(result.signal.stopLoss, 90);
+  assert.equal(result.signal.trigger, 'closed-candle-sma-crossover');
+});
+
 test('Williams fractal waits for two right-hand candles', () => {
   const bars = [
     { high: 2, low: 1 }, { high: 3, low: 1 }, { high: 8, low: 2 },
@@ -24,6 +36,25 @@ test('Williams fractal waits for two right-hand candles', () => {
     up: true, down: false, confirmed: true, centerIndex: 2, confirmationIndex: 4, levelUp: 8, levelDown: null
   });
   assert.equal(confirmWilliamsFractal(bars.slice(0, 4), 2).confirmed, false);
+});
+
+test('fractal engine waits for confirmation and triggers a later close breakout', () => {
+  const start = Date.parse('2026-11-02T08:00:00Z'); // 03:00 New York, after DST ends
+  const values = [
+    [2, 1, 1.5], [3, 1, 2], [8, 2, 7], [4, 1, 3], [3, 1, 2],
+    [9, 8, 9]
+  ];
+  const bars = values.map(([high, low, close], i) => ({
+    timestamp: new Date(start + i * 300000).toISOString(), high, low, close
+  }));
+  const result = evaluateFirstWilliamsFractalBreakout({
+    bars, dailyAtr: 4, dailyAtrSource: 'completed-daily-candle', allBarsClosed: true
+  });
+  assert.equal(result.signals.length, 1);
+  assert.equal(result.signals[0].direction, 'long');
+  assert.equal(result.signals[0].entry, 9);
+  assert.equal(result.signals[0].stopLoss, 8);
+  assert.equal(result.signals[0].takeProfit, 15);
 });
 
 test('fractal engine rejects incomplete daily ATR provenance', () => {
