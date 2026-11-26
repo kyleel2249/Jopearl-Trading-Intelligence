@@ -4,7 +4,7 @@
 
 This subsystem extends the existing Bitget Elite Trader Replication Division without removing or replacing it. It adds independent Bybit and Binance divisions and a shared cross-exchange intelligence layer.
 
-Supported venue/market buckets are Bitget Spot, USDT Perpetual, Coin-M Perpetual and USDC Perpetual; Bybit Spot and USDT Perpetual; Binance Spot, USDT Perpetual and Coin-M Perpetual. The engine rejects unsupported venue/market combinations.
+Supported venue/market buckets are Bitget Spot, USDT Perpetual, Coin-M Perpetual and USDC Perpetual; Bybit USDT Perpetual; Binance Spot and USDT Perpetual. Bybit's documented copy-trading API order scope is USDT Perpetual. Binance's documented futures copy-trading scope is USDT contracts; Spot copy trading is a separate product. The engine rejects unsupported venue/market combinations.
 
 ## Implemented capabilities
 
@@ -24,9 +24,9 @@ Supported venue/market buckets are Bitget Spot, USDT Perpetual, Coin-M Perpetual
 
 ## Data-source truth and limitations
 
-This release deliberately uses import-only ingestion. Official exchange copy-trading product APIs, private account endpoints and public trader leaderboard/profile data are different capabilities. A public market-data endpoint does not grant access to private lead-trader fills or copier execution.
+This release deliberately uses import-only ingestion. Official exchange copy-trading product APIs, private account endpoints and public trader leaderboard/profile data are different capabilities. A public market-data endpoint does not grant access to private lead-trader fills or copier execution. The official Bybit copy-trading API guide describes copy-trading order placement and states the supported order scope is USDT Perpetual: https://bybit-exchange.github.io/docs/v5/copytrade. Binance's official Copy Trading REST API catalog documents authenticated lead-trader account endpoints, including signed status and symbol-whitelist routes: https://developers.binance.com/en/docs/catalog/advanced-trading-copy-trading/api/rest-api. These do not constitute a public cross-account trader leaderboard API.
 
-The UI reports each venue's feed as not configured until an approved feed endpoint is supplied. No feed URL is fetched by this version; the status variable is a readiness marker only. Candidate records must be imported from an approved official export or an independently reviewed provider adapter. Do not label a trader as independently verified because sourceAttested is true: that flag records an operator attestation only.
+The UI reports each venue's feed as not configured until an approved feed endpoint is supplied. No feed URL is fetched by this version; a declared feed URL is shown separately from a connected/verified feed. It does not switch the adapter out of import-only mode. Candidate records must be imported from an approved official export or an independently reviewed provider adapter. Do not label a trader as independently verified because sourceAttested is true: that flag records an operator attestation only.
 
 Metric methodology can differ between venues. Cross-exchange scores are normalized research heuristics, not an assertion that provider ROI, drawdown or win-rate calculations are perfectly comparable. Each venue and market type retains its own leaderboard.
 
