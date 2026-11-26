@@ -30,7 +30,7 @@ test('microstructure analytics derives aggressive flow and liquidation exposure'
   {exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT',kind:'trade',observedAt:'2026-11-26T09:00:01.000Z',payload:{side:'sell',quantity:1,quoteQuantity:100}},
   {exchange:'okx',marketType:'usdt-m',symbol:'BTC/USDT',kind:'liquidation',observedAt:'2026-11-26T09:00:01.000Z',payload:{side:'sell',notional:500}}
  ]);
- assert.equal(summary.tradeFlow[0].netAggressorNotional,100);assert.equal(summary.liquidations[0].longNotional,500);
+ assert.equal(summary.tradeFlow[0].netAggressorNotional,100);assert.equal(summary.liquidations[0].sellSideNotional,500);
 });
 test('trade, funding, open interest and liquidation events are normalized with stable IDs',()=>{
  const cases=[
