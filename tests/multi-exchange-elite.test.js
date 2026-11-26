@@ -100,3 +100,15 @@ test('market type must be explicit instead of silently defaulting to derivatives
  assert.equal(result.eligible,false);
  assert.ok(result.failedGates.includes('source_or_exchange_integrity_failed'));
 });
+
+test('paper allocation optimizer caps every trader and never allocates real capital',()=>{
+ const result=rankMultiExchangeTraders([candidate('bitget'),candidate('bybit'),candidate('binance')],now);
+ const plan=result.allocationSimulation;
+ assert.equal(plan.realCapitalAllocated,0);
+ assert.equal(plan.liveExecutionAuthorized,false);
+ assert.ok(plan.targets.every(x=>x.targetPct<=10));
+ assert.ok(plan.totalTargetPct<=100);
+ assert.equal(plan.totalTargetPct+plan.cashReservePct,100);
+ assert.equal(result.agentActivity.length,24);
+ assert.ok(result.agentActivity.some(x=>x.id==='MX-12'));
+});
