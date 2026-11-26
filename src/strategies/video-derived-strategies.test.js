@@ -83,3 +83,16 @@ test('strategy qualification requires full cost and robustness evidence', () => 
     randomBaselineCompared: true, parameterSensitivityPassed: true
   }).qualified, true);
 });
+
+test('risk governor allocates zero notional when the stop distance is invalid', () => {
+  const result = evaluateVideoStrategyRisk({
+    equityUsd: 1000, riskPct: 0.25, drawdownPct: 0,
+    dailyLossLimitPassed: true, eventRiskCleared: true,
+    executionCostsIncluded: true, strategyQualified: true,
+    paperMode: true, stopDistancePct: 0
+  });
+  assert.equal(result.allowedForPaper, false);
+  assert.equal(result.riskUsd, 0);
+  assert.equal(result.notionalCapUsd, 0);
+  assert.ok(result.violations.includes('stop-distance-invalid'));
+});
