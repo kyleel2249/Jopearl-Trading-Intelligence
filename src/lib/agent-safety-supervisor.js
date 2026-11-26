@@ -42,7 +42,7 @@ export function evaluateAgentSafety(input={},policy={}){
   if(input.killSwitch===true)add('GLOBAL_KILL_SWITCH','Global operator kill switch is active.');
   if(input.circuitBreaker===true)add('FLEET_CIRCUIT_BREAKER','Fleet circuit breaker is tripped.');
   if(input.quarantined===true)add('AGENT_QUARANTINED','Agent is in quarantine and cannot open new risk.');
-  if(['offline','blocked','suspended','retired'].includes(String(input.agentStatus||'').toLowerCase()))add('AGENT_NOT_ACTIVE','Agent status does not permit new entries.');
+  if(['offline','blocked','paused','disabled','inactive','error','quarantined','suspended','retired'].includes(String(input.agentStatus||'').toLowerCase()))add('AGENT_NOT_ACTIVE','Agent status does not permit new entries.');
   if(input.dataFresh!==true||age===null||age>p.maxDataAgeMs)add('MARKET_DATA_UNSAFE','Market data is missing, stale or unverified.');
   if(health.score<p.minimumHealthScore)add('AGENT_HEALTH_LOW','Agent health score is below policy.');
   if(trust<p.minimumTrustScore)add('AGENT_TRUST_LOW','Agent trust score is below policy.');
