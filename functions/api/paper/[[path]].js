@@ -9,6 +9,7 @@ const headers={'content-type':'application/json; charset=utf-8','cache-control':
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
 const iso=()=>new Date().toISOString();
 const num=v=>Number.isFinite(Number(v))?Number(v):0;
+const parseJson=(value,fallback={})=>{try{return JSON.parse(value??'');}catch{return fallback;}};
 function authorized(request,env){
  return verifyPrivateToken(request,env,{unconfigured:'JPTI private API token is not configured.',rejected:'Private API authorization failed.'});
 }
@@ -367,7 +368,7 @@ export async function onRequest({request,env,params}){
   if(request.method==='GET'&&path==='safety'){
    const global=await env.JPTI_DB.prepare("SELECT * FROM jpti_fleet_circuit_breakers WHERE scope_id='global'").first();
    const states=await env.JPTI_DB.prepare('SELECT agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at FROM jpti_agent_safety_state ORDER BY updated_at DESC LIMIT 200').all();
-   return response(200,{available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parse(global.reasons_json,[])}:null,agents:(states.results||[]).map(x=>({...x,reasons:parse(x.reasons_json,[])})),liveExecutionAuthorized:false});
+   return response(200,{available:true,global:global?{status:global.status,killSwitch:Number(global.kill_switch)===1,circuitBreaker:Number(global.circuit_breaker)===1,manualResumeRequired:Number(global.manual_resume_required)===1,reasons:parseJson(global.reasons_json,[])}:null,agents:(states.results||[]).map(x=>({...x,reasons:parseJson(x.reasons_json,[])})),liveExecutionAuthorized:false});
   }
   if(request.method==='POST'&&path==='safety/kill-switch'){
    const body=await request.json().catch(()=>({})),enabled=body.enabled===true,reason=String(body.reason||'').trim();
