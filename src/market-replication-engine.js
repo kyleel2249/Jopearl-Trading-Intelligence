@@ -1,6 +1,6 @@
 export const REPLICATION_EXCHANGES = Object.freeze(['binance', 'bybit', 'okx', 'bitget']);
 export const BITGET_MARKET_TYPES = Object.freeze(['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
-export const DEFAULT_REPLICATION_SYMBOLS = Object.freeze(['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT']);
+export const DEFAULT_REPLICATION_SYMBOLS = Object.freeze(['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'BTC/USD:BTC', 'BTC/USDC:USDC']);
 export const DEFAULT_REPLICATION_TIMEFRAMES = Object.freeze(['1m', '5m', '15m', '1h']);
 
 const SYMBOL_PATTERN = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
