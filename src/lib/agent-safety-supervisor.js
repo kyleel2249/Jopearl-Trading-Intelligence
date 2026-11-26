@@ -28,7 +28,7 @@ const CRITICAL_ANOMALIES=new Set(['unauthorised-access','unauthorized-access','u
 export function detectAgentAnomalies(events=[]){
   return (Array.isArray(events)?events:[]).filter(event=>event&&typeof event==='object').map(event=>{
     const type=String(event.type||event.eventType||'').trim().toLowerCase();
-    const severity=CRITICAL_ANOMALIES.has(type)?'critical':['critical','high','medium','low','info'].includes(event.severity)?event.severity:'medium';
+    const providedSeverity=String(event.severity||'').toLowerCase(),severity=CRITICAL_ANOMALIES.has(type)?'critical':['critical','high','medium','low','info'].includes(providedSeverity)?providedSeverity:'medium';
     return {type,severity,summary:String(event.summary||type||'Unclassified agent event').slice(0,300),at:event.at||event.observedAt||null,source:String(event.source||'agent-telemetry').slice(0,80)};
   }).filter(event=>event.type);
 }
@@ -57,7 +57,7 @@ export function evaluateAgentSafety(input={},policy={}){
   if(input.bookValid===false)add('ORDER_BOOK_INVALID','Order book is invalid after a sequence gap or recovery.');
   for(const event of events)if(event.severity==='critical')add('CRITICAL_AGENT_ANOMALY',event.type+': '+event.summary);
   const critical=events.some(event=>event.severity==='critical');
-  const quarantine=critical||health.score<40||input.quarantineRequested===true;
+  const quarantine=critical||health.score<40||input.quarantineRequested===true||input.quarantined===true;
   return {
     allowed:reasons.length===0,decision:reasons.length?'BLOCK':'PAPER_ELIGIBLE',
     status:quarantine?'QUARANTINED':reasons.length?'BLOCKED':'HEALTHY',
