@@ -35,15 +35,16 @@ export const EXCHANGE_SOURCE_REGISTRY=Object.freeze({
 });
 const wm=(c,w,k)=>finite(c.windows?.[w]?.[k]);
 function stability(c){
- const values=WINDOWS.map(w=>wm(c,w,'roiPct')).filter(v=>v!==null);
- if(values.length<2)return {score:0,coverage:values.length,positiveRatio:0,dispersion:null};
+ const complete=WINDOWS.filter(w=>wm(c,w,'roiPct')!==null&&wm(c,w,'winRatePct')!==null&&wm(c,w,'maxDrawdownPct')!==null);
+ const values=complete.map(w=>wm(c,w,'roiPct'));
+ if(values.length<2)return {score:0,coverage:values.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio:0,dispersion:null};
  const mean=values.reduce((a,b)=>a+b,0)/values.length,variance=values.reduce((a,b)=>a+(b-mean)**2,0)/values.length;
  const dispersion=Math.sqrt(variance)/(Math.abs(mean)+1),positiveRatio=values.filter(v=>v>0).length/values.length;
- return {score:clamp(.65*positiveRatio+.35*(1-clamp(dispersion))),coverage:values.length,positiveRatio,dispersion:round(dispersion,4)};
+ return {score:clamp(.65*positiveRatio+.35*(1-clamp(dispersion))),coverage:values.length,completeWindows:complete,incompleteWindows:WINDOWS.filter(w=>!complete.includes(w)),positiveRatio,dispersion:round(dispersion,4)};
 }
 function style(hours){if(hours===null)return 'unclassified';if(hours<=1)return 'scalping';if(hours<=24)return 'day-trading';if(hours<=168)return 'swing';return 'position-trading';}
 function validate(c,now){
- const errors=[],exchange=safe(c.exchange,20).toLowerCase(),marketType=safe(c.marketType||c.market_type||'usdt_perpetual',30).toLowerCase();
+ const errors=[],exchange=safe(c.exchange,20).toLowerCase(),marketType=safe(c.marketType||c.market_type,30).toLowerCase();
  const traderId=safe(c.traderId||c.id),source=safe(c.source),retrieved=Date.parse(c.retrievedAt||c.retrieved_at||'');
  if(!EXCHANGES.includes(exchange))errors.push('unsupported_exchange');
  if(!MARKET_TYPES.includes(marketType))errors.push('unsupported_market_type');
@@ -106,7 +107,8 @@ function collisionAnalysis(items){
 }
 export function rankMultiExchangeTraders(candidates=[],now=Date.now()){
  const bounded=Array.isArray(candidates)?candidates.slice(0,300):[],seen=new Set(),unique=[],duplicates=[];
- for(const c of bounded){const key=safe(c.exchange,20).toLowerCase()+':'+safe(c.marketType||'usdt_perpetual',30).toLowerCase()+':'+safe(c.traderId||c.id);if(seen.has(key)){duplicates.push(key);continue;}seen.add(key);unique.push(c);}
+ bounded.sort((a,b)=>Date.parse(b.retrievedAt||b.retrieved_at||'')-Date.parse(a.retrievedAt||a.retrieved_at||''));
+ for(const c of bounded){const key=safe(c.exchange,20).toLowerCase()+':'+safe(c.marketType||c.market_type,30).toLowerCase()+':'+safe(c.traderId||c.id);if(seen.has(key)){duplicates.push(key);continue;}seen.add(key);unique.push(c);}
  const assessments=unique.map(c=>assessMultiExchangeTrader(c,now)),boards={};
  for(const exchange of EXCHANGES)for(const marketType of MARKET_TYPES){const group=assessments.filter(x=>x.exchange===exchange&&x.marketType===marketType).sort((a,b)=>b.score-a.score);if(group.length)boards[exchange+':'+marketType]={exchange,marketType,candidateCount:group.length,eligibleCount:group.filter(x=>x.eligible).length,selected:group.filter(x=>x.eligible).slice(0,10).map((x,i)=>({...x,rank:i+1,replicaMode:'paper',allocationPct:0}))};}
  const eligible=assessments.filter(x=>x.eligible).sort((a,b)=>b.score-a.score),selected=eligible.slice(0,30).map((x,i)=>({...x,globalResearchRank:i+1,replicaMode:'paper',allocationPct:0}));
