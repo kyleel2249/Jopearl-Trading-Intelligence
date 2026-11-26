@@ -59,6 +59,13 @@ export function assessEliteTrader(raw={}, now=Date.now()) {
   const roi=metric(c,'roiPct'),copierPnl=metric(c,'copierPnlUsd'),sharpe=metric(c,'sharpe'),sortino=metric(c,'sortino'),calmar=metric(c,'calmar');
   const missing=[];
   for(const [k,v] of Object.entries({totalTrades:trades,historyDays:history,winRatePct:winRate,maxDrawdownPct:drawdown,roiPct:roi,copierPnlUsd:copierPnl}))if(v===null)missing.push(k);
+  const invalidMetrics=[];
+  if(trades!==null&&(!Number.isInteger(trades)||trades<0))invalidMetrics.push('totalTrades');
+  if(history!==null&&history<0)invalidMetrics.push('historyDays');
+  if(winRate!==null&&(winRate<0||winRate>100))invalidMetrics.push('winRatePct');
+  if(drawdown!==null&&(drawdown<0||drawdown>100))invalidMetrics.push('maxDrawdownPct');
+  if(finite(c.averageHoldingHours)!==null&&finite(c.averageHoldingHours)<0)invalidMetrics.push('averageHoldingHours');
+  if(finite(c.maxLeverage)!==null&&finite(c.maxLeverage)<0)invalidMetrics.push('maxLeverage');
   const stability=scoreWindowStability(c);
   const components={
     winRateConsistency:winRate===null?0:clamp((winRate-35)/30,0,1)*.65+stability.score*.35,
@@ -79,6 +86,7 @@ export function assessEliteTrader(raw={}, now=Date.now()) {
     [roi!==null&&roi>0,'non_positive_roi'],
     [stability.coverage>=3,'insufficient_window_coverage'],
     [missing.length===0,'missing_required_metrics'],
+    [invalidMetrics.length===0,'invalid_metric_ranges'],
     [c.sourceAttested===true,'source_not_attested_by_operator'],
     [errors.length===0,'source_integrity_failed']
   ];
@@ -89,7 +97,7 @@ export function assessEliteTrader(raw={}, now=Date.now()) {
     source:source||null,sourceUrl:c.sourceUrl?String(c.sourceUrl).slice(0,500):null,
     retrievedAt:Number.isFinite(retrievedAt)?new Date(retrievedAt).toISOString():null,
     score,grade:score>=95?'exceptional':score>=90?'elite':score>=85?'advanced':score>=80?'qualified':'not-qualified',
-    eligible,status:eligible?'eligible':'rejected_or_unverified',failedGates:failed,missingMetrics:missing,
+    eligible,status:eligible?'eligible':'rejected_or_unverified',failedGates:failed,missingMetrics:missing,invalidMetrics,
     components:Object.fromEntries(Object.entries(components).map(([k,v])=>[k,Number(v.toFixed(4))])),
     metrics:{totalTrades:trades,historyDays:history,winRatePct:winRate,maxDrawdownPct:drawdown,roiPct:roi,copierPnlUsd:copierPnl,sharpe,sortino,calmar,averageHoldingHours:finite(c.averageHoldingHours)},
     windowCoverage:stability.coverage,style:classifyStyle(c),
