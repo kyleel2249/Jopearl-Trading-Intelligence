@@ -12,5 +12,7 @@ migrations_dir = "../migrations/d1"
 # Cron triggers are intentionally omitted here. Wrangler leaves the currently deployed
 # schedules unchanged when triggers are undefined. This account is at its 5-trigger Free limit.
 
-[vars]
-JPTI_MARKET_STREAM_URL = "https://jpti-market-stream-collector.cintexatechnologies.workers.dev"
+[[durable_objects.bindings]]
+name = "MARKET_STREAMS"
+class_name = "MarketStreamHub"
+script_name = "jpti-market-stream-collector"
