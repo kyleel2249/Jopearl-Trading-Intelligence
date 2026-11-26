@@ -276,7 +276,8 @@ async function fetchJsonOnce(url, { fetchImpl, signal, timeoutMs }) {
   }
 }
 
-async function getJson(url, options = {}) {\n  const { fetchImpl, signal, timeoutMs = 7000, retry404 = false } = options;
+async function getJson(url, options = {}) {
+  const { fetchImpl, signal, timeoutMs = 7000, retry404 = false } = options;
   let firstError = null;
   for (const candidate of [url, ...alternateUrls(url)]) {
     try {
