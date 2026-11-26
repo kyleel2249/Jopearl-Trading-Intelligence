@@ -9,6 +9,9 @@ test('healthy agent may submit a paper candidate but never receives live authori
 test('missing and stale market data fail closed',()=>{
  for(const input of [{...healthy,dataFresh:false},{...healthy,dataAgeMs:90000},{...healthy,dataAgeMs:null}])assert.equal(evaluateAgentSafety(input).allowed,false);
 });
+test('missing or invalid streamed order book blocks new entries',()=>{
+ for(const bookValid of [false,undefined]){const result=evaluateAgentSafety({...healthy,bookValid});assert.equal(result.allowed,false);assert.ok(result.reasons.some(x=>x.code==='ORDER_BOOK_INVALID'));}
+});
 test('global kill switch, circuit breaker and quarantine veto entries',()=>{
  for(const key of ['killSwitch','circuitBreaker','quarantined'])assert.equal(evaluateAgentSafety({...healthy,[key]:true}).allowed,false);
 });
