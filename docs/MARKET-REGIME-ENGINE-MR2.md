@@ -15,3 +15,17 @@ The existing detectRegime API remains as a compatibility adapter. Chart Intellig
 
 ## Guardrails
 Only validated closed OHLCV bars are used. No future bars or unmeasured tick/order-book facts are inferred. Normalised regime scores are model confidence scores, not empirically calibrated outcome probabilities. Position-size and risk multipliers are advisory metadata; existing JPTI risk controls remain authoritative.
+
+
+## MR-3.0 advanced dynamics
+
+MR-3.0 adds a diagnostics layer without changing GainzAlpha signal authority:
+- **Regime transition forecast:** Laplace-smoothed empirical transition frequencies across recent rolling classifications. The output includes a next-state estimate, sample count and explicit warming-up state.
+- **Change-point detection:** rolling baseline/recent-return comparison with two-sided cumulative deviation, mean-shift and variance-shift measurements.
+- **Hurst approximation:** multi-scale variance-time estimate with persistence, anti-persistence and mixed interpretations.
+- **Volatility clustering:** EWMA volatility estimate and lag-one squared-return correlation.
+- **Regime stability:** current run length, stability score and warnings when distribution shifts or volatility clustering appear.
+- **Dashboard diagnostics:** the Chart Intelligence detail panel displays the transition estimate, change-point score, Hurst estimate and volatility clustering status.
+
+### Statistical and execution guardrails
+These outputs are research diagnostics, not calibrated probabilities or standalone trade triggers. Transition estimates remain in a warming-up state until sufficient observations exist. Hurst estimates are noisy on short samples. Change-point flags identify statistical distribution changes, not their cause. All calculations use the supplied closed-candle series and do not create, approve or execute trades. Existing risk controls and GainzAlpha remain authoritative.
