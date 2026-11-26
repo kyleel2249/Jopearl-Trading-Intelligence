@@ -39,27 +39,33 @@ export function parseStreamMessage(config,raw,receivedAt=Date.now()) {
   const d=m.data||m, event=d.e;
   if(event==='depthUpdate') emit('orderbook',d.u,{type:'delta',bids:d.b||[],asks:d.a||[],firstUpdateId:n(d.U),finalUpdateId:n(d.u),previousUpdateId:n(d.pu),eventTime:n(d.E)},{first:n(d.U),last:n(d.u),previous:n(d.pu)});
   else if(event==='trade'||event==='aggTrade') emit('trade',d.t??d.a,{price:n(d.p),quantity:n(d.q),side:d.m?'sell':'buy',tradeId:String(d.t??d.a),quoteNotional:n(d.p)*n(d.q),maker:d.m===true});
-  else if(event==='24hrTicker') emit('ticker',d.E,{last:n(d.c),bid:n(d.b),ask:n(d.a),baseVolume:n(d.v),quoteVolume:n(d.q),changePct:n(d.P)});\n  else if(event==='markPriceUpdate') emit('funding',d.E,{rate:n(d.r),markPrice:n(d.p),indexPrice:n(d.i),fundingTime:iso(d.T)});
+  else if(event==='24hrTicker') emit('ticker',d.E,{last:n(d.c),bid:n(d.b),ask:n(d.a),baseVolume:n(d.v),quoteVolume:n(d.q),changePct:n(d.P)});
+  else if(event==='markPriceUpdate') emit('funding',d.E,{rate:n(d.r),markPrice:n(d.p),indexPrice:n(d.i),fundingTime:iso(d.T)});
   else if(event==='forceOrder') { const o=d.o||{}; emit('liquidation',o.i+'-'+o.T,{side:String(o.S||'').toLowerCase(),price:n(o.ap||o.p),quantity:n(o.z||o.q),notional:n(o.ap||o.p)*n(o.z||o.q),orderId:String(o.i||'')}); }
   return out;
  }
  if(ex==='bybit') {
   const topic=String(m.topic||''), rows=Array.isArray(m.data)?m.data:[m.data||{}];
   if(topic.startsWith('orderbook.')) for(const d of rows) emit('orderbook',(d.u||m.ts)+'-'+(d.seq||''),{type:m.type==='snapshot'?'snapshot':'delta',bids:d.b||[],asks:d.a||[],updateId:n(d.u),sequence:n(d.seq),crossSequence:n(d.seq)},{last:n(d.u),sequence:n(d.seq)},{snapshot:m.type==='snapshot'});
-  else if(topic.startsWith('publicTrade.')) for(const d of rows) emit('trade',d.execId,{price:n(d.p),quantity:n(d.v),side:String(d.S||'').toLowerCase(),tradeId:String(d.i||d.execId||''),quoteNotional:n(d.p)*n(d.v)});\n  else if(topic.startsWith('tickers.')) for(const d of rows){emit('ticker',m.ts,{last:n(d.lastPrice),bid:n(d.bid1Price),ask:n(d.ask1Price),fundingRate:n(d.fundingRate),openInterest:n(d.openInterest),markPrice:n(d.markPrice)});if(n(d.fundingRate)!==null)emit('funding',m.ts,{rate:n(d.fundingRate)});if(n(d.openInterest)!==null)emit('open_interest',m.ts,{openInterest:n(d.openInterest)});}
+  else if(topic.startsWith('publicTrade.')) for(const d of rows) emit('trade',d.execId,{price:n(d.p),quantity:n(d.v),side:String(d.S||'').toLowerCase(),tradeId:String(d.i||d.execId||''),quoteNotional:n(d.p)*n(d.v)});
+  else if(topic.startsWith('tickers.')) for(const d of rows){emit('ticker',m.ts,{last:n(d.lastPrice),bid:n(d.bid1Price),ask:n(d.ask1Price),fundingRate:n(d.fundingRate),openInterest:n(d.openInterest),markPrice:n(d.markPrice)});if(n(d.fundingRate)!==null)emit('funding',m.ts,{rate:n(d.fundingRate)});if(n(d.openInterest)!==null)emit('open_interest',m.ts,{openInterest:n(d.openInterest)});}
   else if(topic.startsWith('allLiquidation.')) for(const d of rows) emit('liquidation',d.updatedTime+'-'+d.updatedTime+'-'+d.price,{side:String(d.side||'').toLowerCase(),price:n(d.price),quantity:n(d.qty),notional:n(d.price)*n(d.qty),orderId:String(d.updatedTime||'')});
   return out;
  }
  if(ex==='okx') {
   const channel=m.arg?.channel, rows=Array.isArray(m.data)?m.data:[];
   if(channel==='books') for(const d of rows) emit('orderbook',d.seqId,{type:d.prevSeqId===-1?'snapshot':'delta',bids:d.bids||[],asks:d.asks||[],sequence:n(d.seqId),previousSequence:n(d.prevSeqId)},{last:n(d.seqId),previous:n(d.prevSeqId)},{snapshot:d.prevSeqId===-1});
-  else if(channel==='trades') for(const d of rows) emit('trade',d.tradeId,{price:n(d.px),quantity:n(d.sz),side:String(d.side||'').toLowerCase(),tradeId:String(d.tradeId),quoteNotional:n(d.px)*n(d.sz)});\n  else if(channel==='tickers') for(const d of rows) emit('ticker',d.ts,{last:n(d.last),bid:n(d.bidPx),ask:n(d.askPx),baseVolume:n(d.vol24h),quoteVolume:n(d.volCcy24h)});\n  else if(channel==='funding-rate') for(const d of rows) emit('funding',d.fundingTime,{rate:n(d.fundingRate),fundingTime:iso(d.fundingTime)});\n  else if(channel==='open-interest') for(const d of rows) emit('open_interest',d.ts,{openInterest:n(d.oi),unit:d.unit||null});
+  else if(channel==='trades') for(const d of rows) emit('trade',d.tradeId,{price:n(d.px),quantity:n(d.sz),side:String(d.side||'').toLowerCase(),tradeId:String(d.tradeId),quoteNotional:n(d.px)*n(d.sz)});
+  else if(channel==='tickers') for(const d of rows) emit('ticker',d.ts,{last:n(d.last),bid:n(d.bidPx),ask:n(d.askPx),baseVolume:n(d.vol24h),quoteVolume:n(d.volCcy24h)});
+  else if(channel==='funding-rate') for(const d of rows) emit('funding',d.fundingTime,{rate:n(d.fundingRate),fundingTime:iso(d.fundingTime)});
+  else if(channel==='open-interest') for(const d of rows) emit('open_interest',d.ts,{openInterest:n(d.oi),unit:d.unit||null});
   else if(channel==='liquidation-orders') for(const d of rows.flatMap(x=>x.details||[])) emit('liquidation',d.uTime+'-'+d.bkPx+'-'+d.sz,{side:String(d.side||'').toLowerCase(),price:n(d.bkPx),quantity:n(d.sz),notional:n(d.bkPx)*n(d.sz),orderId:String(d.ordId||'')});
   return out;
  }
  const channel=m.arg?.channel, rows=Array.isArray(m.data)?m.data:[];
  if(channel==='books') for(const d of rows) emit('orderbook',d.seq,{type:d.pseq===0?'snapshot':'delta',bids:d.bids||[],asks:d.asks||[],sequence:n(d.seq),previousSequence:n(d.pseq)},{last:n(d.seq),previous:n(d.pseq)},{snapshot:d.pseq===0});
- else if(channel==='trade') for(const d of rows) emit('trade',d.tradeId||d.ts+'-'+d.price,{price:n(d.price),quantity:n(d.size),side:String(d.side||'').toLowerCase(),tradeId:String(d.tradeId||''),quoteNotional:n(d.price)*n(d.size)});\n else if(channel==='ticker') for(const d of rows){emit('ticker',d.ts,{last:n(d.lastPr),bid:n(d.bidPr),ask:n(d.askPr),fundingRate:n(d.fundingRate),openInterest:n(d.openInterest),baseVolume:n(d.baseVolume),quoteVolume:n(d.quoteVolume)});if(n(d.fundingRate)!==null)emit('funding',d.ts,{rate:n(d.fundingRate)});if(n(d.openInterest)!==null)emit('open_interest',d.ts,{openInterest:n(d.openInterest)});}
+ else if(channel==='trade') for(const d of rows) emit('trade',d.tradeId||d.ts+'-'+d.price,{price:n(d.price),quantity:n(d.size),side:String(d.side||'').toLowerCase(),tradeId:String(d.tradeId||''),quoteNotional:n(d.price)*n(d.size)});
+ else if(channel==='ticker') for(const d of rows){emit('ticker',d.ts,{last:n(d.lastPr),bid:n(d.bidPr),ask:n(d.askPr),fundingRate:n(d.fundingRate),openInterest:n(d.openInterest),baseVolume:n(d.baseVolume),quoteVolume:n(d.quoteVolume)});if(n(d.fundingRate)!==null)emit('funding',d.ts,{rate:n(d.fundingRate)});if(n(d.openInterest)!==null)emit('open_interest',d.ts,{openInterest:n(d.openInterest)});}
  else if(channel==='liquidation') for(const d of rows) emit('liquidation',d.ts+'-'+d.price+'-'+d.size,{side:String(d.side||'').toLowerCase(),price:n(d.price),quantity:n(d.size),notional:n(d.price)*n(d.size)});
  return out;
 }
