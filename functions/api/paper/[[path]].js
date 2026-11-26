@@ -261,7 +261,7 @@ export async function runCycle(db,symbol,options={},env={}){
    safetyStorageReady:fleetSafety.available,
    anomalies:(behaviorRows.results||[]).map(x=>({type:x.event_type,severity:x.severity,summary:x.summary,at:x.observed_at})),
    dataAgeMs:market.ageMs,dataFresh:Number(market.ageMs)<=Number(independentPolicy.maxDataAgeMs||60000),
-   dailyLossPct,drawdownPct:metrics.maxDrawdownPct,consecutiveLosses:metrics.maxConsecutiveLosses,
+   dailyLossPct,drawdownPct:metrics.maxDrawdownPct,consecutiveLosses:metrics.currentConsecutiveLosses,
    killSwitch:fleetSafety.killSwitch||independentPolicy.killSwitch===true,
    circuitBreaker:fleetSafety.circuitBreaker||independentPolicy.circuitBreaker===true,
    quarantined,sessionAllowed:tradingWindow.eligible,
@@ -285,9 +285,9 @@ export async function runCycle(db,symbol,options={},env={}){
    }
   }catch{/* The supervisor remains active in-process when a local DB has not applied migration 0018. */}
   const capitalHaltReasons=[];let capitalRiskMultiplier=1;
-  if(metrics.riskBreaches>0)capitalHaltReasons.push('risk breach recorded');
-  if(metrics.maxConsecutiveLosses>=5)capitalHaltReasons.push('five-loss streak halt');
-  else if(metrics.maxConsecutiveLosses>=3)capitalRiskMultiplier*=0.5;
+  // Risk-breach counts and maximum historical loss streaks are promotion analytics, not current-session kill conditions.
+  if(metrics.currentConsecutiveLosses>=5)capitalHaltReasons.push('five-consecutive-loss current streak halt');
+  else if(metrics.currentConsecutiveLosses>=3)capitalRiskMultiplier*=0.5;
   if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct)capitalHaltReasons.push('maximum drawdown reached');
   else if(metrics.maxDrawdownPct>=PAPER_POLICY.maxDrawdownPct*0.5)capitalRiskMultiplier*=0.5;
   if(decayDetected)capitalHaltReasons.push('forward performance decay detected');
