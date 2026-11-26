@@ -13,7 +13,7 @@ async function persist(db,result){
  const rows=[
   {kind:'multi-exchange-elite-ranking',payload:result},
   {kind:'shared-intelligence-memory-event',payload:{eventType:'multi-exchange-elite-ranking',rankingId:result.id,generatedAt:now,exchangeSummary:result.exchangeSummary,selected:result.selected.map(x=>({traderId:x.traderId,exchange:x.exchange,marketType:x.marketType,score:x.score,eligible:x.eligible,strategyFingerprint:x.strategyFingerprint}))}},
-  {kind:'risk-command-centre-event',payload:{eventType:'multi-exchange-elite-risk-review',rankingId:result.id,generatedAt:now,executionMode:'paper-only',liveExecutionAuthorized:false,collisions:result.crossExchangeCollisions,riskFindings:result.assessments.filter(x=>x.riskFlags.length).map(x=>({traderId:x.traderId,exchange:x.exchange,flags:x.riskFlags,eligible:x.eligible,failedGates:x.failedGates}))}}
+  {kind:'risk-command-centre-event',payload:{eventType:'multi-exchange-elite-risk-review',rankingId:result.id,generatedAt:now,executionMode:'paper-only',liveExecutionAuthorized:false,collisions:result.crossExchangeCollisions,allocationSimulation:result.allocationSimulation,agentActivity:result.agentActivity,riskFindings:result.assessments.filter(x=>x.riskFlags.length).map(x=>({traderId:x.traderId,exchange:x.exchange,flags:x.riskFlags,eligible:x.eligible,failedGates:x.failedGates}))}}
  ];
  await db.batch(rows.map((row,index)=>db.prepare('INSERT INTO jpti_events (id,kind,source,external_id,occurred_at,payload) VALUES (?,?,?,?,?,?)').bind('mxelite:'+result.id+':'+index,row.kind,'jpti-multi-exchange-elite',result.id,now,JSON.stringify(row.payload))));
 }
