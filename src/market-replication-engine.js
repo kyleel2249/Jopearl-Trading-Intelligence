@@ -37,6 +37,21 @@ export function normalizeReplicationPlan(input = {}, env = {}) {
   return { exchanges, symbols, timeframes: includeCandles ? timeframes : [], marketTypes: requestedTypes, limit, candleLimit, includeCandles };
 }
 
+export function boundReplicationPlanToSubrequestBudget(plan, groupCount, maxSubrequests = 45) {
+  const groups = Math.max(1, Number(groupCount) || 1);
+  const budget = Math.max(groups + 1, Math.min(45, Number(maxSubrequests) || 45));
+  const timeframes = [...plan.timeframes];
+  const includeCandles = plan.includeCandles;
+  while (includeCandles && timeframes.length > 1 && groups + groups * (1 + timeframes.length) > budget) timeframes.pop();
+  const perMarketRequests = 1 + (includeCandles ? timeframes.length : 0);
+  const safeMarketLimit = Math.max(1, Math.floor((budget - groups) / (groups * perMarketRequests)));
+  const limit = Math.min(plan.limit, safeMarketLimit);
+  return {
+    ...plan, limit, timeframes,
+    requestBudget: { maxSubrequests: budget, estimatedSubrequests: groups + groups * limit * perMarketRequests, marketGroups: groups, requestsPerMarket: perMarketRequests }
+  };
+}
+
 export function marketTypesForExchange(exchange, requestedTypes = BITGET_MARKET_TYPES) {
   return exchange === 'bitget' ? requestedTypes : ['spot'];
 }
