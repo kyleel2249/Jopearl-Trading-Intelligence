@@ -54,6 +54,8 @@ add(
   E('JPTI_ENABLE_LIVE_TRADING', 'Core Application', 'Trading policy', 'Master switch that allows live exchange orders. Never enabled automatically.', { format: 'boolean', defaultValue: 'false', dependencies: ['JPTI_TRADING_MODE', 'JPTI_LIVE_TRADING_SIGNOFF', 'JPTI_API_TOKEN'] }),
   E('JPTI_LIVE_TRADING_SIGNOFF', 'Core Application', 'Trading policy', 'Explicit operator acknowledgement of live-trading risk. Leave blank unless independently reviewed.'),
   E('JPTI_MAX_ORDER_NOTIONAL_USDT', 'Core Application', 'Trading policy', 'Maximum notional value of a single order in USDT.', { format: 'number', min: 0, defaultValue: '100', restart: false }),
+  E('JPTI_AI_HOURLY_LIMIT', 'Core Application', 'AI spending guard', 'Maximum Workers AI model calls per rolling hour across agents, missions and the journal mentor. A positive whole number, or \"unlimited\". Over the cap, work is blocked with HTTP 429 before any model call.', { defaultValue: '60', restart: false }),
+  E('JPTI_AI_DAILY_LIMIT', 'Core Application', 'AI spending guard', 'Maximum Workers AI model calls per rolling 24 hours. A positive whole number, or \"unlimited\".', { defaultValue: '400', restart: false }),
   E('JPTI_EVENT_RISK_FAIL_CLOSED', 'Core Application', 'Trading policy', 'Block live orders when the economic-calendar feed is unavailable.', { format: 'boolean', defaultValue: 'true', restart: false }),
   E('JPTI_DATA_DIR', 'Core Application', 'Local storage', 'Directory for the durable local event ledger. Keep outside public/static folders.', { format: 'path', defaultValue: 'data' }),
   E('VITE_APP_NAME', 'Core Application', 'Frontend build', 'Application display name (compiled into the public bundle).', { scope: 'frontend', defaultValue: 'JPTI' }),

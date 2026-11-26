@@ -28,6 +28,14 @@ export function EvidenceSummary({ result }) {
   if (Number.isFinite(Number(result.memoryUsed))) chips.push([result.memoryUsed + ' memory item' + (Number(result.memoryUsed) === 1 ? '' : 's'), 'inferred', 'Shared memory used']);
   if (Array.isArray(result.specialistFindings)) chips.push([result.specialistFindings.length + ' specialists', 'inferred', 'Independent specialist analyses']);
   if (Array.isArray(result.handoffsCreated)) chips.push([result.handoffsCreated.length + ' handoffs', 'recommendation', 'Handoffs created']);
+  if (result.trust) chips.push(['trust: ' + result.trust, result.trust === 'verified' ? 'verified' : result.trust === 'partially-verified' || result.trust === 'inferred' ? 'inferred' : 'unknown', result.trust === 'quarantined' ? 'Output contained an injection attempt; it was not shared with other departments or reused as memory' : 'How far shared memory may trust this result']);
+  const fresh = result.freshness?.status || result.freshness?.memory;
+  if (fresh && fresh !== 'empty') chips.push(['sources ' + fresh, fresh === 'fresh' ? 'verified' : fresh === 'partly-stale' || fresh === 'undated' ? 'inferred' : 'unknown', 'Age of retrieved news and memory' + (result.freshness?.newestAgeHours != null ? ' (newest ' + result.freshness.newestAgeHours + 'h old)' : '')]);
+  if (result.grounding?.checked > 0) chips.push([result.grounding.unsupportedCount ? result.grounding.unsupportedCount + ' figure' + (result.grounding.unsupportedCount === 1 ? '' : 's') + ' not in sources' : 'figures match sources', result.grounding.unsupportedCount ? 'unknown' : 'verified', result.grounding.unsupportedCount ? 'Not found in the provided material (may be derived): ' + result.grounding.unsupported.join(', ') : 'Every figure appears in the provided material']);
+  const flags = [...(result.safety?.inputFlags || []), ...(result.safety?.sourceFlags || []), ...(result.safety?.memoryFlags || []), ...(result.safety?.outputFlags || [])];
+  if (flags.length) chips.push(['injection attempt neutralised', 'unknown', 'Instruction-like text was removed before the model saw it: ' + [...new Set(flags)].join(', ')]);
+  if (result.safety?.redactions?.length) chips.push(['secrets redacted', 'inferred', 'Credential-like text was removed: ' + result.safety.redactions.join(', ')]);
+  if (result.safety?.quarantinedMemory > 0) chips.push([result.safety.quarantinedMemory + ' memory quarantined', 'inferred', 'Quarantined memory was excluded from this run']);
   if (result.outputQuality?.repaired) chips.push(['auto-repaired', 'inferred', 'The model reply was rewritten into plain language']);
   if (result.outputQuality?.fellBack) chips.push(['formatted by fallback', 'unknown', 'The model kept returning raw JSON; the formatter converted it']);
   if (!chips.length) return null;

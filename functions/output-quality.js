@@ -4,6 +4,8 @@ import { outcomeOf, summarizeQuality } from '../src/lib/agent-output-guard.js';
 
 const DDL = 'CREATE TABLE IF NOT EXISTS jpti_agent_output_quality(id TEXT PRIMARY KEY,agent_key TEXT NOT NULL,source TEXT NOT NULL,attempts INTEGER NOT NULL DEFAULT 1,outcome TEXT NOT NULL,reasons TEXT,created_at TEXT NOT NULL)';
 
+export const ensureOutputQualityTable = (db) => db.prepare(DDL).run();
+
 export async function recordOutputQuality(db, { agentKey, source, result }) {
   if (!db || typeof db.prepare !== 'function') return false;
   try {

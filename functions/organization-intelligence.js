@@ -2,6 +2,8 @@ import { verifyPrivateToken } from './private-auth.js';
 import { humanizeAgentOutput } from '../src/lib/agent-report.js';
 import { guardedGeneration } from '../src/lib/agent-output-guard.js';
 import { recordOutputQuality } from './output-quality.js';
+import { assertAiBudget } from './ai-budget.js';
+import { sanitizeUntrusted, screenOutput, assessFreshness, memoryTrust, withProvenance } from '../src/lib/content-safety.js';
 
 const DEPARTMENTS = [
   { id: 'research', name: 'Research & Intelligence', short: 'RESEARCH', mission: 'Find, verify, synthesise and distribute useful intelligence across JPTI.', goals: [{ key: 'missions', label: 'Completed research missions', target: 3, unit: 'missions' }, { key: 'memory', label: 'Verified shared knowledge', target: 5, unit: 'records' }, { key: 'messages', label: 'Useful department handoffs', target: 3, unit: 'messages' }] },
@@ -68,7 +70,13 @@ async function researchContext(objective, fetchImpl) {
   try {
     const result = await fetchImpl(url, { headers: { accept: 'application/rss+xml, application/xml, text/xml' } });
     if (!result.ok) throw new Error('Public news search returned HTTP ' + result.status);
-    return { items: parseRss(await result.text()), source: url, retrievedAt: stamp(), status: 'retrieved' };
+    const flags = new Set();
+    const items = parseRss(await result.text()).filter(item => /^https?:\/\//i.test(item.url)).map(item => {
+      const clean = sanitizeUntrusted(item.title, 240); clean.flags.forEach(flag => flags.add(flag));
+      return { ...item, title: clean.text };
+    });
+    const freshness = assessFreshness(items, { maxAgeHours: 72 });
+    return { items: freshness.items, source: url, retrievedAt: stamp(), status: 'retrieved', freshness: { status: freshness.status, staleCount: freshness.staleCount, newestAgeHours: freshness.newestAgeHours }, injectionFlags: [...flags] };
   } catch (error) {
     return { items: [], source: url, retrievedAt: stamp(), status: 'unavailable', error: clean(error?.message, 180) };
   }
@@ -76,13 +84,13 @@ async function researchContext(objective, fetchImpl) {
 function agentAssignments(departmentId) {
   return AGENT_SPECIALISTS[departmentId] || [];
 }
-async function storeMemory(db, { departmentId, kind, title, content, source, confidence = 0.65, tags = [] }) {
+async function storeMemory(db, { departmentId, kind, title, content, source, confidence = 0.65, tags = [], evidenceStatus = null }) {
   const id = crypto.randomUUID(), createdAt = stamp();
   const record = { id, departmentId, kind, title: clean(title, 180), content: clean(content, 18000), source: clean(source, 1000), confidence: Math.max(0, Math.min(1, Number(confidence) || 0)), tags: Array.isArray(tags) ? tags.slice(0, 20).map(v => clean(v, 40)) : [], createdAt, visibility: 'shared' };
   await db.prepare('INSERT INTO jpti_org_memory (memory_id, department_id, kind, title, content, source, confidence, tags_json, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .bind(id, departmentId, record.kind, record.title, record.content, record.source, record.confidence, JSON.stringify(record.tags), createdAt).run();
   await db.prepare('INSERT OR IGNORE INTO jpti_intelligence_memory(memory_id,scope,department_id,memory_type,title,content,source,evidence_status,confidence,importance,tags_json,metadata_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
-    .bind(id,'global',departmentId,record.kind,record.title,record.content,record.source,record.source?'partially-verified':'unverified',record.confidence,.65,JSON.stringify(record.tags),JSON.stringify({origin:'autonomous-department-memory'}),createdAt,createdAt).run();
+    .bind(id,'global',departmentId,record.kind,record.title,record.content,record.source,evidenceStatus || (record.source?'partially-verified':'unverified'),record.confidence,.65,JSON.stringify(record.tags),JSON.stringify({origin:'autonomous-department-memory'}),createdAt,createdAt).run();
   return record;
 }
 async function sendDepartmentMessage(db, { from, to, subject, body, priority = 'normal', missionId = null }) {
@@ -95,15 +103,19 @@ async function sendDepartmentMessage(db, { from, to, subject, body, priority = '
 }
 async function runMission(db, env, mission, fetchImpl) {
   if (!env.AI || typeof env.AI.run !== 'function') throw Object.assign(new Error('Cloudflare Workers AI binding AI is unavailable. The mission remains queued; verify the AI binding and retry.'), { status: 503 });
+  await assertAiBudget(db, env, { needed: 4 });
   const context = await researchContext(mission.objective, fetchImpl);
   const department = DEPARTMENTS.find(item => item.id === mission.departmentId);
   const [memoryRows, foundationRows] = await Promise.all([
     db.prepare('SELECT memory_id, department_id, kind, title, content, source, confidence, created_at FROM jpti_org_memory ORDER BY created_at DESC LIMIT 16').all(),
-    db.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, created_at FROM jpti_intelligence_memory WHERE expires_at IS NULL OR expires_at > ? ORDER BY created_at DESC LIMIT 24').bind(stamp()).all()
+    db.prepare('SELECT memory_id, department_id, memory_type AS kind, title, content, source, confidence, created_at FROM jpti_intelligence_memory WHERE (expires_at IS NULL OR expires_at > ?) AND evidence_status != ? ORDER BY created_at DESC LIMIT 24').bind(stamp(), 'quarantined').all()
   ]);
   const sharedMap = new Map();
-  for (const row of [...(memoryRows.results || []), ...(foundationRows.results || [])]) sharedMap.set(row.memory_id, { departmentId: row.department_id, kind: row.kind, title: row.title, content: String(row.content || '').slice(0, 1400), source: row.source, confidence: row.confidence, createdAt: row.created_at });
-  const sharedMemory = [...sharedMap.values()].slice(0, 24);
+  for (const row of [...(memoryRows.results || []), ...(foundationRows.results || [])]) { const t = sanitizeUntrusted(row.title, 180), c = sanitizeUntrusted(row.content, 1400); sharedMap.set(row.memory_id, { departmentId: row.department_id, kind: row.kind, title: t.text, content: c.text, source: row.source, confidence: row.confidence, createdAt: row.created_at, flags: [...t.flags, ...c.flags] }); }
+  const memoryAged = assessFreshness([...sharedMap.values()].slice(0, 24), { maxAgeHours: 24 * 14, dateKey: 'createdAt' });
+  const sharedMemory = memoryAged.items.map(({ flags, ...item }) => ({ ...item, ...(item.stale ? { note: 'stale: older than 14 days' } : {}) }));
+  const memoryFlags = [...new Set([...sharedMap.values()].flatMap(item => item.flags))];
+  const groundSource = [mission.objective, ...context.items.map(item => item.title), ...sharedMemory.map(item => item.title + ' ' + item.content)].join(' ');
   const specialists = mission.departmentId === 'research'
     ? ['research-global-research-agent','research-business-research-agent','research-fact-verification-agent']
     : mission.departmentId === 'trading-social'
@@ -118,7 +130,8 @@ async function runMission(db, env, mission, fetchImpl) {
       ], generate: messages => env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages, max_tokens: 850, temperature: 0.2 }) });
     await recordOutputQuality(db, { agentKey: agentId, source: 'organization-specialist', result: guarded });
     const output = guarded.text;
-    specialistFindings.push({ agentId, agentName: agent.name, role: agent.role, analysis: clean(humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output), 6500) });
+    const screened = screenOutput(humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output), { sourceText: groundSource, max: 6500 });
+    specialistFindings.push({ agentId, agentName: agent.name, role: agent.role, analysis: screened.text, ...(screened.injectionFlags.length ? { injectionFlags: screened.injectionFlags } : {}), ...(screened.grounding.unsupportedCount ? { figuresNotFoundInSources: screened.grounding.unsupported } : {}) });
   }
   const synthesisGuard = await guardedGeneration({ messages: [
       { role: 'system', content: 'You are the Chief Intelligence Supervisor of JPTI. Synthesize independent specialist findings into a decision-ready report. Resolve disagreements explicitly; do not conceal uncertainty or invent evidence. Cite supplied URLs. Separate facts, interpretations, recommendations and unknowns. For trading social, produce educational material only, never personalized investment advice or fabricated signals. For marketing, never invent testimonials, prices or guaranteed outcomes. Return headings: Executive summary; Findings; Recommended actions; Evidence and sources; Unknowns and limitations; Suggested department handoffs.' },
@@ -126,19 +139,21 @@ async function runMission(db, env, mission, fetchImpl) {
     ], generate: messages => env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages, max_tokens: 1800, temperature: 0.2 }) });
   await recordOutputQuality(db, { agentKey: mission.departmentId + '-supervisor', source: 'organization-synthesis', result: synthesisGuard });
   const synthesis = synthesisGuard.text;
-  const output = humanizeAgentOutput(typeof synthesis === 'string' ? synthesis : synthesis?.response || synthesis?.result?.response || synthesis);
+  const synthScreen = screenOutput(humanizeAgentOutput(typeof synthesis === 'string' ? synthesis : synthesis?.response || synthesis?.result?.response || synthesis), { sourceText: groundSource });
+  const output = synthScreen.text;
+  const trust = memoryTrust({ injectionFlags: [...synthScreen.injectionFlags, ...specialistFindings.flatMap(item => item.injectionFlags || [])], grounding: synthScreen.grounding, freshnessStatus: context.freshness?.status, hasSource: context.items.length > 0 });
   const completedAt = stamp();
-  const result = { output: clean(output, 18000), specialistFindings, sharedMemoryRecords: sharedMemory.length, research: context, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: completedAt, evidenceStatus: context.status, sourceCount: context.items.length };
+  const result = { output: clean(output, 18000), specialistFindings, sharedMemoryRecords: sharedMemory.length, research: context, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: completedAt, evidenceStatus: context.status, sourceCount: context.items.length, freshness: context.freshness || null, grounding: synthScreen.grounding, trust, safety: { sourceFlags: context.injectionFlags || [], memoryFlags, outputFlags: synthScreen.injectionFlags, redactions: synthScreen.redactions } };
   await db.prepare("UPDATE jpti_org_missions SET status = 'completed', result_json = ?, completed_at = ?, updated_at = ? WHERE mission_id = ?")
     .bind(JSON.stringify(result), completedAt, completedAt, mission.id).run();
   for (const agentId of specialists) {
     await db.prepare('INSERT INTO jpti_org_agent_metrics (agent_id, metric_date, completed_missions, contributions, evidence_linked, updated_at) VALUES (?, ?, 1, 1, ?, ?) ON CONFLICT(agent_id, metric_date) DO UPDATE SET completed_missions = completed_missions + 1, contributions = contributions + 1, evidence_linked = evidence_linked + excluded.evidence_linked, updated_at = excluded.updated_at')
       .bind(agentId, dayKey(), context.items.length ? 1 : 0, completedAt).run();
   }
-  await storeMemory(db, { departmentId: mission.departmentId, kind: 'mission-result', title: mission.title, content: result.output, source: context.source, confidence: context.items.length ? 0.72 : 0.48, tags: [mission.departmentId, 'mission', 'shared'] });
-  const others = DEPARTMENTS.filter(item => item.id !== mission.departmentId);
+  await storeMemory(db, { departmentId: mission.departmentId, kind: 'mission-result', title: mission.title, content: result.output, source: context.source, confidence: trust === 'quarantined' ? 0.1 : context.items.length ? 0.72 : 0.48, evidenceStatus: trust, tags: [mission.departmentId, 'mission', 'shared'] });
+  const others = trust === 'quarantined' ? [] : DEPARTMENTS.filter(item => item.id !== mission.departmentId);
   for (const target of others) {
-    await sendDepartmentMessage(db, { from: mission.departmentId, to: target.id, subject: 'Shared intelligence: ' + mission.title, body: result.output.slice(0, 3500), missionId: mission.id, priority: mission.priority === 'urgent' ? 'high' : 'normal' });
+    await sendDepartmentMessage(db, { from: mission.departmentId, to: target.id, subject: 'Shared intelligence: ' + mission.title, body: withProvenance(result.output.slice(0, 3300), { origin: 'department mission', id: mission.id, evidence: trust, model: 'llama-3.3-70b' }), missionId: mission.id, priority: mission.priority === 'urgent' ? 'high' : 'normal' });
   }
   return { ...mission, status: 'completed', result };
 }
@@ -155,7 +170,7 @@ async function createMission(db, env, body, fetchImpl) {
   try { return await runMission(db, env, mission, fetchImpl); }
   catch (error) {
     await db.prepare("UPDATE jpti_org_missions SET status = 'blocked', result_json = ?, updated_at = ? WHERE mission_id = ?")
-      .bind(JSON.stringify({ error: clean(error.message, 500), retryable: error.status === 503 }), stamp(), id).run();
+      .bind(JSON.stringify({ error: clean(error.message, 500), retryable: error.status === 503 || error.status === 429 }), stamp(), id).run();
     throw Object.assign(error, { missionId: id });
   }
 }

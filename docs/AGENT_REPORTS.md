@@ -24,3 +24,20 @@ Apply the migration: `npm run db:d1:apply`. All new endpoints use the existing p
 
 ## Tests
 `src/lib/*.test.js` (guard, formatter, parser, diff, saved reports, alerts), `tests/agent-output-guard-api.test.js` (real task runner on real migrations via `node:sqlite`), `tests/agent-output-readability.test.js` (server-rendered components).
+
+## Agent safety layer (`src/lib/content-safety.js`)
+Risks assessed and the controls now in code (heuristics that reduce risk; prompts still treat retrieved text as data):
+
+| Risk | Control |
+|---|---|
+| Prompt injection via news, memory or research | Retrieved headlines, shared memory and mentor research are sanitised before any prompt: instruction-like phrases removed, hidden/bidi characters stripped, non-http links dropped. Findings are reported as chips ("injection attempt neutralised"). |
+| Poisoned shared memory | A model reply containing an injection is **quarantined**: stored with `evidence_status = quarantined`, confidence 0.1, never broadcast to other departments, and excluded from every later prompt. Quarantined rows stay visible for review. |
+| Leaked secrets | Tokens, API keys, JWTs, private keys and `key=value` credentials are redacted from model output (text and structured data), memory, handoffs and the mentor review. |
+| Stale data | News older than 72 h and memory older than 14 days are labelled (`fresh`, `partly-stale`, `stale`, `undated`); the model sees each item's age and stale entries lower the trust given to the result. |
+| Hallucinated figures | Every number in a report is checked against the objective, retrieved headlines and memory. Figures not found there are listed honestly as "not found in sources" (they may be derived). Specialist output is deliberately **not** counted as evidence, so one agent's invention cannot validate the next. |
+| Cascading errors | Handoffs and department broadcasts end with a provenance footer (origin, id, time, evidence level, "AI-generated, not independently verified"). Specialist findings forward which of their figures lacked support. |
+| Runaway cost | `JPTI_AI_HOURLY_LIMIT` / `JPTI_AI_DAILY_LIMIT` (defaults 60 / 400). Tasks reserve 2 calls, missions 4, the mentor 2. Over the cap the work is blocked with HTTP 429 and a clear message; no model call is made. Soft cap; fails open (and says so) if usage cannot be read. `GET /api/intelligence-foundation/agents/ai-budget` shows live usage. |
+
+Trust levels stored on results: `verified`, `partially-verified`, `inferred`, `unverified`, `quarantined`. A result with no source material is `unverified`, never `inferred`.
+
+Not covered by code: independent human review of real-money decisions, source-diversity (agents on one model can still share blind spots), and semantic prompt injection that avoids known phrasing. Keep a human approval step on anything involving funds.

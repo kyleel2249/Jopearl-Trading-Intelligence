@@ -64,6 +64,8 @@ test('evidence badges, comparison view, saved reports and handoff alerts render'
   const { default: AgentReport } = await load('AgentReport');
   const badge = renderToStaticMarkup(React.createElement(AgentReport, { content: '## Evidence\n- Verified fact: spread is tight\n- Inference: momentum fading\n- Unknown: ETF flow data\n- Recommendation: wait', meta: { evidenceStatus: 'verified', sourceCount: 3, outputQuality: { repaired: true } }, saveable: false }));
   for (const cls of ['ev-verified', 'ev-inferred', 'ev-unknown', 'ev-recommendation']) assert.ok(badge.includes(cls), cls);
+  const safety = renderToStaticMarkup(React.createElement(AgentReport, { content: 'text', saveable: false, meta: { trust: 'quarantined', freshness: { status: 'stale', newestAgeHours: 200 }, grounding: { checked: 4, unsupportedCount: 2, unsupported: ['$95,000', '83%'] }, safety: { sourceFlags: ['override-instructions'], redactions: ['github-token'], quarantinedMemory: 1 } } }));
+  for (const text of ['trust: quarantined', 'sources stale', '2 figures not in sources', '$95,000, 83%', 'injection attempt neutralised', 'secrets redacted', '1 memory quarantined']) assert.ok(safety.includes(text), text);
   assert.match(badge, /3 sources/); assert.match(badge, /auto-repaired/); assert.ok(!badge.includes('Save to journal'), 'saveable=false hides the save button');
   const { default: ReportCompare } = await load('ReportCompare');
   const cmp = renderToStaticMarkup(React.createElement(ReportCompare, { before: { label: 'Run 1', content: '## Risks\n- Event risk Friday\n- Thin liquidity' }, after: { label: 'Run 2', content: '## Risks\n- Event risk Friday\n- Funding spike' }, onClose() {} }));

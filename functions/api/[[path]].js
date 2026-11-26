@@ -8,6 +8,8 @@ import { createBitgetCfdProvider } from '../bitget-cfd.js';
 import { humanizeAgentOutput } from '../../src/lib/agent-report.js';
 import { guardedGeneration } from '../../src/lib/agent-output-guard.js';
 import { recordOutputQuality } from '../output-quality.js';
+import { checkAiBudget } from '../ai-budget.js';
+import { redactSecrets, sanitizeDeep } from '../../src/lib/content-safety.js';
 import { correlateCandleSeries } from '../../src/pair-scanner-engine.js';
 import { calibrationReport } from '../../src/gainz-alpha/calibration.js';
 import { runAgentFleet, buildAgentCatalog } from '../../src/agent-fleet-engine.js';
@@ -882,7 +884,9 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
   const entry = body?.entry;
   if (!entry || typeof entry !== 'object' || Array.isArray(entry)) return json(400, { error: 'Send the active journal entry in the entry field.' }, request);
   const symbol = String(entry.symbol || '').slice(0, 40);
-  const research = await fetchPairResearch(symbol, fetchImpl);
+  const researchRaw = await fetchPairResearch(symbol, fetchImpl);
+  const researchSafe = sanitizeDeep(researchRaw, 1000);
+  const research = researchSafe.value;
   const context = JSON.stringify({
     entry, technicalAssessment: body.technicalAssessment || entry.technicalAssessment || null,
     userProvidedResearch: body.research || entry.researchSnapshot || null,
@@ -902,12 +906,15 @@ async function handleMentorRoute(request, env, fetchImpl = fetch) {
     'Provide concrete next actions and questions. Do not place, modify or cancel orders.',
     'Return Markdown with headings: Executive assessment; Pair research; Technical assessment; Trade and risk review; Trader profile; Strengths; Weaknesses and blind spots; Coaching plan; Journal narrative; Uncertainties and source quality.'
   ].join(' ');
+  const budget = await checkAiBudget(env.JPTI_DB, env, { needed: 2 });
+  if (!budget.ok) return json(429, { error: 'AI call budget reached (' + budget[budget.scope].used + ' of ' + budget[budget.scope].limit + ' model calls, ' + budget.scope + '). Try again later or raise the JPTI_AI limits.', budget }, request);
   try {
     const guarded = await guardedGeneration({ messages: [{ role: 'system', content: system }, { role: 'user', content: 'Analyze this trading record and evidence. Be candid, detailed and source-aware.\n\n' + context }], generate: messages => env.AI.run('@cf/meta/llama-3.3-70b-instruct-fp8-fast', { messages, max_tokens: 2600, temperature: 0.25 }) });
     await recordOutputQuality(env.JPTI_DB, { agentKey: 'mentor-review', source: 'journal-mentor', result: guarded });
     const output = guarded.text;
-    const review = humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output);
-    return json(200, { ok: true, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: new Date().toISOString(), symbol, research, review, source: 'cloudflare-workers-ai' }, request);
+    const reviewScreen = redactSecrets(humanizeAgentOutput(typeof output === 'string' ? output : output?.response || output?.result?.response || output));
+    const review = reviewScreen.text;
+    return json(200, { ok: true, model: '@cf/meta/llama-3.3-70b-instruct-fp8-fast', generatedAt: new Date().toISOString(), symbol, research, review, safety: { researchFlags: researchSafe.flags, redactions: [...new Set([...researchSafe.redactions, ...reviewScreen.redactions])] }, source: 'cloudflare-workers-ai' }, request);
   } catch (error) {
     return json(502, { error: 'Workers AI mentor review failed.', detail: String(error?.message || error).slice(0, 240) }, request);
   }
