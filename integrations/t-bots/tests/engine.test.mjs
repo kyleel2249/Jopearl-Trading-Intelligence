@@ -315,10 +315,11 @@ test('live feed: DexScreener and RugCheck mapping, fail-closed enrichment', asyn
 
 test('JPTI bridge sends fresh token evidence and rechecks governance on every entry', async () => {
   const originalFetch=globalThis.fetch;
-  let calls=0;
+  let calls=0,safetyCalls=0;
   let payload=null;
   globalThis.fetch=async (url,options={})=>{
     calls++;
+    if(String(url).includes('/paper/safety')) { safetyCalls++; return {ok:true,status:200,json:async()=>({available:true,global:{status:'CLOSED',killSwitch:false,circuitBreaker:false}})}; }
     if(String(url).includes('/validation/latest/')) return {ok:true,status:200,json:async()=>({paperTrialEligible:true,assessment:{failedChecks:[]}})};
     payload=JSON.parse(options.body);
     return {ok:true,status:200,json:async()=>({allowed:true,decision:'paper_candidate',reasons:[]})};
