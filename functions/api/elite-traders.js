@@ -18,7 +18,7 @@ async function saveEvent(db,kind,id,payload){
 export async function onRequest({request,env}){
   const path=new URL(request.url).pathname.replace(/\/+$/,'');
   if(request.method==='OPTIONS')return new Response(null,{status:204,headers:{allow:'GET, POST, OPTIONS'}});
-  if(request.method==='GET'&&path==='/api/elite-traders'){
+  if(request.method==='GET'&&path==='/api/elite-traders'&&!new URL(request.url).searchParams.has('limit')){
     return reply(200,{system:'JPTI Elite Trader Replication Division',version:ETRD_POLICY.version,agents:ETRD_AGENTS,policy:ETRD_POLICY,
       status:{available:true,storageConfigured:Boolean(env.JPTI_DB),authConfigured:Boolean(env.JPTI_JOURNAL_TOKEN||env.JPTI_API_TOKEN),
       traderFeedConfigured:Boolean(env.JPTI_ELITE_TRADER_FEED_URL),scheduledMonitoringConfigured:false,
