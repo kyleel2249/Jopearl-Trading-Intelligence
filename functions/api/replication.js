@@ -9,7 +9,6 @@ import { verifyPrivateToken } from '../private-auth.js';
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: HEADERS });
 const MAX_BODY_BYTES = 32 * 1024;
-const MAX_PARALLEL = 6;
 
 async function readJson(request) {
   const raw = await request.text();
