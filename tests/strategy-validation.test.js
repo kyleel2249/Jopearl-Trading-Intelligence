@@ -7,3 +7,5 @@ test('forged or missing evidence cannot pass required risk and freshness gates',
 test('performance decay blocks promotion',()=>{const v=evaluateStrategyEvidence({...passing,decayRatio:.2,decayDetected:true});assert.ok(v.failedChecks.includes('forward_decay'));});
 
 test('drawdown breach suspends a strategy instead of allowing promotion',()=>{const v=evaluateStrategyEvidence({...passing,risk:{riskBreaches:0,drawdownHalt:true}});assert.equal(v.status,'SUSPENDED');assert.equal(v.passed,false);assert.equal(v.liveExecutionAuthorized,false);assert.ok(v.failedChecks.includes('drawdown_halt'));});
+
+test('stale and future-dated validation evidence cannot qualify',()=>{assert.equal(evaluateStrategyEvidence({...passing,evidenceAgeHours:25}).status,'RESEARCH_ONLY');assert.ok(evaluateStrategyEvidence({...passing,evidenceAgeHours:-1}).failedChecks.includes('fresh_evidence'));});
