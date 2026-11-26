@@ -66,7 +66,7 @@ The workflow runs every five minutes and can also be started manually. It uses b
 ## Optional Cloudflare Pages variables
 
 - `JPTI_REPLICATION_EXCHANGES` — comma-separated subset of `binance,bybit,okx,bitget`.
-- `JPTI_REPLICATION_SYMBOLS` — comma-separated normalized symbols; default: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT, DOGE/USDT.
+- `JPTI_REPLICATION_SYMBOLS` — comma-separated normalized symbols; default: BTC/USDT, ETH/USDT, SOL/USDT, XRP/USDT, BNB/USDT, DOGE/USDT, BTC/USD:BTC, BTC/USDC:USDC.
 - `JPTI_REPLICATION_MARKET_TYPES` — Bitget categories; default: spot, margin, usdt-m, coin-m, usdc-m.
 - `JPTI_REPLICATION_TIMEFRAMES` — default: 1m, 5m, 15m, 1h.
 - `JPTI_REPLICATION_MARKET_LIMIT` — per exchange/category cap; maximum 20.
