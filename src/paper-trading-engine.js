@@ -39,7 +39,7 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  const rows=(Array.isArray(candles)?candles:[]).filter(r=>Array.isArray(r)&&r.length>=6&&r.slice(0,6).every(v=>Number.isFinite(Number(v)))).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
  if(rows.length<35)return{action:'WAIT',reason:'At least 35 valid candles are required.',features:null};
  const closed=rows.slice(0,-1),closes=closed.map(r=>r[4]),volumes=closed.map(r=>r[5]),last=closed.at(-1);
- const avg=a=>mean(a),ema=(a,p)=>{const k=2/(p+1);return a.slice(1).reduce((v,x)=>x+k*(v-x),a[0]);};
+ const avg=a=>mean(a),ema=(a,p)=>{const k=2/(p+1);return a.slice(1).reduce((v,x)=>x*k+v*(1-k),a[0]);};
  const ema9=ema(closes.slice(-40),9),ema21=ema(closes.slice(-60),21),momentum=(last[4]/closes.at(-13)-1)*100;
  const avgVol=avg(volumes.slice(-21,-1)),rvol=avgVol?last[5]/avgVol:0;
  const range=avg(closed.slice(-14).map(r=>r[2]-r[3])),atrPct=last[4]?range/last[4]*100:0;
