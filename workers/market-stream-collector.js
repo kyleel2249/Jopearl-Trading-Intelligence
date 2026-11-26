@@ -16,7 +16,7 @@ export default {
 };
 export class MarketStreamHub {
  constructor(state,env){this.state=state;this.env=env;this.socket=null;this.config=null;this.book={valid:false,lastSequence:null};this.bookDepth={bids:[],asks:[],valid:false,lastSequence:null};this.reconnectAttempt=0;this.started=false;}
- async fetch(request){const url=new URL(request.url);if(url.pathname==='/start'){const c=await request.json();this.config=normalizeStreamRequest(c);await this.state.storage.put('config',this.config);await this.connect();return json(200,{status:this.started?'connected':'connecting',streamId:this.config.streamId,sequenceAware:true});}
+ async fetch(request){const url=new URL(request.url);if(url.pathname==='/start'){const c=await request.json();this.config=normalizeStreamRequest(c);await this.state.storage.put('config',this.config);await this.connect();return json(200,{status:this.socket?.readyState===1?'connected':'connecting',streamId:this.config.streamId,sequenceAware:true});}
   if(url.pathname==='/stop'){this.started=false;try{this.socket?.close(1000,'operator stop');}catch{}await this.state.storage.put('status','stopped');return json(200,{status:'stopped'});}
   if(url.pathname==='/status'){const stored=await this.state.storage.get('streamState')||{};return json(200,{...stored,streamId:this.config?.streamId||null});}
   return json(404,{error:'Unknown Durable Object route.'});}
