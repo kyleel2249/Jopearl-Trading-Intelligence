@@ -16,24 +16,43 @@ async function bitget(path){
  const data=await res.json();if(String(data.code)!=='00000')throw new Error(data.msg||'Bitget market feed returned an error.');
  return data.data;
 }
-async function marketSnapshot(symbol){
+async function marketSnapshot(symbol,db){
  const normalized=String(symbol||'BTCUSDT').toUpperCase().replace('/','').replace(':USDT','');
- if(!/^[A-Z0-9]{5,24}$/.test(normalized))throw new Error('Invalid Bitget USDT perpetual symbol.');
- const [rawCandles,raw5m,raw15m,raw1h,rawTicker]=await Promise.all([
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=5m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=15m&limit=100'),
-  bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1H&limit=100'),
-  bitget('/api/v2/mix/market/ticker?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES')
- ]);
- const parseCandles=raw=>(Array.isArray(raw)?raw:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
- const candles=parseCandles(rawCandles),timeframes={'5m':parseCandles(raw5m),'15m':parseCandles(raw15m),'1H':parseCandles(raw1h)};
- const t=Array.isArray(rawTicker)?rawTicker[0]:rawTicker;
- const ticker={last:num(t?.lastPr),bid:num(t?.bidPr),ask:num(t?.askPr),timestamp:num(t?.ts)};
- if(!(ticker.last>0)||candles.length<36)throw new Error('Bitget returned insufficient valid ticker/candle data.');
- const age=Date.now()-ticker.timestamp;
- if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp; paper entries are paused.');
- return {symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
+ if(!/^[A-Z0-9]{5,24}$/.test(normalized))throw new Error('Invalid market symbol.');
+ try{
+  const [rawCandles,raw5m,raw15m,raw1h,rawTicker]=await Promise.all([
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=5m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=15m&limit=100'),
+   bitget('/api/v2/mix/market/candles?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES&granularity=1H&limit=100'),
+   bitget('/api/v2/mix/market/ticker?symbol='+encodeURIComponent(normalized)+'&productType=USDT-FUTURES')
+  ]);
+  const parseCandles=raw=>(Array.isArray(raw)?raw:[]).map(r=>r.map(Number)).sort((a,b)=>a[0]-b[0]);
+  const candles=parseCandles(rawCandles),timeframes={'5m':parseCandles(raw5m),'15m':parseCandles(raw15m),'1H':parseCandles(raw1h)};
+  const t=Array.isArray(rawTicker)?rawTicker[0]:rawTicker,ticker={last:num(t?.lastPr),bid:num(t?.bidPr),ask:num(t?.askPr),timestamp:num(t?.ts)};
+  if(!(ticker.last>0)||candles.length<36)throw new Error('Bitget returned insufficient valid ticker/candle data.');
+  const age=Date.now()-ticker.timestamp;if(!ticker.timestamp||age>30000||age< -5000)throw new Error('Bitget ticker is stale or has an invalid timestamp.');
+  return{symbol:normalized,candles,timeframes,ticker,source:'Bitget public USDT-FUTURES',receivedAt:iso(),ageMs:age};
+ }catch(bitgetError){
+  try{
+   const pair=normalized.endsWith('USDT')?normalized.slice(0,-4)+'/USDT':normalized;
+   const candidates=await db.prepare("SELECT exchange,market_type,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='1m' GROUP BY exchange,market_type ORDER BY last_seen DESC LIMIT 12").bind(normalized,pair).all();
+   for(const candidate of candidates.results||[]){
+    const [raw1m,raw5m,raw15m,raw1h,tickerRow]=await Promise.all([
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='1m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='5m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe='15m' ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ohlcv' AND timeframe IN ('1h','1H') ORDER BY observed_at DESC LIMIT 100").bind(candidate.exchange,candidate.market_type,normalized,pair).all(),
+     db.prepare("SELECT observed_at,received_at,payload FROM jpti_market_observations WHERE exchange=? AND market_type=? AND symbol IN (?,?) AND observation_kind='ticker' ORDER BY observed_at DESC LIMIT 1").bind(candidate.exchange,candidate.market_type,normalized,pair).first()
+    ]);
+    const parseRows=rows=>(rows.results||[]).map(row=>{let p={};try{p=JSON.parse(row.payload||'{}')}catch{}if(Array.isArray(p))return p.map(Number);return[Date.parse(row.observed_at)||num(p.timestamp||p.ts),num(p.open??p.o),num(p.high??p.h),num(p.low??p.l),num(p.close??p.c),num(p.volume??p.v)];}).filter(r=>r.length>=6&&r.every(Number.isFinite)).sort((a,b)=>a[0]-b[0]);
+    const candles=parseRows(raw1m),timeframes={'5m':parseRows(raw5m),'15m':parseRows(raw15m),'1H':parseRows(raw1h)};
+    let p={};try{p=JSON.parse(tickerRow?.payload||'{}')}catch{}const timestamp=Date.parse(tickerRow?.observed_at)||num(p.timestamp||p.ts),ticker={last:num(p.last??p.lastPr??p.price??p.close),bid:num(p.bid??p.bidPr),ask:num(p.ask??p.askPr),timestamp};
+    const age=Date.now()-timestamp;if(candles.length>=36&&ticker.last>0&&timestamp&&age<=120000&&age>=-5000)return{symbol:normalized,candles,timeframes,ticker,source:candidate.exchange+' '+candidate.market_type+' persisted D1 fallback',receivedAt:iso(),ageMs:age};
+   }
+   throw new Error('No fresh replicated OHLCV and ticker set was available.');
+  }catch(fallbackError){throw new Error('Primary Bitget feed unavailable ('+String(bitgetError?.message||bitgetError).slice(0,100)+'); cross-exchange D1 fallback unavailable ('+String(fallbackError?.message||fallbackError).slice(0,120)+').');}
+ }
 }
 export async function ensureAgents(db){
  for(const agent of PAPER_AGENTS){
@@ -122,7 +141,7 @@ async function loadLiveMarketContext(db,marketSymbol,env={}){
 }
 export async function runCycle(db,symbol,options={},env={}){
  if(!options.agentsEnsured)await ensureAgents(db);
- const market=await marketSnapshot(symbol);
+ const market=await marketSnapshot(symbol,db);
  const liveMarketContext=await loadLiveMarketContext(db,market.symbol,env);
  const report={mode:'PAPER_ONLY',liveMarketContext,source:market.source,symbol:market.symbol,marketTimestamp:new Date(market.ticker.timestamp).toISOString(),receivedAt:market.receivedAt,ageMs:market.ageMs,opened:[],closed:[],partialExits:[],skipped:[],agents:[]};
  const openRows=await db.prepare("SELECT symbol,direction,COUNT(*) AS count FROM jpti_paper_trades WHERE status='open' GROUP BY symbol,direction").all();
