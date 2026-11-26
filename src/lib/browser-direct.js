@@ -153,14 +153,14 @@ const BITGET_V2_CATALOG_PATHS = Object.freeze({
 async function fetchBitgetInstrumentCategory(category, options) {
   const primary = HOSTS.bitget + '/api/v3/market/instruments?category=' + encodeURIComponent(category);
   try {
-    const payload = await getJson(primary, options);
+    const payload = await getJson(primary, { ...options, retry404: true });
     if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget v3 instruments failed for ' + category + '.', 502);
     return { payload, apiVersion: 'v3' };
   } catch (primaryError) {
     const fallbackPath = BITGET_V2_CATALOG_PATHS[category];
     if (!fallbackPath) throw primaryError;
     try {
-      const payload = await getJson(HOSTS.bitget + fallbackPath, options);
+      const payload = await getJson(HOSTS.bitget + fallbackPath, { ...options, retry404: true });
       if (String(payload?.code) !== '00000') throw new DirectError(payload?.msg || 'Bitget v2 catalog fallback failed for ' + category + '.', 502);
       return { payload, apiVersion: 'v2' };
     } catch (fallbackError) {
@@ -239,7 +239,7 @@ const CACHE_TTL = { ticker: 3000, ohlcv: 10000, markets: 10 * 60000 };
 // only set outside a window context.
 const IS_BROWSER = typeof window !== 'undefined' && typeof window.document !== 'undefined';
 const SERVER_USER_AGENT = 'Mozilla/5.0 (compatible; JPTI-MarketData/1.0; +https://github.com/kyleel2249/Jopearl-Trading-Intelligence)';
-const ALTERNATE_HOSTS = { 'https://api.bitget.com': ['https://api.bitgetapi.com'] };
+const ALTERNATE_HOSTS = { 'https://api.bitget.com': ['https://capi.bitget.com', 'https://api.bitgetapi.com'] };
 const RETRYABLE_STATUS = new Set([403, 429, 451, 502, 503, 504]);
 
 function alternateUrls(url) {
@@ -276,7 +276,7 @@ async function fetchJsonOnce(url, { fetchImpl, signal, timeoutMs }) {
   }
 }
 
-async function getJson(url, { fetchImpl, signal, timeoutMs = 7000 }) {
+async function getJson(url, options = {}) {\n  const { fetchImpl, signal, timeoutMs = 7000, retry404 = false } = options;
   let firstError = null;
   for (const candidate of [url, ...alternateUrls(url)]) {
     try {
@@ -284,7 +284,7 @@ async function getJson(url, { fetchImpl, signal, timeoutMs = 7000 }) {
     } catch (error) {
       if (signal?.aborted) throw error;
       firstError = firstError || error;
-      const retryable = !error.upstreamStatus || RETRYABLE_STATUS.has(error.upstreamStatus);
+      const retryable = !error.upstreamStatus || RETRYABLE_STATUS.has(error.upstreamStatus) || (retry404 && error.upstreamStatus === 404);
       if (!retryable) throw error;
     }
   }
