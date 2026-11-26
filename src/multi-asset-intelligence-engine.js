@@ -4,6 +4,7 @@ import {runAgentFleet} from './agent-fleet-engine.js';
 import {analyzeSMC} from './smc-intelligence.js';
 import {classifyMarketRegime,evaluateRiskGate} from './intelligence-foundation-engine.js';
 import {runAgentDebate} from './multi-agent-debate-engine.js';
+import {evaluateShortTermAgents} from './scalping-daytrading-engine.js';
 export const MULTI_ASSET_MODULES = Object.freeze([
   {id:'crypto-futures',name:'Crypto & Perpetual Futures',assetClass:'crypto',instruments:['BTC/USDT','ETH/USDT','SOL/USDT'],sessions:['24x5'],providerStatus:'connected',capabilities:['spot','perpetual','delivery','funding','open-interest','liquidations','order-book','trades']},
   {id:'stocks',name:'Stocks & Equities',assetClass:'equity',instruments:[],sessions:['exchange-local'],providerStatus:'provider-required',capabilities:['ohlcv','quotes','corporate-actions','fundamentals','earnings','halts']},
@@ -180,8 +181,9 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  if((direction==='long'&&agentFleet.consensus?.stance==='bearish_research_lean')||(direction==='short'&&agentFleet.consensus?.stance==='bullish_research_lean'))veto.push('agent-fleet-direction-conflict');
  if(instrument.assetClass==='onchain'&&e.chainFinalityVerified!==true)veto.push('chain-finality-unverified');
  const eligible=veto.length===0;
+ const shortTermIntelligence=evaluateShortTermAgents({style:'both',evidence:{...e,sessionOpen:e.sessionOpen===true,venueCalendarVerified:e.venueCalendarVerified===true,equityUsd:input.riskContext?.equityUsd,riskPct:input.riskContext?.riskPercent,stopDistancePct:e.stopDistancePct,drawdownPct:input.riskContext?.drawdownPercent,highImpactEvent:e.highImpactEvent===true,forwardValidationPassed:e.forwardValidationPassed===true,strategyQualified:e.strategyQualified===true}},{now,maxAgeMs:instrument.assetClass==='crypto'?5000:60000});
  return {decisionId:input.decisionId||cryptoId(),instrument,generatedAt:isoNow(),eventTimestamp:e.timestamp||null,evidenceAgeMs:ageMs,
-  direction,score:Number(score.toFixed(5)),confidence:Number(confidence.toFixed(4)),smc,smcEngine,regime,agentFleet,specialists,specialistConsensus,debate,riskGate,
+  direction,score:Number(score.toFixed(5)),confidence:Number(confidence.toFixed(4)),smc,smcEngine,regime,agentFleet,specialists,specialistConsensus,shortTermIntelligence,debate,riskGate,
   strategyFamilies:[...JPTI_STRATEGY_LIBRARY.map(x=>x.id)],veto,eligible,
   action:eligible?'PAPER_CANDIDATE':'ABSTAIN',executionPermission:'none',
   rationale:eligible?'Evidence passed the configured research gates. Candidate is eligible for paper simulation only.':'At least one data, session, strategy or risk gate failed; no order intent was created.'};
@@ -242,6 +244,6 @@ function policyTolerance(){return .01;}
 export function buildMultiAssetOverview() {
  return {version:'3.0.0',modules:MULTI_ASSET_MODULES.map(x=>({...x,instrumentCount:x.instruments.length,executionMode:'research-backtest-paper-only'})),
   squads:AGENT_SQUADS.map(s=>({...s,agents:s.agents.map(([name,role,specialty,timeframe])=>({id:name.toLowerCase(),name,role,specialty,timeframe,executionPermission:'none'}))})),
-  strategyLibrary:JPTI_STRATEGY_LIBRARY,capabilities:['asset-class-normalization','SMC-BOS-CHOCH','liquidity-sweeps','fair-value-gaps','order-flow','session-intelligence','cross-venue-arbitrage-research','event-time-replay-ordering','adaptive-capital-budgeting','forward-decay-monitoring','strategy-quarantine','execution-ledger-reconciliation'],
+  strategyLibrary:JPTI_STRATEGY_LIBRARY,capabilities:['asset-class-normalization','SMC-BOS-CHOCH','liquidity-sweeps','fair-value-gaps','order-flow','session-intelligence','cross-venue-arbitrage-research','event-time-replay-ordering','adaptive-capital-budgeting','forward-decay-monitoring','strategy-quarantine','execution-ledger-reconciliation','dedicated-scalping-squad','dedicated-day-trading-squad','microstructure-cost-edge-gate','event-risk-and-venue-session-gates','walk-forward-and-paper-forward-qualification'],
   liveExecutionAuthorized:false,weekendTradingEnabled:false};
 }
