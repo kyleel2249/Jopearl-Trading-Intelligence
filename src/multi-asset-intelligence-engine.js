@@ -133,7 +133,7 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
   premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)
  });
  const agentFleet=runAgentFleet({symbol:instrument.symbol,evidence:e},now);
- const specialistEvidence={...e,marketStructure:e.marketStructure||(smcEngine?.bias==='bullish'?'bullish':smcEngine?.bias==='bearish'?'bearish':undefined),liquiditySweep:e.liquiditySweep??!!smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'),fvg:e.fvg??!!smcEngine?.zones?.some(x=>x.type==='FVG'&&x.status==='active'),premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)};
+ const specialistEvidence={...e,drawdownPct:input.riskContext?.drawdownPercent,riskUsd:input.riskContext?.riskUsd,riskBudgetUsd:input.riskContext?.riskBudgetUsd,marketStructure:e.marketStructure||(smcEngine?.bias==='bullish'?'bullish':smcEngine?.bias==='bearish'?'bearish':undefined),liquiditySweep:e.liquiditySweep??!!smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'),fvg:e.fvg??!!smcEngine?.zones?.some(x=>x.type==='FVG'&&x.status==='active'),premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)};
  const specialists=evaluateSpecialistSquads(specialistEvidence);
  const specialistConsensus=buildSpecialistConsensus(specialists);
  const regime=allCandles?classifyMarketRegime(allCandles):null;
@@ -171,6 +171,9 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  if(riskGate&&!riskGate.allowed)veto.push(...riskGate.violations.map(x=>'risk-gate:'+x.code.toLowerCase()));
  if(debate.riskVetoes.length)veto.push(...debate.riskVetoes.map(x=>'agent-debate:'+x.toLowerCase()));
  if(!specialistConsensus.eligible)veto.push('specialist-consensus-unavailable-or-conflicted');
+ const riskSpecialist=specialists.find(x=>x.specialty==='risk'),safetySpecialist=specialists.find(x=>x.specialty==='safety');
+ if(!riskSpecialist||riskSpecialist.status!=='evaluated'||riskSpecialist.score<0)veto.push('specialist-risk-supervisor-abstained-or-vetoed');
+ if(!safetySpecialist||safetySpecialist.status!=='evaluated'||safetySpecialist.score<0)veto.push('specialist-data-safety-supervisor-abstained-or-vetoed');
  else if(specialistConsensus.direction!==direction)veto.push('specialist-consensus-direction-conflict');
  if(agentFleet.risk?.blocked)veto.push(...(agentFleet.risk.reasons||['agent-fleet-risk-veto']).map(x=>'agent-fleet:'+String(x).toLowerCase().replaceAll(' ','-')));
  if(agentFleet.recommendedAction!=='REVIEW_SETUP')veto.push('agent-fleet-recommends-wait');
