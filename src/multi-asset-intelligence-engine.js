@@ -91,7 +91,7 @@ export function evaluateSpecialistSquads(e={}) {
   structure:{required:['marketStructure','timeframeAlignment'],score:()=>e.marketStructure==='bullish'?Math.abs(Number(e.timeframeAlignment)):e.marketStructure==='bearish'?-Math.abs(Number(e.timeframeAlignment)):0,rationale:'Multi-timeframe market structure.'},
   session:{required:['session','sessionOpen'],score:()=>e.sessionOpen===true?1:0,rationale:'Session and venue-calendar confirmation.'},
   momentum:{required:['momentumPct','relativeVolume'],score:()=>clamp(Number(e.momentumPct)/3,-1,1)*clamp(Number(e.relativeVolume)/2,0,1),rationale:'Momentum confirmed by relative volume.'},
-  reversal:{required:['momentumPct','volatilityPct'],score:()=>clamp(-Number(e.momentumPct)/3,-1,1),rationale:'Counter-momentum exhaustion watch; requires separate reversal confirmation.'},
+  reversal:{required:['momentumPct','volatilityPct','reversalConfirmed'],score:()=>e.reversalConfirmed===true?clamp(-Number(e.momentumPct)/3,-1,1):0,rationale:'Counter-momentum exhaustion watch; only votes after independent reversal confirmation.'},
   arbitrage:{required:['crossVenuePrices','estimatedCosts'],score:()=>Array.isArray(e.crossVenuePrices)&&e.crossVenuePrices.length>=2?1:0,rationale:'Cross-venue quotes compared against all-in costs.'},
   macro:{required:['macroBias','highImpactEvent'],score:()=>e.macroBias==='risk-on'?1:e.macroBias==='risk-off'?-1:0,rationale:'Supplied macro regime and event-risk context.'},
   onchain:{required:['exchangeNetflow','walletFlowQuality'],score:()=>clamp(-Number(e.exchangeNetflow),-1,1),rationale:'Verified exchange netflows and wallet attribution.'},
@@ -105,6 +105,15 @@ export function evaluateSpecialistSquads(e={}) {
   const evaluated=missing.length===0,score=evaluated?Number(clamp(spec.score()).toFixed(4)):null;
   return {id:name.toLowerCase(),name,role,squadId:squad.id,style:squad.style,specialty,timeframe,status:evaluated?'evaluated':'abstain-missing-evidence',score,confidence:evaluated?Math.min(1,Math.abs(score)*.8+.2):0,missingEvidence:missing,rationale:evaluated?spec.rationale:'Specialist abstains; required evidence is unavailable.',executionPermission:'none'};
  }));
+}
+export function buildSpecialistConsensus(specialists=[]) {
+ const weights={orderflow:1.2,smc:1.3,structure:1.1,momentum:1,reversal:.8,macro:.7,onchain:.7,fundamental:.7};
+ const votes=(Array.isArray(specialists)?specialists:[]).filter(x=>weights[x.specialty]&&x.status==='evaluated'&&Number.isFinite(Number(x.score))&&Math.abs(Number(x.score))>.05);
+ const total=votes.reduce((sum,x)=>sum+weights[x.specialty],0),score=total?votes.reduce((sum,x)=>sum+Number(x.score)*weights[x.specialty],0)/total:0;
+ const long=votes.filter(x=>Number(x.score)>.1).length,short=votes.filter(x=>Number(x.score)<-.1).length;
+ const direction=score>.15?'long':score<-.15?'short':'flat';
+ const conflicts=long>=2&&short>=2;
+ return {direction,score:Number(score.toFixed(4)),confidence:Number(Math.abs(score).toFixed(4)),votes:votes.map(x=>({name:x.name,specialty:x.specialty,score:x.score})),longVotes:long,shortVotes:short,conflicts,eligible:votes.length>=2&&direction!=='flat'&&!conflicts};
 }
 export function evaluateMultiAssetOpportunity(input={},policy={}) {
  const instrument=normalizeAssetInstrument(input),e=input.evidence||{};
@@ -126,6 +135,7 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  const agentFleet=runAgentFleet({symbol:instrument.symbol,evidence:e},now);
  const specialistEvidence={...e,marketStructure:e.marketStructure||(smcEngine?.bias==='bullish'?'bullish':smcEngine?.bias==='bearish'?'bearish':undefined),liquiditySweep:e.liquiditySweep??!!smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'),fvg:e.fvg??!!smcEngine?.zones?.some(x=>x.type==='FVG'&&x.status==='active'),premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)};
  const specialists=evaluateSpecialistSquads(specialistEvidence);
+ const specialistConsensus=buildSpecialistConsensus(specialists);
  const regime=allCandles?classifyMarketRegime(allCandles):null;
  const debateSnapshot={status:'ready',domains:{structure:{bias:smcEngine?.bias||e.marketStructure||'neutral'},regime:{label:regime?.regime||'unclassified'},liquidity:{sweepLow:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bullish'),sweepHigh:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bearish')},flow:{relativeVolume:e.relativeVolume}},scores:{directionalBias:smcEngine?.bias||e.marketStructure||'neutral'},evidence:[
   ...(finite(e.momentumPct)?[{domain:'Momentum',score:clamp(50+Number(e.momentumPct)*10,0,100)}]:[]),
@@ -160,13 +170,15 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  if(!input.riskContext)veto.push('portfolio-risk-context-unavailable');
  if(riskGate&&!riskGate.allowed)veto.push(...riskGate.violations.map(x=>'risk-gate:'+x.code.toLowerCase()));
  if(debate.riskVetoes.length)veto.push(...debate.riskVetoes.map(x=>'agent-debate:'+x.toLowerCase()));
+ if(!specialistConsensus.eligible)veto.push('specialist-consensus-unavailable-or-conflicted');
+ else if(specialistConsensus.direction!==direction)veto.push('specialist-consensus-direction-conflict');
  if(agentFleet.risk?.blocked)veto.push(...(agentFleet.risk.reasons||['agent-fleet-risk-veto']).map(x=>'agent-fleet:'+String(x).toLowerCase().replaceAll(' ','-')));
  if(agentFleet.recommendedAction!=='REVIEW_SETUP')veto.push('agent-fleet-recommends-wait');
  if((direction==='long'&&agentFleet.consensus?.stance==='bearish_research_lean')||(direction==='short'&&agentFleet.consensus?.stance==='bullish_research_lean'))veto.push('agent-fleet-direction-conflict');
  if(instrument.assetClass==='onchain'&&e.chainFinalityVerified!==true)veto.push('chain-finality-unverified');
  const eligible=veto.length===0;
  return {decisionId:input.decisionId||cryptoId(),instrument,generatedAt:isoNow(),eventTimestamp:e.timestamp||null,evidenceAgeMs:ageMs,
-  direction,score:Number(score.toFixed(5)),confidence:Number(confidence.toFixed(4)),smc,smcEngine,regime,agentFleet,specialists,debate,riskGate,
+  direction,score:Number(score.toFixed(5)),confidence:Number(confidence.toFixed(4)),smc,smcEngine,regime,agentFleet,specialists,specialistConsensus,debate,riskGate,
   strategyFamilies:[...JPTI_STRATEGY_LIBRARY.map(x=>x.id)],veto,eligible,
   action:eligible?'PAPER_CANDIDATE':'ABSTAIN',executionPermission:'none',
   rationale:eligible?'Evidence passed the configured research gates. Candidate is eligible for paper simulation only.':'At least one data, session, strategy or risk gate failed; no order intent was created.'};
