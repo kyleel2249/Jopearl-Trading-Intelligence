@@ -204,7 +204,7 @@ function buildMultiAssetEvidence(market,context,signal,tradingWindow){
  const bias=Object.values(f.timeframeBias||{}).map(Number).filter(v=>v===1||v===-1),alignment=bias.length?bias.reduce((sum,v)=>sum+v,0)/bias.length:null;
  const closed=market?.candles?.filter(row=>Array.isArray(row)&&row.length>=6).slice(-2,-1)[0],displacementPct=closed&&Number(closed[1])>0?Math.abs(Number(closed[4])-Number(closed[1]))/Number(closed[1])*100:null;
  const reliable=context?.bookValid===true&&(context?.freshStreamEvents||[]).length>0&&fresh;
- return {timestamp:new Date(market.ticker.timestamp).toISOString(),eventTimeReliable:reliable,dataQuality:reliable?'verified':'unverified',
+ return {timestamp:context?.freshestAt||null,eventTimeReliable:reliable,dataQuality:reliable?'verified':'unverified',
   session:f.session||null,sessionOpen:tradingWindow?.eligible===true,price:Number(market.ticker.last),
   spreadBps:f.spreadPct==null?null:Number(f.spreadPct)*100,volatilityPct:f.atrPct,liquidityUsd:bookNotional,
   momentumPct:f.momentumPct,timeframeAlignment:alignment,relativeVolume:f.relativeVolume,

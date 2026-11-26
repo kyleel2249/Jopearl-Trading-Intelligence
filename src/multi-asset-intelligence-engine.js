@@ -124,14 +124,14 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
   premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)
  });
  const agentFleet=runAgentFleet({symbol:instrument.symbol,evidence:e},now);
- const specialists=evaluateSpecialistSquads(e);
+ const specialistEvidence={...e,marketStructure:e.marketStructure||(smcEngine?.bias==='bullish'?'bullish':smcEngine?.bias==='bearish'?'bearish':undefined),liquiditySweep:e.liquiditySweep??!!smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'),fvg:e.fvg??!!smcEngine?.zones?.some(x=>x.type==='FVG'&&x.status==='active'),premiumDiscount:e.premiumDiscount||(smcEngine?.range?.discount?'discount':smcEngine?.range?.premium?'premium':undefined)};
+ const specialists=evaluateSpecialistSquads(specialistEvidence);
  const regime=allCandles?classifyMarketRegime(allCandles):null;
  const debateSnapshot={status:'ready',domains:{structure:{bias:smcEngine?.bias||e.marketStructure||'neutral'},regime:{label:regime?.regime||'unclassified'},liquidity:{sweepLow:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bullish'),sweepHigh:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bearish')},flow:{relativeVolume:e.relativeVolume}},scores:{directionalBias:smcEngine?.bias||e.marketStructure||'neutral'},evidence:[
   ...(finite(e.momentumPct)?[{domain:'Momentum',score:clamp(50+Number(e.momentumPct)*10,0,100)}]:[]),
   ...(finite(e.relativeVolume)?[{domain:'Flow proxy',score:clamp(50+(Number(e.relativeVolume)-1)*20,0,100)}]:[])
  ],conflicts:[]};
  const debate=runAgentDebate(debateSnapshot,{dataQuality:{stale},orderBookAnalysis:{imbalancePct:finite(e.orderBookImbalance)?Number(e.orderBookImbalance)*100:null}});
- const riskGate=input.riskContext?evaluateRiskGate({...input.riskContext,dataFresh:!stale,dataAgeMs:ageMs,spreadPercent:finite(e.spreadBps)?Number(e.spreadBps)/100:null,confidence},input.riskPolicy||{}):null;
  const directional=[
   finite(e.momentumPct)?clamp(Number(e.momentumPct)/2,-1,1)*.16:0,
   finite(e.timeframeAlignment)?clamp(e.timeframeAlignment,-1,1)*.18:0,
@@ -144,6 +144,7 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  ];
  const score=directional.reduce((a,b)=>a+b,0),confidence=clamp(Math.abs(score)*1.5,0,1);
  const direction=score>.12?'long':score<-.12?'short':'flat';
+ const riskGate=input.riskContext?evaluateRiskGate({...input.riskContext,dataFresh:!stale,dataAgeMs:ageMs,spreadPercent:finite(e.spreadBps)?Number(e.spreadBps)/100:null,confidence},input.riskPolicy||{}):null;
  const veto=[];
  if(stale)veto.push('stale-or-missing-event-time-evidence');
  if(missing.length)veto.push('missing-required-market-quality-fields:'+missing.join(','));
@@ -159,9 +160,6 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  if(!input.riskContext)veto.push('portfolio-risk-context-unavailable');
  if(riskGate&&!riskGate.allowed)veto.push(...riskGate.violations.map(x=>'risk-gate:'+x.code.toLowerCase()));
  if(debate.riskVetoes.length)veto.push(...debate.riskVetoes.map(x=>'agent-debate:'+x.toLowerCase()));
- if(agentFleet.risk?.blocked)veto.push(...(agentFleet.risk.reasons||['agent-fleet-risk-veto']).map(x=>'agent-fleet:'+String(x).toLowerCase().replaceAll(' ','-')));
- if(agentFleet.recommendedAction!=='REVIEW_SETUP')veto.push('agent-fleet-recommends-wait');
- if((direction==='long'&&agentFleet.consensus?.stance==='bearish_research_lean')||(direction==='short'&&agentFleet.consensus?.stance==='bullish_research_lean'))veto.push('agent-fleet-direction-conflict');
  if(instrument.assetClass==='onchain'&&e.chainFinalityVerified!==true)veto.push('chain-finality-unverified');
  const eligible=veto.length===0;
  return {decisionId:input.decisionId||cryptoId(),instrument,generatedAt:isoNow(),eventTimestamp:e.timestamp||null,evidenceAgeMs:ageMs,
