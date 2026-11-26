@@ -48,7 +48,7 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  const hour=new Date(last[0]).getUTCHours(),session=hour>=13&&hour<16?'London-New York overlap':hour>=7&&hour<16?'London':hour>=13&&hour<22?'New York':'Asia-Pacific';
  const sessionWeight=session==='London-New York overlap'?1:session==='London'||session==='New York'?.75:.4;
  const strategy=String(agentId).replace(/^.*:/,'');
- const score=strategy==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5)
+ let score=strategy==='mean-reversion'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.5)
  :strategy==='breakout'?breakout
  :strategy==='volume'?Math.sign(momentum)*(rvol>=1.25?1:0)
  :strategy==='trend'?(trend*.4+Math.sign(momentum)*.2+Math.sign(momentum)*timeframeAgreement*.13)
@@ -58,9 +58,13 @@ export function derivePaperSignal(candles,ticker={},agentId='ensemble',context={
  :strategy==='regime'?(atrPct>2.5?0:regime==='range'?-Math.sign(momentum)*Math.min(1,Math.abs(momentum)):trend)
  :strategy==='momentum'?Math.sign(momentum)*Math.min(1,Math.abs(momentum)/1.2)
  :clamp(trend*.25+Math.sign(momentum)*.2+breakout*.2+(rvol>=1.2?Math.sign(momentum)*.1:0)+Math.sign(momentum)*timeframeAgreement*.15,-1,1);
+ const marketData=context.marketData||{};
+ const microInputs=[marketData.orderBookImbalance,marketData.tradeFlowImbalance].map(v=>Number.isFinite(Number(v))?Math.max(-1,Math.min(1,Number(v))):null).filter(v=>v!==null);
+ const microstructureScore=microInputs.length?clamp(microInputs.reduce((a,b)=>a+b,0)/microInputs.length*.2,-.2,.2):0;
+ if(strategy!=='risk'&&microInputs.length)score=clamp(score+microstructureScore,-1,1);
  const direction=score>.25?'LONG':score<-.25?'SHORT':'FLAT';
  const signalAgreement=direction==='FLAT'?0:Object.values(timeframeBias).filter(v=>v===(direction==='LONG'?1:-1)).length;
- return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,timeframeBias,timeframeAgreement:signalAgreement,closedBars:closed.length,marketData:context.marketData||null}};
+ return{action:direction==='FLAT'?'WAIT':'SIGNAL',direction,score,reason:direction==='FLAT'?'No sufficiently strong closed-candle edge.':`Closed-bar score ${score.toFixed(2)}, momentum ${momentum.toFixed(3)}%, relative volume ${rvol.toFixed(2)}x.`,features:{closedCandleAt:new Date(last[0]).toISOString(),close:last[4],ema9,ema21,momentumPct:momentum,relativeVolume:rvol,atrPct,spreadPct,regime,session,timeframeBias,timeframeAgreement:signalAgreement,closedBars:closed.length,marketData:context.marketData||null,microstructureScore}};
 }
 export function calculatePaperMetrics(trades=[],startingEquity=PAPER_POLICY.initialEquityUsd,now=Date.now()){
  const closed=trades.filter(t=>t.status==='closed'),wins=closed.filter(t=>n(t.netPnlUsd)>0),losses=closed.filter(t=>n(t.netPnlUsd)<0);
