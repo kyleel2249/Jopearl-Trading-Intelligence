@@ -195,7 +195,7 @@ export async function loadLiveMarketContext(db,marketSymbol,env={}){
   openInterest:openInterest.size?[...openInterest.values()].reduce((a,b)=>a+b,0)/openInterest.size:null,
   liquidationFlow:{buyNotional:liquidationBuy,sellNotional:liquidationSell,netNotional:liquidationBuy-liquidationSell},
   ticker:bids.length&&asks.length?{bid:bids.reduce((a,b)=>a+b,0)/bids.length,ask:asks.reduce((a,b)=>a+b,0)/asks.length}:null,
-  freshestAt:[...books,...freshEvents].map(x=>x.received_at||x.updated_at||x.observed_at).filter(Boolean).sort().at(-1)||null
+  freshestAt:[...books,...freshEvents].map(x=>x.observed_at||x.received_at||x.updated_at).filter(Boolean).sort().at(-1)||null
  };
 }
 function buildMultiAssetEvidence(market,context,signal,tradingWindow){
