@@ -59,7 +59,7 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
   const bids=data.b||data.bids||data.asks&&data.bids||[],asks=data.a||data.asks||[];
   const clean=levels=>(Array.isArray(levels)?levels:[]).slice(0,100).map(x=>[n(x[0]??x.price),n(x[1]??x.size??x.qty)]).filter(x=>x[0]>0&&x[1]>=0);
   const bid=clean(bids),ask=clean(asks),bestBid=bid.length?Math.max(...bid.map(x=>x[0])):null,bestAsk=ask.length?Math.min(...ask.map(x=>x[0])):null;
-  if(bid.length||ask.length)push(data.ts||data.timestamp||payload.ts||receivedAt,'', {bids:bid,asks:ask,bestBid,bestAsk,spread:bestBid&&bestAsk?bestAsk-bestBid:null,midPrice:bestBid&&bestAsk?(bestBid+bestAsk)/2:null,depth:bid.length+ask.length},{validLevels:true,crossed:!!(bestBid&&bestAsk&&bestBid>=bestAsk)});
+  if(bid.length||ask.length){const bidQty=bid.reduce((s,x)=>s+x[1],0),askQty=ask.reduce((s,x)=>s+x[1],0),bidNotional=bid.reduce((s,x)=>s+x[0]*x[1],0),askNotional=ask.reduce((s,x)=>s+x[0]*x[1],0),spread=bestBid&&bestAsk?bestAsk-bestBid:null,midPrice=bestBid&&bestAsk?(bestBid+bestAsk)/2:null;push(data.ts||data.timestamp||payload.ts||receivedAt,'',{bids:bid,asks:ask,bestBid,bestAsk,spread,midPrice,spreadBps:spread!==null&&midPrice>0?spread/midPrice*10000:null,bidQty,askQty,bidNotional,askNotional,depth:bid.length+ask.length,depthImbalance:bidQty+askQty?(bidQty-askQty)/(bidQty+askQty):null,notionalImbalance:bidNotional+askNotional?(bidNotional-askNotional)/(bidNotional+askNotional):null},{validLevels:true,crossed:!!(bestBid&&bestAsk&&bestBid>=bestAsk)});}
  }else{
   for(const row of rowsOf(payload)){
    let id,time,data;
@@ -86,6 +86,21 @@ export function normalizeMicrostructurePayload({exchange,symbol,marketType,kind,
  return out;
 }
 export function microstructureObservationKey(row){return [row.exchange,row.marketType,row.symbol,row.kind,row.eventId].map(x=>encodeURIComponent(String(x??''))).join('|');}
+
+export function summarizeMicrostructureObservations(observations=[]){
+ const books=new Map(),trades=new Map(),funding=new Map(),interest=new Map(),liquidations=new Map();
+ const key=row=>row.exchange+'|'+row.marketType+'|'+row.symbol;
+ for(const row of observations){
+  const k=key(row),p=row.payload||{};
+  if(row.kind==='orderbook')books.set(k,{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,observedAt:row.observedAt,bestBid:p.bestBid,bestAsk:p.bestAsk,spreadBps:p.spreadBps,depthImbalance:p.depthImbalance,notionalImbalance:p.notionalImbalance,crossed:!!row.quality?.crossed});
+  if(row.kind==='trade'){const x=trades.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,trades:0,buyVolume:0,sellVolume:0,buyNotional:0,sellNotional:0};const qty=Number(p.quantity)||0,notional=Number(p.quoteQuantity)||Number(p.price)*qty;x.trades++;if(p.side==='buy'){x.buyVolume+=qty;x.buyNotional+=notional;}else if(p.side==='sell'){x.sellVolume+=qty;x.sellNotional+=notional;}trades.set(k,x);}
+  if(row.kind==='funding'){const x=funding.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,rates:[]};if(Number.isFinite(Number(p.rate)))x.rates.push(Number(p.rate));funding.set(k,x);}
+  if(row.kind==='open_interest')interest.set(k,{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,openInterest:p.openInterest,observedAt:row.observedAt});
+  if(row.kind==='liquidation'){const x=liquidations.get(k)||{exchange:row.exchange,marketType:row.marketType,symbol:row.symbol,events:0,longNotional:0,shortNotional:0};x.events++;if(p.side==='sell')x.longNotional+=Number(p.notional)||0;else if(p.side==='buy')x.shortNotional+=Number(p.notional)||0;liquidations.set(k,x);}
+ }
+ return {orderBooks:[...books.values()],tradeFlow:[...trades.values()].map(x=>({...x,netAggressorNotional:x.buyNotional-x.sellNotional,imbalance:x.buyNotional+x.sellNotional?(x.buyNotional-x.sellNotional)/(x.buyNotional+x.sellNotional):null})),funding:[...funding.values()].map(x=>({...x,meanRate:x.rates.length?x.rates.reduce((a,b)=>a+b,0)/x.rates.length:null,samples:x.rates.length})),openInterest:[...interest.values()],liquidations:[...liquidations.values()]};
+}
+
 export function summarizeMicrostructureCoverage(results=[]){
  const supported=results.filter(x=>x.status==='stored'||x.status==='empty').length;
  return {requested:results.length,supported,unsupported:results.filter(x=>x.status==='unsupported').length,failed:results.filter(x=>x.status==='failed').length,observations:results.reduce((n,x)=>n+(x.count||0),0),results};
