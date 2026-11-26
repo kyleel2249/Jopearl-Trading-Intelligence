@@ -1,6 +1,6 @@
 import {
  normalizeMicrostructurePlan, buildMicrostructureUrl, normalizeMicrostructurePayload,
- microstructureObservationKey, summarizeMicrostructureCoverage
+ microstructureObservationKey, summarizeMicrostructureCoverage, summarizeMicrostructureObservations
 } from '../../src/microstructure-replication-engine.js';
 import { verifyPrivateToken } from '../private-auth.js';
 
@@ -95,7 +95,7 @@ export function createMicrostructureReplicationHandler({fetchImpl=fetch,now=()=>
   let inserted=0,writeError=null;
   try{inserted=await save(env.JPTI_DB,observations);}catch(error){writeError=String(error?.message||error).slice(0,180);}
   const finishedAt=now().toISOString(),coverage=summarizeMicrostructureCoverage(results);
-  const summary={runId,startedAt,finishedAt,durationMs:Math.max(0,Date.parse(finishedAt)-Date.parse(startedAt)),status:writeError?'failed':coverage.failed?(inserted?'partial':'failed'):coverage.unsupported||omitted?'partial':coverage.observations?'completed':'partial',plan,requestedTasks:tasks.length,processedTasks:selected.length,omittedTasks:omitted,inserted,duplicates:Math.max(0,coverage.observations-inserted),coverage,writeError};
+  const summary={runId,startedAt,finishedAt,durationMs:Math.max(0,Date.parse(finishedAt)-Date.parse(startedAt)),status:writeError?'failed':coverage.failed?(inserted?'partial':'failed'):coverage.unsupported||omitted?'partial':coverage.observations?'completed':'partial',plan,requestedTasks:tasks.length,processedTasks:selected.length,omittedTasks:omitted,inserted,duplicates:Math.max(0,coverage.observations-inserted),coverage,analytics:summarizeMicrostructureObservations(observations),writeError};
   try{await env.JPTI_DB.prepare('UPDATE jpti_microstructure_runs SET status=?,finished_at=?,duration_ms=?,summary_json=? WHERE run_id=?').bind(summary.status,finishedAt,summary.durationMs,JSON.stringify(summary),runId).run();}
   catch(error){return json(503,{error:'Collected observations but failed to finalize run metadata.',runId,detail:String(error?.message||error).slice(0,150),summary});}
   return json(summary.status==='failed'?502:200,{...summary,storage:'cloudflare-d1',publicDataOnly:true,liveExecutionAuthorized:false});
