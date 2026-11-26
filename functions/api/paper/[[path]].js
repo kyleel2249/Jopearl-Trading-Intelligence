@@ -3,7 +3,7 @@ import { evaluateRiskGate, adaptivePositionSize, updateDynamicStop, buildPartial
 import { verifyPrivateToken } from '../../private-auth.js';
 import { evaluateTradingWindow } from '../../../src/lib/trading-calendar.js';
 import { loadPromotionEvidence } from '../../../src/strategy-validation-engine.js';
-import { evaluateAgentSafety } from '../../../src/lib/agent-safety-supervisor.js';
+import { evaluateAgentSafety, arbitrateAgentIntents } from '../../../src/lib/agent-safety-supervisor.js';
 
 const headers={'content-type':'application/json; charset=utf-8','cache-control':'no-store','x-content-type-options':'nosniff','x-jpti-runtime':'cloudflare-pages-paper'};
 const response=(status,body)=>new Response(JSON.stringify(body),{status,headers});
@@ -160,7 +160,17 @@ export async function runCycle(db,symbol,options={},env={}){
  report.fleetSafety=fleetSafety;
  report.agentSafety=[];
  for(const row of openRows.results||[]){const count=num(row.count);exposure.total+=count;exposure.bySymbol.set(row.symbol,(exposure.bySymbol.get(row.symbol)||0)+count);exposure.byDirection.set(row.direction,(exposure.byDirection.get(row.direction)||0)+count);}
- for(const agent of await loadAgents(db)){
+ const fleetAgents=await loadAgents(db);
+ const intentTicker=liveMarketContext.ticker?.bid>0&&liveMarketContext.ticker?.ask>0?{...market.ticker,...liveMarketContext.ticker}:market.ticker;
+ const intentCandidates=fleetAgents.filter(agent=>agent.status==='active'||agent.status==='live_ready').map(agent=>{
+  const signal=derivePaperSignal(market.candles,intentTicker,agent.strategyId||agent.id,{timeframes:market.timeframes,marketData:liveMarketContext});
+  return signal.action==='SIGNAL'?{agentId:agent.id,symbol:market.symbol,direction:signal.direction,confidence:Number(signal.confidence)||.65,score:Number(signal.score)||0}:null;
+ }).filter(Boolean);
+ const intentArbitration=arbitrateAgentIntents(intentCandidates);
+ const approvedIntentAgentIds=new Set(intentArbitration.accepted.map(x=>x.agentId));
+ const collisionSymbols=new Set(intentArbitration.collisions.map(x=>x.symbol));
+ report.intentArbitration={...intentArbitration,accepted:intentArbitration.accepted.map(x=>({agentId:x.agentId,symbol:x.symbol,direction:x.direction,confidence:x.confidence})),rejected:intentArbitration.rejected.map(x=>({agentId:x.intent.agentId,symbol:x.intent.symbol,direction:x.intent.direction,reason:x.reason}))};
+ for(const agent of fleetAgents){
   if(agent.status!=='active'&&agent.status!=='live_ready')continue;
   const rows=await allTrades(db,agent.id),trades=rows.map(toTrade);
   const open=trades.find(t=>t.status==='open'&&t.symbol===market.symbol);
@@ -240,6 +250,9 @@ export async function runCycle(db,symbol,options={},env={}){
    circuitBreaker:fleetSafety.circuitBreaker||independentPolicy.circuitBreaker===true,
    quarantined,sessionAllowed:tradingWindow.eligible,
    strategySuspended:agent.tier==='SUSPENDED'||validationEvidence.verdict?.status==='SUSPENDED',
+   duplicateIntent:signal.action==='SIGNAL'&&!approvedIntentAgentIds.has(agent.id),
+   oppositeIntentCollision:collisionSymbols.has(market.symbol),
+   bookValid:liveMarketContext.bookValid===false?false:undefined,
    riskViolations:metrics.riskBreaches
   });
   report.agentSafety.push({agentId:agent.id,...safetyDecision});
@@ -247,6 +260,11 @@ export async function runCycle(db,symbol,options={},env={}){
    const evaluatedAt=iso(),quarantinedUntil=safetyDecision.quarantine?new Date(Date.now()+24*60*60*1000).toISOString():null;
    await db.prepare("INSERT INTO jpti_agent_safety_state(agent_id,status,health_score,trust_score,reasons_json,quarantined_until,last_evaluated_at,updated_at) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(agent_id) DO UPDATE SET status=excluded.status,health_score=excluded.health_score,trust_score=excluded.trust_score,reasons_json=excluded.reasons_json,quarantined_until=excluded.quarantined_until,last_evaluated_at=excluded.last_evaluated_at,updated_at=excluded.updated_at")
     .bind(agent.id,safetyDecision.status,safetyDecision.health.score,safetyDecision.trustScore,JSON.stringify(safetyDecision.reasons),quarantinedUntil,evaluatedAt,evaluatedAt).run();
+   if(safetyDecision.quarantine){
+    const incidentId=agent.id+':safety-quarantine:'+evaluatedAt.slice(0,10);
+    await db.prepare("INSERT OR IGNORE INTO jpti_agent_safety_incidents(incident_id,agent_id,incident_type,severity,summary,evidence_json,status,detected_at) VALUES(?,?,'agent-quarantine','high',?,?,'open',?)")
+     .bind(incidentId,agent.id,'Agent isolated by the safety supervisor.',JSON.stringify({reasons:safetyDecision.reasons,health:safetyDecision.health}),evaluatedAt).run();
+   }
   }catch{/* The supervisor remains active in-process when a local DB has not applied migration 0018. */}
   const capitalHaltReasons=[];let capitalRiskMultiplier=1;
   if(metrics.riskBreaches>0)capitalHaltReasons.push('risk breach recorded');
