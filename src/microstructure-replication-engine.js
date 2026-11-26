@@ -11,7 +11,7 @@ export function normalizeMicrostructurePlan(input={}){
  const marketType=String(input.marketType||'spot').toLowerCase();
  if(!exchanges.length||!symbols.length||!kinds.length)throw Object.assign(new Error('Select at least one supported exchange, symbol and observation kind.'),{status:400});
  if(!['spot','usdt-m','coin-m','usdc-m'].includes(marketType))throw Object.assign(new Error('marketType must be spot, usdt-m, coin-m or usdc-m.'),{status:400});
- return {exchanges,symbols,kinds,marketType,depthLimit:Math.max(5,Math.min(100,Number(input.depthLimit)||20)),tradeLimit:Math.max(10,Math.min(100,Number(input.tradeLimit)||50)),maxRequests:Math.max(1,Math.min(24,Number(input.maxRequests)||18))};
+ return {exchanges,symbols,kinds,marketType,depthLimit:Math.max(5,Math.min(100,Number(input.depthLimit)||20)),tradeLimit:Math.max(10,Math.min(100,Number(input.tradeLimit)||50)),maxRequests:Math.max(1,Math.min(24,Number(input.maxRequests)||24))};
 }
 export function buildMicrostructureUrl(exchange,symbol,kind,marketType='spot',limit=50){
  const [pair]=symbol.split(':');const [base,quote]=pair.split('/');
