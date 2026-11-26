@@ -54,11 +54,11 @@ The workflow also automatically syncs allowlisted `JPTI_ALERT_*`, `JPTI_CORS_*`,
 ## What the workflow does
 
 1. Reads GitHub Actions Variables and the optional JSON configuration maps.
-2. Creates a temporary Wrangler configuration by copying the existing root `wrangler.toml` and appending a `[vars]` table. Existing D1, KV and AI bindings remain intact.
+2. Creates a temporary Wrangler configuration by copying the existing root `wrangler.toml` and appending a `[vars]` table. Existing D1, KV and AI bindings remain intact. The workflow activates that generated file as the root `wrangler.toml` inside the ephemeral GitHub runner because Cloudflare Pages rejects custom Wrangler config paths.
 3. Writes `VITE_*` values to an ignored `.env.production.local` file for the browser build.
 4. Builds and tests JPTI.
 5. Uploads encrypted Pages secrets with `wrangler pages secret bulk`.
-6. Deploys Pages using the generated Wrangler configuration, syncing runtime variables to production and preview.
+6. Deploys Pages using the root Wrangler configuration, syncing runtime variables to production and preview. The deploy command intentionally omits `--config`; Pages requires its default root config path.
 7. Continues the existing D1 migration, scheduler deployment and live Bitget verification steps.
 
 The sync is additive/update-only: supplied keys are created or updated; keys omitted from GitHub are not deleted. This prevents an empty or partial GitHub configuration from wiping existing production settings. Remove obsolete keys explicitly in Cloudflare after reviewing their usage.
