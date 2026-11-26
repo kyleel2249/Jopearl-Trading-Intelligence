@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateTradingWindow } from '../src/lib/trading-calendar.js';
+import { evaluateTradingWindow } from './trading-calendar.js';
 
 test('weekday major-session windows permit entries subject to downstream quality and risk gates', () => {
   const result = evaluateTradingWindow(Date.parse('2026-11-23T12:00:00.000Z'));
