@@ -51,3 +51,11 @@ test('rolling-window coverage cannot be fabricated from a top-level ROI fallback
   assert.equal(result.eligible,false);
   assert.ok(result.failedGates.includes('insufficient_window_coverage'));
 });
+
+test('impossible performance metric ranges are rejected instead of rewarded',()=>{
+  const result=assessEliteTrader(candidate({windows:{'7d':{roiPct:2},'30d':{roiPct:8},'90d':{roiPct:18,winRatePct:145,maxDrawdownPct:-4,copierPnlUsd:1800,sharpe:1.8,sortino:2.1,calmar:1.6},'180d':{roiPct:28}}}),now);
+  assert.equal(result.eligible,false);
+  assert.ok(result.invalidMetrics.includes('winRatePct'));
+  assert.ok(result.invalidMetrics.includes('maxDrawdownPct'));
+  assert.ok(result.failedGates.includes('invalid_metric_ranges'));
+});
