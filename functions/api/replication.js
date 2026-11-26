@@ -18,6 +18,11 @@ async function readJson(request) {
   catch { return { error: 'A valid JSON request body is required.', status: 400 }; }
 }
 
+async function safeProviderRequest(provider, path) {
+  try { return await provider.request(path, { method: 'GET' }); }
+  catch (error) { return { status: 502, body: { error: String(error?.message || error).slice(0, 220) } }; }
+}
+
 async function mapLimit(items, limit, worker) {
   const results = new Array(items.length);
   let cursor = 0;
@@ -139,7 +144,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
     await mapLimit(tasks, 3, async ({ exchange, marketType }) => {
       counts.attempted++;
       const marketPath = '/api/exchanges/' + exchange + '/markets?type=' + encodeURIComponent(marketType);
-      const marketResult = await provider.request(marketPath, { method: 'GET' });
+      const marketResult = await safeProviderRequest(provider, marketPath);
       if (!marketResult || marketResult.status !== 200) {
         errors.push({ exchange, marketType, stage: 'markets', error: marketResult?.body?.error || 'Market catalogue unavailable.' });
         return;
@@ -152,7 +157,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
         const symbol = String(market.symbol);
         const query = '?type=' + encodeURIComponent(marketType);
         counts.attempted++;
-        const tickerResult = await provider.request('/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(symbol) + query, { method: 'GET' });
+        const tickerResult = await safeProviderRequest(provider, '/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(symbol) + query);
         if (tickerResult?.status === 200) {
           const ticker = normalizeTickerObservation({ exchange, marketType, symbol, ticker: tickerResult.body, receivedAt: now().getTime() });
           if (ticker) { observations.push(ticker); counts.valid++; counts.tickers++; counts.succeeded++; }
@@ -163,7 +168,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
         await mapLimit(plan.timeframes, 2, async timeframe => {
           counts.attempted++;
           const candlePath = '/api/exchanges/' + exchange + '/ohlcv/' + encodeURIComponent(symbol) + '?type=' + encodeURIComponent(marketType) + '&timeframe=' + encodeURIComponent(timeframe) + '&limit=' + plan.candleLimit;
-          const candleResult = await provider.request(candlePath, { method: 'GET' });
+          const candleResult = await safeProviderRequest(provider, candlePath);
           if (candleResult?.status !== 200) {
             errors.push({ exchange, marketType, symbol, timeframe, stage: 'ohlcv', error: candleResult?.body?.error || 'OHLCV unavailable.' });
             return;
