@@ -38,6 +38,7 @@ export function evaluateAgentSafety(input={},policy={}){
   const trust=clamp(number(input.trustScore,0)),age=number(input.dataAgeMs);
   const events=detectAgentAnomalies(input.anomalies),reasons=[];
   const add=(code,message)=>reasons.push({code,message});
+  if(input.safetyStorageReady===false)add('SAFETY_STORAGE_UNAVAILABLE','Persistent fleet safety state is unavailable; new entries are disabled.');
   if(input.killSwitch===true)add('GLOBAL_KILL_SWITCH','Global operator kill switch is active.');
   if(input.circuitBreaker===true)add('FLEET_CIRCUIT_BREAKER','Fleet circuit breaker is tripped.');
   if(input.quarantined===true)add('AGENT_QUARANTINED','Agent is in quarantine and cannot open new risk.');
