@@ -20,8 +20,8 @@ function makeDb() {
         bind(...args) { this.args = args; return this; },
         async run() {
           if (sql.startsWith('INSERT INTO jpti_market_replication_runs')) {
-            const [runId, status, startedAt, plan, counts, errors] = this.args;
-            runs.set(runId, { run_id: runId, status, started_at: startedAt, plan_json: plan, counts_json: counts, errors_json: errors });
+            const [runId, startedAt, plan, counts, errors] = this.args;
+            runs.set(runId, { run_id: runId, status: 'running', started_at: startedAt, plan_json: plan, counts_json: counts, errors_json: errors });
           } else if (sql.startsWith('UPDATE jpti_market_replication_runs')) {
             const [status, finishedAt, duration, counts, errors, runId] = this.args;
             Object.assign(runs.get(runId), { status, finished_at: finishedAt, duration_ms: duration, counts_json: counts, errors_json: errors });
