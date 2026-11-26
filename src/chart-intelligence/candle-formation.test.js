@@ -12,6 +12,12 @@ test('CFIE identifies bullish hammer, bearish shooting star and engulfing patter
  assert.ok(analyzeCandleFormation(engulf).patterns.some(x=>x.kind==='BULLISH_ENGULFING'));
  const bear=flat();bear[30]=[30*H,100,104,99.8,100.2,250];assert.ok(analyzeCandleFormation(bear).patterns.some(x=>x.kind==='SHOOTING_STAR'));
 });
+test('CFIE detects morning-star and evening-star three-candle sequences',()=>{
+ const morning=flat();morning[30]=[30*H,100,100.2,97.8,98,100];morning[31]=[31*H,98,98.2,97.8,98,100];morning[32]=[32*H,98,101.2,97.9,101,180];
+ assert.ok(analyzeCandleFormation(morning).patterns.some(x=>x.kind==='MORNING_STAR'));
+ const evening=flat();evening[30]=[30*H,98,100.2,97.8,100,100];evening[31]=[31*H,100,100.2,99.8,100,100];evening[32]=[32*H,100,100.1,96.8,97,180];
+ assert.ok(analyzeCandleFormation(evening).patterns.some(x=>x.kind==='EVENING_STAR'));
+});
 test('CFIE computes bounded candle DNA, pressure, rejection and heuristic bias',()=>{
  const rows=flat();rows[30]=[30*H,100,101,98,100.8,500];
  const r=analyzeCandleFormation(rows);
