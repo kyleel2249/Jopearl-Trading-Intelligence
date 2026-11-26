@@ -28,3 +28,13 @@ test('scheduled department worker uses the persistent organization pulse', async
   assert.match(config, /binding = "JPTI_DB"/);
   assert.match(config, /binding = "AI"/);
 });
+
+test('department workspace turns private API authorization failures into a direct settings recovery path', async () => {
+  const source = await readFile(new URL('../src/AutonomousDepartments.jsx', import.meta.url), 'utf8');
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(source, /result\.status === 401/);
+  assert.match(source, /this browser session did not present a matching token/);
+  assert.match(source, /onOpenSettings/);
+  assert.match(source, /Open Connection Settings/);
+  assert.match(app, /<AutonomousDepartments onOpenSettings=\{\(\) => activeNav\('Connection Settings'\)\}\/>/);
+});
