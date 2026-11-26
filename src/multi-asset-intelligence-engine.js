@@ -114,7 +114,8 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  const missing=['price','spreadBps','volatilityPct','liquidityUsd'].filter(k=>!finite(e[k]));
  const stale=ageMs===null||ageMs< -5000||ageMs>maxAgeMs;
  const session=isWeekdaySession(now,instrument.assetClass,e.sessionOpen);
- const smcCandles=Array.isArray(input.candles)?input.candles:null;
+ const allCandles=Array.isArray(input.candles)?input.candles:null;
+ const smcCandles=allCandles?allCandles.slice(0,-1):null;
  const smcEngine=smcCandles?analyzeSMC(smcCandles):null;
  const smc=evaluateSMCSetup({...e,
   marketStructure:e.marketStructure||(smcEngine?.bias==='bullish'?'bullish':smcEngine?.bias==='bearish'?'bearish':undefined),
@@ -124,13 +125,13 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
  });
  const agentFleet=runAgentFleet({symbol:instrument.symbol,evidence:e},now);
  const specialists=evaluateSpecialistSquads(e);
- const regime=smcCandles?classifyMarketRegime(smcCandles):null;
+ const regime=allCandles?classifyMarketRegime(allCandles):null;
  const debateSnapshot={status:'ready',domains:{structure:{bias:smcEngine?.bias||e.marketStructure||'neutral'},regime:{label:regime?.regime||'unclassified'},liquidity:{sweepLow:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bullish'),sweepHigh:smcEngine?.events?.some(x=>x.type==='LIQUIDITY_SWEEP'&&x.direction==='bearish')},flow:{relativeVolume:e.relativeVolume}},scores:{directionalBias:smcEngine?.bias||e.marketStructure||'neutral'},evidence:[
   ...(finite(e.momentumPct)?[{domain:'Momentum',score:clamp(50+Number(e.momentumPct)*10,0,100)}]:[]),
   ...(finite(e.relativeVolume)?[{domain:'Flow proxy',score:clamp(50+(Number(e.relativeVolume)-1)*20,0,100)}]:[])
  ],conflicts:[]};
  const debate=runAgentDebate(debateSnapshot,{dataQuality:{stale},orderBookAnalysis:{imbalancePct:finite(e.orderBookImbalance)?Number(e.orderBookImbalance)*100:null}});
- const riskGate=input.riskContext?evaluateRiskGate({...input.riskContext,dataFresh:!stale,dataAgeMs:ageMs,spreadPercent:finite(e.spreadBps)?Number(e.spreadBps)/100:null,confidence}):null;
+ const riskGate=input.riskContext?evaluateRiskGate({...input.riskContext,dataFresh:!stale,dataAgeMs:ageMs,spreadPercent:finite(e.spreadBps)?Number(e.spreadBps)/100:null,confidence},input.riskPolicy||{}):null;
  const directional=[
   finite(e.momentumPct)?clamp(Number(e.momentumPct)/2,-1,1)*.16:0,
   finite(e.timeframeAlignment)?clamp(e.timeframeAlignment,-1,1)*.18:0,
@@ -166,7 +167,7 @@ export function evaluateMultiAssetOpportunity(input={},policy={}) {
   action:eligible?'PAPER_CANDIDATE':'ABSTAIN',executionPermission:'none',
   rationale:eligible?'Evidence passed the configured research gates. Candidate is eligible for paper simulation only.':'At least one data, session, strategy or risk gate failed; no order intent was created.'};
 }
-function cryptoId(){return 'ma3-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9);}
+function cryptoId(){return globalThis.crypto?.randomUUID?.()||('ma3-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,9));}
 export function allocateAdaptiveCapital(candidates=[],portfolio={},policy={}) {
  const equity=Math.max(0,Number(portfolio.equityUsd)||0),maxRiskPct=clamp(policy.maxRiskPct??.25,.01,1),maxPortfolioRiskPct=clamp(policy.maxPortfolioRiskPct??1,.05,3);
  const drawdown=clamp(portfolio.drawdownPct||0,0,100),lossStreak=Math.max(0,Number(portfolio.lossStreak)||0);

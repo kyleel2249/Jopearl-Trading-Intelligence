@@ -19,7 +19,7 @@ Provider adapters must implement canonical instruments, venue calendars, event t
 ## Strategy and agent intelligence
 The shared catalogue covers SMC market structure (BOS/CHOCH), liquidity sweeps, fair-value gaps, displacement/mitigation, premium/discount, order-flow imbalance, session/opening-range, trend/momentum and cross-market relative value. Evidence is passed explicitly. Missing, stale, unverified or unordered evidence must result in abstention. Strategy labels alone do not create a signal.
 
-The named specialist squad evaluations are deterministic, explainable rule modules. The existing agent fleet, SMC engine, market-regime/risk-gate engine and multi-agent debate engine are invoked as shared components; they do not represent fifteen separately trained foundation models.
+The named specialist squad evaluations are deterministic, explainable rule modules. The existing agent fleet, SMC engine, market-regime/risk-gate engine and multi-agent debate engine are invoked as shared components; they do not represent fifteen separately trained foundation models. The existing crypto futures paper scheduler now runs this specialist evaluation after position sizing and requires both the existing independent risk gate and the new multi-asset gate to pass before opening a new paper position. It records specialist assessments and abstains when the live order book, event-time freshness, spread, liquidity, SMC context or portfolio risk inputs are insufficient.
 
 ## Autonomous Trading Intelligence 3.0 capabilities
 - D1 cursor checkpoint table supports resumable provider backfills. A provider worker must persist a cursor only after a page is durably committed.
@@ -32,7 +32,7 @@ The named specialist squad evaluations are deterministic, explainable rule modul
 ## API
 All endpoints require the configured JPTI private API token and D1 migration 0019:
 - `GET /api/multi-asset`: module, squad and persisted-state overview.
-- `POST /api/multi-asset` with `action=evaluate`: evaluate and persist timestamped evidence. Client-submitted fixtures are forcibly marked unverified and cannot qualify for a paper candidate.
+- `POST /api/multi-asset` with `action=evaluate`: evaluate and persist timestamped evidence. Client-submitted fixtures are forcibly marked unverified and cannot qualify for a paper candidate. The scheduler derives evidence from its live market and portfolio context rather than accepting these manual fixture values.
 - `action=backfill-stream-history`: page retained crypto Durable Object events into D1 with a cursor advanced only after each D1 batch commits.
 - `action=backfill-checkpoint`: upsert a provider/asset/symbol cursor after a successful ingest page.
 - `action=allocate`: persist a paper risk allocation.
