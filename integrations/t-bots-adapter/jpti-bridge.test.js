@@ -55,3 +55,34 @@ test('fresh shared risk snapshots are accepted without weakening an active pause
   assert.equal(risk.newEntriesAllowed,false);
   assert.deepEqual(risk.pauseReasons,['global_kill_switch']);
 });
+
+test('T-Bots fails closed until the shared historical validation gate qualifies its strategy', async () => {
+  const calls=[];
+  const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url,options)=>{
+    calls.push(url);
+    return {ok:true,json:async()=>({paperTrialEligible:false,assessment:{failedChecks:['backtest_sample']}})};
+  }});
+  bridge.setToken('local-test-token');
+  const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair',securityPassed:true});
+  assert.equal(result.allowed,false);
+  assert.match(result.reasons[0],/historical validation/i);
+  assert.equal(calls.length,1);
+  assert.match(calls[0],/validation\/latest/);
+});
+
+test('T-Bots proceeds to the existing independent entry preflight only after historical qualification', async () => {
+  const calls=[];
+  const bridge=new JptiBridge({storage:fakeStorage(),fetchImpl:async(url,options)=>{
+    calls.push(url);
+    const body=url.includes('/validation/latest/')
+      ? {paperTrialEligible:true}
+      : {allowed:true,maxEntrySizePct:0.5,reasons:[]};
+    return {ok:true,json:async()=>body};
+  }});
+  bridge.setToken('local-test-token');
+  const result=await bridge.preflightEntry({token:{id:'x',symbol:'X'},profileId:'meme_new_pair',securityPassed:true});
+  assert.equal(result.allowed,true);
+  assert.equal(calls.length,2);
+  assert.match(calls[0],/validation\/latest/);
+  assert.match(calls[1],/entry-preflight/);
+});
