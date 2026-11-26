@@ -111,17 +111,6 @@ export class JptiBridge {
   }
   async preflightEntry({ token, profileId = 'meme_new_pair', securityPassed = false } = {}) {
     if (!this.enabled) return { allowed:false, reasons:['JPTI bridge is not configured'] };
-    // The global operator switch is checked on every entry; cached risk approval is never enough.
-    try {
-      const safety = await this._request('/paper/safety');
-      const global = safety?.global;
-      if (safety?.available !== true || !global) return { allowed:false, reasons:['JPTI fleet safety state unavailable; bot entry fails closed.'], exitsRemainEnabled:true };
-      if (global.killSwitch === true || global.circuitBreaker === true || global.status === 'TRIPPED')
-        return { allowed:false, reasons:['JPTI global kill switch or fleet circuit breaker is active.'], exitsRemainEnabled:true };
-    } catch (error) {
-      this.lastSafetyError = error.message;
-      return { allowed:false, reasons:['JPTI fleet safety check failed; bot entry fails closed.', error.message], exitsRemainEnabled:true };
-    }
     // Historical qualification is required before a live-market forward paper trial.
     // The forward paper results are subsequently assessed by the same control plane.
     try {
@@ -133,6 +122,17 @@ export class JptiBridge {
     } catch (error) {
       this.lastValidationError = error.message;
       return { allowed:false, reasons:['JPTI strategy validation unavailable; bot entry fails closed.', error.message] };
+    }
+    // The global operator switch is checked on every qualified entry; cached approval is never enough.
+    try {
+      const safety = await this._request('/paper/safety');
+      const global = safety?.global;
+      if (safety?.available !== true || !global) return { allowed:false, reasons:['JPTI fleet safety state unavailable; bot entry fails fail-closed.'], exitsRemainEnabled:true };
+      if (global.killSwitch === true || global.circuitBreaker === true || global.status === 'TRIPPED')
+        return { allowed:false, reasons:['JPTI global kill switch or fleet circuit breaker is active.'], exitsRemainEnabled:true };
+    } catch (error) {
+      this.lastSafetyError = error.message;
+      return { allowed:false, reasons:['JPTI fleet safety check failed; bot entry fails fail-closed.', error.message], exitsRemainEnabled:true };
     }
     // Always consult the authoritative JPTI gate for every new entry.
     // Cached approvals could outlive a newly engaged kill switch or risk pause.
