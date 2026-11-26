@@ -21,11 +21,11 @@ function scores(m){
  };
 }
 function classify(m){
- const raw=scores(m),max=Math.max(...Object.values(raw)),exp=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,Math.exp((v-max)*4)])),sum=Object.values(exp).reduce((a,b)=>a+b,0),prob=Object.fromEntries(Object.entries(exp).map(([k,v])=>[k,v/sum]));
+ const raw=Object.fromEntries(Object.entries(scores(m)).map(([k,v])=>[k,Number.isFinite(v)?v:0])),max=Math.max(...Object.values(raw)),exp=Object.fromEntries(Object.entries(raw).map(([k,v])=>[k,Math.exp((v-max)*4)])),sum=Object.values(exp).reduce((a,b)=>a+b,0)||1,prob=Object.fromEntries(Object.entries(exp).map(([k,v])=>[k,v/sum]));
  const rank=Object.entries(prob).sort((a,b)=>b[1]-a[1]),top=rank[0],runner=rank[1],gap=top[1]-runner[1];
  let state=top[0];if(top[1]<.43||gap<.07)state='transitional';if(state==='trending-up'&&m.slopeAtr<=0||state==='trending-down'&&m.slopeAtr>=0)state='transitional';
  const bias=clamp(prob['trending-up']-prob['trending-down']+m.emaStack*.12,-1,1),entropy=-Object.values(prob).reduce((s,p)=>s+(p? p*Math.log(p):0),0)/Math.log(5);
- return{state,confidence:r(top[1]),probabilities:Object.fromEntries(Object.entries(prob).map(([k,v])=>[k,r(v)])),directionalBias:r(bias),runnerUp:{state:runner[0],probability:r(runner[1])},transitionRisk:r(clamp(entropy*.55+(1-gap)*.45))};
+ return{state,confidence:r(top[1]),probabilities:prob,directionalBias:r(bias),runnerUp:{state:runner[0],probability:r(runner[1])},transitionRisk:r(clamp(entropy*.55+(1-gap)*.45))};
 }
 export function analyzeMarketRegime(input,{atrSeries=null,higherTimeframes=[],now=Date.now(),includeTimeframes=true}={}){
  const rows=(Array.isArray(input)?input:[]).filter(c=>Array.isArray(c)&&c.length>=6&&c.slice(0,6).every(Number.isFinite)&&c[2]>=c[3]&&c[4]>=c[3]&&c[4]<=c[2]);
