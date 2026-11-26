@@ -25,6 +25,13 @@ test('order-book normalizer calculates spread basis points and depth imbalance',
  const rows=normalizeMicrostructurePayload({exchange:'binance',symbol:'BTC/USDT',marketType:'spot',kind:'orderbook',payload:{bids:[['100','4'],['99','2']],asks:[['101','2'],['102','2']]},receivedAt:1795683601000});
  assert.equal(rows.length,1);assert.ok(rows[0].payload.spreadBps>0);assert.ok(rows[0].payload.depthImbalance>0);
 });
+test('open-interest analytics retains the newest source observation',()=>{
+ const summary=summarizeMicrostructureObservations([
+  {exchange:'bybit',marketType:'usdt-m',symbol:'BTC/USDT',kind:'open_interest',observedAt:'2026-11-26T09:00:00.000Z',payload:{openInterest:100}},
+  {exchange:'bybit',marketType:'usdt-m',symbol:'BTC/USDT',kind:'open_interest',observedAt:'2026-11-26T08:55:00.000Z',payload:{openInterest:90}}
+ ]);
+ assert.equal(summary.openInterest[0].openInterest,100);
+});
 test('microstructure analytics derives aggressive flow and liquidation exposure',()=>{
  const summary=summarizeMicrostructureObservations([
   {exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT',kind:'trade',observedAt:'2026-11-26T09:00:00.000Z',payload:{side:'buy',quantity:2,quoteQuantity:200}},
