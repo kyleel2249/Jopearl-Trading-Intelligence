@@ -377,6 +377,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         } };
       }
       case 'ticker': {
+        if (!DIRECT_EXCHANGES.includes(route.exchange)) throw new DirectError('Direct mode does not support ' + route.exchange + '.', 404);
         const marketType = normalizeBitgetMarketType(route.query.type || 'spot');
         const sym = parseSymbol(route.symbol);
         const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
@@ -384,15 +385,17 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
         if (route.exchange === 'bitget' && instrumentId) sym.instrumentId = instrumentId;
         sym.marketType = marketType;
+        const allowFailover = String(route.query.failover || 'true').toLowerCase() !== 'false' && !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER));
         const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || ''), CACHE_TTL.ticker, async () => {
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
-        }), signal, !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER)));
+        }), signal, allowFailover);
         const t = r.value;
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'ohlcv': {
+        if (!DIRECT_EXCHANGES.includes(route.exchange)) throw new DirectError('Direct mode does not support ' + route.exchange + '.', 404);
         const marketType = String(route.query.type || 'spot').toLowerCase();
         if (route.exchange === 'bitget' && marketType === 'cfd') throw new DirectError('Bitget CFD data must be requested through the authenticated Cloudflare Pages Function. Configure the Bitget read-only UTA secrets in Cloudflare.', 503);
         const sym = parseSymbol(route.symbol);
@@ -402,6 +405,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         sym.marketType = marketType;
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
+        const allowFailover = String(route.query.failover || 'true').toLowerCase() !== 'false' && !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER));
         const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || '') + ':' + timeframe + ':' + limit, CACHE_TTL.ohlcv, async () => {
           if (venue !== 'bitget') {
             const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
@@ -422,7 +426,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const rows = [...merged.values()].sort((a, b) => a[0] - b[0]);
           if (!rows.length) throw new DirectError('Bitget returned no historical candles for this market.', 404);
           return rows.slice(-limit);
-        }), signal, !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER)));
+        }), signal, allowFailover);
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timeframe, candles: r.value, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'markets': {
