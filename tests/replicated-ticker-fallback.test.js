@@ -133,3 +133,50 @@ test('Bitget ticker upstream 404 uses a matching durable D1 quote', async () => 
   assert.equal(body.exchange, 'bitget');
   assert.equal(body.stale, true);
 });
+
+
+test('replicated ticker fallback rejects crossed quotes, impossible ranges and negative volumes', async () => {
+  const invalidCases = [
+    { name: 'crossed bid and ask', overrides: { bid: 91002, ask: 91001 } },
+    { name: 'negative bid', overrides: { bid: -1 } },
+    { name: 'last above 24h high', overrides: { last: 93000 } },
+    { name: 'last below 24h low', overrides: { last: 89000 } },
+    { name: 'inverted high and low', overrides: { high: 89000, low: 90000 } },
+    { name: 'negative base volume', overrides: { baseVolume: -1 } },
+    { name: 'negative quote volume', overrides: { quoteVolume: -1 } },
+    { name: 'non-finite ask', overrides: { ask: 'not-a-price' } }
+  ];
+  for (const item of invalidCases) {
+    const handler = createPagesApiHandler({
+      marketProvider: { request: async () => ({ status: 502, body: { error: 'Bitget upstream unavailable' } }) },
+      now: () => new Date(NOW)
+    });
+    const receivedAt = new Date(NOW - 2 * 60 * 1000).toISOString();
+    const response = await handler({
+      request: new Request('https://jpti.example/api/exchanges/bitget/ticker/BTC-USDT?type=spot'),
+      env: makeEnv(makeObservation(receivedAt, item.overrides))
+    });
+    assert.equal(response.status, 502, item.name);
+    assert.equal((await response.json()).error, 'Bitget upstream unavailable', item.name);
+  }
+});
+
+test('replicated ticker fallback preserves null optional quote fields instead of converting them to zero', async () => {
+  const handler = createPagesApiHandler({
+    marketProvider: { request: async () => ({ status: 502, body: { error: 'Bitget upstream unavailable' } }) },
+    now: () => new Date(NOW)
+  });
+  const receivedAt = new Date(NOW - 2 * 60 * 1000).toISOString();
+  const observation = makeObservation(receivedAt, {
+    bid: null, ask: null, high: null, low: null, baseVolume: null, quoteVolume: null, changePct: null
+  });
+  const response = await handler({
+    request: new Request('https://jpti.example/api/exchanges/bitget/ticker/BTC-USDT?type=spot'),
+    env: makeEnv(observation)
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  for (const key of ['bid', 'ask', 'high', 'low', 'baseVolume', 'quoteVolume', 'percentage']) {
+    assert.equal(body[key], null, key);
+  }
+});
