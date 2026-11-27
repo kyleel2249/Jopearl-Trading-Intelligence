@@ -64,6 +64,7 @@ async function readMarketCache(env, routeKey) {
     const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
     const cached = await env.JPTI_KV.get(key, 'json');
     if (!cached || !Number.isInteger(cached.status) || !cached.body) return null;
+    if (!marketSnapshotMatchesRoute(routeKey, cached.body)) return null;
     return isFreshEntry(cached.cachedAt, marketCacheTtl(routeKey) * 1000) ? { ...cached, key } : null;
   } catch {
     return null;
@@ -84,6 +85,7 @@ async function persistMarketSnapshot(env, routeKey, body, occurredAt) {
 }
 
 async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
+  if (!marketSnapshotMatchesRoute(routeKey, body)) return;
   const ttl = marketCacheTtl(routeKey);
   if (env.JPTI_KV) {
     try {
@@ -100,6 +102,22 @@ async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
   await persistMarketSnapshot(env, routeKey, body, occurredAt);
 }
 
+function marketSnapshotMatchesRoute(routeKey, body) {
+  let route;
+  try { route = new URL(routeKey, 'https://jpti.invalid'); } catch { return false; }
+  const match = route.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/(markets|ticker\/([^/]+)|ohlcv\/([^/]+))$/i);
+  if (!match) return true;
+  const expectedExchange = match[1].toLowerCase();
+  if (String(body?.exchange || '').toLowerCase() !== expectedExchange) return false;
+  if (match[2] === 'markets') return true;
+  let rawSymbol;
+  try { rawSymbol = decodeURIComponent(match[3] || match[4] || ''); } catch { return false; }
+  const marketType = normalizeReplicatedMarketType(route.searchParams.get('type'));
+  const expectedSymbol = normalizeReplicatedMarketSymbol(rawSymbol, marketType);
+  const actualSymbol = normalizeReplicatedMarketSymbol(body?.symbol, marketType);
+  return Boolean(expectedSymbol && actualSymbol && expectedSymbol === actualSymbol);
+}
+
 async function readStoredMarketSnapshot(env, routeKey) {
   if (!env.JPTI_DB) return null;
   try {
@@ -108,6 +126,7 @@ async function readStoredMarketSnapshot(env, routeKey) {
     ).bind(routeKey).first();
     if (!row?.payload) return null;
     const body = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    if (!marketSnapshotMatchesRoute(routeKey, body)) return null;
     return { body, occurredAt: row.occurred_at || null };
   } catch {
     return null;
@@ -199,18 +218,37 @@ async function readReplicatedTicker(env, url, nowMs = Date.now()) {
     const observedAt = Date.parse(observation?.observedAt || row.observed_at || '');
     const last = Number(observation?.last);
     if (!(last > 0) || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)) return null;
+
+    const optionalNumber = value => value == null || value === '' ? null : Number(value);
+    const bid = optionalNumber(observation.bid);
+    const ask = optionalNumber(observation.ask);
+    const high = optionalNumber(observation.high);
+    const low = optionalNumber(observation.low);
+    const baseVolume = optionalNumber(observation.baseVolume);
+    const quoteVolume = optionalNumber(observation.quoteVolume);
+    const changePct = optionalNumber(observation.changePct);
+    const optionalValues = [bid, ask, high, low, baseVolume, quoteVolume, changePct];
+    if (optionalValues.some(value => value !== null && !Number.isFinite(value))) return null;
+    if ((bid !== null && bid <= 0) || (ask !== null && ask <= 0)) return null;
+    if (bid !== null && ask !== null && bid > ask) return null;
+    if ((high !== null && high <= 0) || (low !== null && low <= 0)) return null;
+    if (high !== null && low !== null && high < low) return null;
+    if (high !== null && last > high) return null;
+    if (low !== null && last < low) return null;
+    if ((baseVolume !== null && baseVolume < 0) || (quoteVolume !== null && quoteVolume < 0)) return null;
+
     const ageMs = nowMs - receivedAt;
     // A replicated ticker is useful as a short-lived outage bridge, not as an indefinite live quote.
     if (ageMs < -5000 || ageMs > 15 * 60 * 1000) return null;
     return {
       exchange, symbol, last,
-      bid: Number.isFinite(Number(observation.bid)) ? Number(observation.bid) : null,
-      ask: Number.isFinite(Number(observation.ask)) ? Number(observation.ask) : null,
-      high: Number.isFinite(Number(observation.high)) ? Number(observation.high) : null,
-      low: Number.isFinite(Number(observation.low)) ? Number(observation.low) : null,
-      baseVolume: Number.isFinite(Number(observation.baseVolume)) ? Number(observation.baseVolume) : null,
-      quoteVolume: Number.isFinite(Number(observation.quoteVolume)) ? Number(observation.quoteVolume) : null,
-      percentage: Number.isFinite(Number(observation.changePct)) ? Number(observation.changePct) : null,
+      bid,
+      ask,
+      high,
+      low,
+      baseVolume,
+      quoteVolume,
+      percentage: changePct,
       timestamp: observedAt,
       stale: true,
       lastUpdatedAt: new Date(observedAt).toISOString(),
