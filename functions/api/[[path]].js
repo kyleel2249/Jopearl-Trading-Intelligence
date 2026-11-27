@@ -148,7 +148,7 @@ async function readReplicatedCandles(env, url) {
 
 async function readReplicatedTicker(env, url, nowMs = Date.now()) {
   if (!env.JPTI_DB) return null;
-  const match = url.pathname.match(/^\\/api\\/exchanges\\/([a-z0-9_]+)\\/ticker\\/([^/]+)$/i);
+  const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/ticker\/([^/]+)$/i);
   if (!match) return null;
   let symbol;
   try {
