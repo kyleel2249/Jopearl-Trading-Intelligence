@@ -1,6 +1,5 @@
-import { DIRECT_EXCHANGES } from '../../../src/lib/browser-direct.js';
 import {
-  normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey
+  REPLICATION_EXCHANGES, normalizeTickerObservation, normalizeCandleObservations, replicationObservationKey
 } from '../../../src/market-replication-engine.js';
 import { verifyPrivateToken } from '../../private-auth.js';
 
@@ -96,7 +95,7 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
       const symbol = String(item.symbol || '').trim().toUpperCase();
       const sourceExchange = String(item.sourceExchange || '').trim().toLowerCase();
       const requestedExchange = String(item.requestedExchange || '').trim().toLowerCase();
-      if (!DIRECT_EXCHANGES.includes(exchange) || !MARKET_TYPES.has(marketType) || !SYMBOL_PATTERN.test(symbol)) {
+      if (!REPLICATION_EXCHANGES.includes(exchange) || !MARKET_TYPES.has(marketType) || !SYMBOL_PATTERN.test(symbol)) {
         errors.push({ stage: 'ingest-validation', error: 'Unsupported exchange, market type or symbol at item ' + index + '.', exchange, marketType, symbol });
         continue;
       }
