@@ -86,7 +86,7 @@ function normalizeRunnerObservations(rows, receivedAt) {
     if (!row || typeof row !== 'object' || Array.isArray(row)) { reject('Observation must be an object.'); continue; }
     const exchange = String(row.exchange || '').toLowerCase();
     const marketType = String(row.marketType || '').toLowerCase();
-    const symbol = String(row.symbol || '').toUpperCase();
+    const symbol = String(row.symbol || '').trim().toUpperCase();
     const kind = String(row.kind || '').toLowerCase();
     if (!DIRECT_EXCHANGES.includes(exchange)) { reject('Unsupported exchange.'); continue; }
     if (!VALID_MARKET_TYPES.has(marketType) || (exchange !== 'bitget' && marketType !== 'spot')) { reject('Unsupported exchange market type.'); continue; }
@@ -107,8 +107,10 @@ function normalizeRunnerObservations(rows, receivedAt) {
       continue;
     }
     if (kind === 'ohlcv') {
+      const timeframe = String(row.timeframe || '').trim();
+      if (!/^(1m|3m|5m|15m|30m|1h|2h|4h|6h|8h|12h|1d|1w|1M)$/.test(timeframe)) { reject('Unsupported OHLCV timeframe.'); continue; }
       const normalized = normalizeCandleObservations({
-        exchange, marketType, symbol, timeframe: String(row.timeframe || ''),
+        exchange, marketType, symbol, timeframe,
         candles: [[observedMs, row.open, row.high, row.low, row.close, row.volume]],
         receivedAt
       });
