@@ -275,10 +275,9 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
   if (!types.every(type => allowed.includes(type))) return null;
   const search = String(url.searchParams.get('search') || '').trim().toLowerCase().slice(0, 60);
   try {
-    const placeholders = types.map(() => '?').join(',');
     const result = await env.JPTI_DB.prepare(
-      "SELECT payload, observed_at, received_at FROM jpti_market_observations WHERE exchange = ? AND market_type IN (" + placeholders + ") AND observation_kind = 'markets' ORDER BY received_at DESC LIMIT 1000"
-    ).bind(exchange, ...types).all();
+      "SELECT payload, observed_at, received_at FROM jpti_market_observations WHERE LOWER(exchange) = ? AND LOWER(observation_kind) = 'markets' ORDER BY received_at DESC LIMIT 1000"
+    ).bind(exchange).all();
     const bySymbol = new Map();
         for (const row of result?.results || []) {
       let market;
