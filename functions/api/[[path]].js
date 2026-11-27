@@ -1470,7 +1470,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       method: request.method,
       signal: request.signal
     });
-    const isBitgetTickerOrCandleRoute = /^\\/api\\/exchanges\\/bitget\\/(?:ticker|ohlcv)\\//i.test(url.pathname);
+    const isBitgetTickerOrCandleRoute = /^\/api\/exchanges\/bitget\/(?:ticker|ohlcv)\//i.test(url.pathname);
     const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && isBitgetTickerOrCandleRoute);
     if (shouldUseReplicatedFallback && isMarketDataRoute) {
       const replicatedTicker = await readReplicatedTicker(env, url, now().getTime());
