@@ -327,6 +327,8 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       timeframes: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'],
       capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: false, fetchFundingRate: false, fetchPositions: false, createOrder: false },
       stale: true, lastUpdatedAt: new Date(latestReceivedAt).toISOString(),
+      fetchedAt: new Date(latestReceivedAt).toISOString(), categoryErrors: [],
+      unsupported: { cfd: 'CFD instruments require the separate authenticated Bitget UTA provider.', options: 'Options are not included in this replicated public instrument catalogue.' },
       source: 'cloudflare-d1-replicated-market-catalog',
       replication: { durable: true, marketTypes: types, ageMs: Math.max(0, nowMs - latestReceivedAt), maxFallbackAgeMs: 30 * 60 * 1000 },
       note: 'Instrument metadata was replicated from the exact exchange. This is a bounded stale catalogue snapshot, not a live exchange response.'
