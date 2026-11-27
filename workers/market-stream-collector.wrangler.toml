@@ -16,7 +16,3 @@ class_name = "MarketStreamHub"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["MarketStreamHub"]
-
-[triggers]
-# Start and reconcile public market streams independently of GitHub Actions scheduling.
-crons = ["*/5 * * * *"]
