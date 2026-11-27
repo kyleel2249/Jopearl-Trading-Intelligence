@@ -152,7 +152,19 @@ async function readReplicatedCandles(env, url) {
     ).bind(exchange, marketType, symbol, timeframe, limit).all();
     const rows = (result?.results || []).map(row => {
       try { return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { return null; }
-    }).filter(row => row && [row.open, row.high, row.low, row.close, row.volume].every(value => Number.isFinite(Number(value))));
+    }).filter(row => {
+      if (!row) return false;
+      const open = Number(row.open);
+      const high = Number(row.high);
+      const low = Number(row.low);
+      const close = Number(row.close);
+      const volume = Number(row.volume);
+      const timestamp = Date.parse(row.observedAt);
+      if (![open, high, low, close, volume, timestamp].every(Number.isFinite)) return false;
+      if (open <= 0 || high <= 0 || low <= 0 || close <= 0 || volume < 0) return false;
+      if (high < Math.max(open, close, low) || low > Math.min(open, close, high)) return false;
+      return true;
+    });
     if (rows.length < Math.min(21, limit)) return null;
     rows.reverse();
     return {
