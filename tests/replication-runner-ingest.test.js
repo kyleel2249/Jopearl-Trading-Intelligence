@@ -87,6 +87,23 @@ test('runner ingest rejects cross-exchange failover data instead of misattributi
   assert.match(body.errors[0].error, /Cross-exchange failover/);
 });
 
+test('runner ingest validates nested ticker source identity even if wrapper metadata is forged', async () => {
+  const db = makeDb();
+  const handler = createRunnerReplicationIngestHandler({ now: () => new Date(NOW), verifyToken: async () => ({ ok: true }) });
+  const response = await handler({
+    request: new Request('https://jpti.example/api/replication/ingest', {
+      method: 'POST', body: JSON.stringify({ observations: [
+        { exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', ticker: { ...makeTicker(), exchange: 'okx', requestedExchange: 'binance', failedOver: true }, sourceExchange: 'binance', requestedExchange: 'binance', failedOver: false }
+      ] })
+    }),
+    env: { JPTI_DB: db }
+  });
+  const body = await response.json();
+  assert.equal(response.status, 502);
+  assert.equal(db.observations.size, 0);
+  assert.match(body.errors[0].error, /Cross-exchange failover/);
+});
+
 test('runner ingest rejects unauthenticated writes and oversized observation batches', async () => {
   const db = makeDb();
   const denied = createRunnerReplicationIngestHandler({ verifyToken: async () => ({ ok: false, status: 401, error: 'denied' }) });
