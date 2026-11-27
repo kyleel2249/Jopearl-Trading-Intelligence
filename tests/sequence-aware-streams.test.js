@@ -90,6 +90,12 @@ test('operator stop is durable and prevents the WebSocket close handler from sch
   await hub.alarm();
   assert.equal(TestWebSocket.instances.length,1);
   assert.deepEqual(state.alarms,['deleted']);
+  const restart=await hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'})}));
+  assert.equal(restart.status,200);
+  assert.equal(TestWebSocket.instances.length,2);
+  assert.equal(state.values.has('operatorStopped'),false);
+  assert.equal((await (await hub.fetch(new Request('https://stream-hub/status'))).json()).status,'connecting');
+  await hub.fetch(new Request('https://stream-hub/stop',{method:'POST'}));
  }finally{globalThis.WebSocket=original;}
 });
 
