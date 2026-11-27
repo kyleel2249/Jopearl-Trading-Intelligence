@@ -36,7 +36,7 @@ jobs:
       - name: Prepare GitHub-managed Cloudflare variables and secrets
         run: node scripts/sync-cloudflare-env.mjs
         env:
-          CLOUDFLARE_PAGES_PROJECT: ${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jopearl-trading-intelligence' }}
+          CLOUDFLARE_PAGES_PROJECT: jopearl-trading-intelligence
           # Listed one by one on purpose: toJSON(vars) prints every repository variable in the log.
           # Add any other runtime variable to JPTI_CLOUDFLARE_VARS_JSON.
           VITE_APP_NAME: ${{ vars.VITE_APP_NAME }}
@@ -113,7 +113,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -f .jpti-pages-secrets.json ]; then
-            npx --no-install wrangler pages secret bulk .jpti-pages-secrets.json --project-name "${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jopearl-trading-intelligence' }}"
+            npx --no-install wrangler pages secret bulk .jpti-pages-secrets.json --project-name "jopearl-trading-intelligence"
             echo "Encrypted Pages secrets synchronized."
           else
             echo "No JPTI_CLOUDFLARE_SECRETS_JSON supplied; existing Cloudflare secrets were left unchanged."
@@ -128,7 +128,7 @@ jobs:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       - name: Deploy Cloudflare Pages
-        run: npx --no-install wrangler pages deploy dist --project-name "${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jopearl-trading-intelligence' }}" --branch main --commit-dirty=true
+        run: npx --no-install wrangler pages deploy dist --project-name "jopearl-trading-intelligence" --branch main --commit-dirty=true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -142,11 +142,11 @@ jobs:
       - name: Verify private access on the deployed sites
         run: npm run verify:private-auth
         env:
-          JPTI_DEPLOY_URL: https://${{ vars.CLOUDFLARE_PAGES_PROJECT || 'jopearl-trading-intelligence' }}.pages.dev
+          JPTI_DEPLOY_URL: https://jopearl-trading-intelligence.pages.dev
           JPTI_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_URL }}
           JPTI_JOURNAL_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
 
       - name: Verify deployed Bitget markets, tickers, candles and symbol switching
         run: npm run verify:bitget:live
         env:
-          JPTI_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jopearl-trading-intelligence.pages.dev' }}
+          JPTI_PAGES_URL: https://jopearl-trading-intelligence.pages.dev
