@@ -8,7 +8,7 @@ import { verifyPrivateToken } from '../private-auth.js';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: HEADERS });
-const MAX_BODY_BYTES = 256 * 1024;
+const MAX_BODY_BYTES = 512 * 1024;
 
 async function readJson(request) {
   const raw = await request.text();
@@ -77,8 +77,8 @@ const INGEST_SYMBOL = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20
 
 function normalizeRunnerObservations(rows, receivedAt) {
   const observations = [], errors = [];
-  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 500) {
-    return { observations, errors: [{ stage: 'validation', error: 'observations must contain between 1 and 500 rows.' }] };
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 1500) {
+    return { observations, errors: [{ stage: 'validation', error: 'observations must contain between 1 and 1500 rows.' }] };
   }
   for (let index = 0; index < rows.length; index += 1) {
     const row = rows[index];
