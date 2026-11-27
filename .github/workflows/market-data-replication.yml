@@ -54,6 +54,11 @@ jobs:
           }
           console.log('Replication endpoint configuration validated for', url.origin + url.pathname);
           NODE
+      - name: Record start of required Bitget replication window
+        id: bitget_replication_start
+        shell: bash
+        run: echo "started_at=$(date -u +'%Y-%m-%dT%H:%M:%S.%3NZ')" >> "$GITHUB_OUTPUT"
+
       - name: Acquire required Bitget market data from the GitHub runner and push validated observations to D1
         shell: bash
         env:
@@ -104,17 +109,21 @@ jobs:
 
       - name: Verify durable Bitget replication freshness
         shell: bash
+        env:
+          REPLICATION_STARTED_AT: ${{ steps.bitget_replication_start.outputs.started_at }}
         run: |
           set -euo pipefail
           node --input-type=module <<'NODE'
           const endpoint = process.env.REPLICATION_URL;
+          const replicationStartedAt = Date.parse(process.env.REPLICATION_STARTED_AT || '');
+          if (!Number.isFinite(replicationStartedAt)) throw new Error('Bitget replication start timestamp is missing.');
           const response = await fetch(endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
           if (!response.ok) throw new Error('Replication status endpoint returned HTTP ' + response.status);
           const status = await response.json();
           const spot = (status.coverage || []).find(row => row.exchange === 'bitget' && row.market_type === 'spot');
           const receivedAt = Date.parse(spot?.last_received_at || '');
           const ageMs = Date.now() - receivedAt;
-          if (!Number.isFinite(receivedAt) || ageMs < -5000 || ageMs > 10 * 60 * 1000) {
+          if (!Number.isFinite(receivedAt) || receivedAt < replicationStartedAt - 5000 || ageMs < -5000 || ageMs > 10 * 60 * 1000) {
             throw new Error('Bitget Spot D1 observations are not fresh enough. Latest received_at=' + (spot?.last_received_at || 'missing') + ', ageMs=' + ageMs);
           }
           if (!(Number(spot.observations) > 0)) throw new Error('Bitget Spot replication has no durable observations.');
