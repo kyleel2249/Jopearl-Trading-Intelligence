@@ -152,7 +152,7 @@ function normalizeReplicatedMarketSymbol(value, marketType) {
 
 function normalizeReplicatedMarketType(value) {
   const requested = String(value || 'spot').trim().toLowerCase();
-  return ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'coin-futures': 'coin-m', 'usdc-futures': 'usdc-m' })[requested] || requested;
+  return ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'usdt-m-futures': 'usdt-m', 'coin-futures': 'coin-m', 'coin-m-futures': 'coin-m', 'usdc-futures': 'usdc-m', 'usdc-m-futures': 'usdc-m' })[requested] || requested;
 }
 
 async function readReplicatedCandles(env, url) {
@@ -257,6 +257,79 @@ async function readReplicatedTicker(env, url, nowMs = Date.now()) {
         durable: true, marketType, receivedAt: new Date(receivedAt).toISOString(),
         ageMs, maxFallbackAgeMs: 15 * 60 * 1000
       }
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
+  if (!env.JPTI_DB) return null;
+  const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/markets$/i);
+  if (!match) return null;
+  const exchange = match[1].toLowerCase();
+  const requestedType = String(url.searchParams.get('type') || 'spot').trim().toLowerCase();
+  const marketType = normalizeReplicatedMarketType(requestedType);
+  const allowed = ['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m'];
+  const types = ['all', 'futures', 'perpetual'].includes(requestedType) ? allowed : [marketType];
+  if (!types.every(type => allowed.includes(type))) return null;
+  const search = String(url.searchParams.get('search') || '').trim().toLowerCase().slice(0, 60);
+  try {
+    const placeholders = types.map(() => '?').join(',');
+    const result = await env.JPTI_DB.prepare(
+      "SELECT payload, observed_at, received_at FROM jpti_market_observations WHERE exchange = ? AND market_type IN (" + placeholders + ") AND observation_kind = 'markets' ORDER BY received_at DESC LIMIT 1000"
+    ).bind(exchange, ...types).all();
+    const bySymbol = new Map();
+    let latestReceivedAt = 0;
+    for (const row of result?.results || []) {
+      let market;
+      try { market = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { continue; }
+      const receivedAt = Date.parse(market?.receivedAt || row.received_at || '');
+      const observedAt = Date.parse(market?.observedAt || row.observed_at || '');
+      const symbol = String(market?.symbol || '').trim().toUpperCase();
+      const id = String(market?.id || '').trim();
+      const ageMs = nowMs - receivedAt;
+      if (!symbol || !id || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)
+        || ageMs < -5000 || ageMs > 30 * 60 * 1000 || market.active !== true
+        || !/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(symbol)
+        || bySymbol.has(symbol)) continue;
+      if (search && ![symbol, id, market.base, market.quote, market.settle].some(value => String(value || '').toLowerCase().includes(search))) continue;
+      latestReceivedAt = Math.max(latestReceivedAt, receivedAt);
+      bySymbol.set(symbol, {
+        symbol, id, base: market.base || symbol.split('/')[0],
+        quote: market.quote || symbol.split('/')[1]?.split(':')[0],
+        settle: market.settle || null, active: true, type: market.type || null,
+        categories: Array.isArray(market.categories) ? market.categories : [market.marketType],
+        spot: market.spot === true, margin: market.margin === true, swap: market.swap === true,
+        future: market.future === true, contract: market.contract === true,
+        linear: typeof market.linear === 'boolean' ? market.linear : null,
+        inverse: typeof market.inverse === 'boolean' ? market.inverse : null,
+        productCategory: market.productCategory, contractType: market.contractType || null,
+        instrumentType: market.instrumentType || 'crypto', precision: market.precision || null,
+        limits: market.limits || null, stale: true,
+        lastUpdatedAt: new Date(observedAt).toISOString()
+      });
+    }
+    const markets = [...bySymbol.values()];
+    if (!markets.length) return null;
+    const counts = {
+      spot: markets.filter(m => m.productCategory === 'SPOT').length,
+      margin: markets.filter(m => m.productCategory === 'MARGIN').length,
+      futures: markets.filter(m => ['USDT-FUTURES','COIN-FUTURES','USDC-FUTURES'].includes(m.productCategory)).length,
+      perpetual: markets.filter(m => m.swap).length,
+      coinFutures: markets.filter(m => m.productCategory === 'COIN-FUTURES').length,
+      usdtFutures: markets.filter(m => m.productCategory === 'USDT-FUTURES').length,
+      usdcFutures: markets.filter(m => m.productCategory === 'USDC-FUTURES').length,
+      cfd: 0, options: 0
+    };
+    return {
+      exchange, filter: requestedType, count: markets.length, markets, totalMarkets: markets.length, counts,
+      timeframes: ['1m','3m','5m','15m','30m','1h','2h','4h','6h','12h','1d'],
+      capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: false, fetchFundingRate: false, fetchPositions: false, createOrder: false },
+      stale: true, lastUpdatedAt: new Date(latestReceivedAt).toISOString(),
+      source: 'cloudflare-d1-replicated-market-catalog',
+      replication: { durable: true, marketTypes: types, ageMs: Math.max(0, nowMs - latestReceivedAt), maxFallbackAgeMs: 30 * 60 * 1000 },
+      note: 'Instrument metadata was replicated from the exact exchange. This is a bounded stale catalogue snapshot, not a live exchange response.'
     };
   } catch {
     return null;
@@ -1521,8 +1594,13 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       signal: request.signal
     });
     const isBitgetTickerOrCandleRoute = /^\/api\/exchanges\/bitget\/(?:ticker|ohlcv)\//i.test(url.pathname);
-    const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && isBitgetTickerOrCandleRoute);
+    const isBitgetMarketsRoute = /^\/api\/exchanges\/bitget\/markets$/i.test(url.pathname);
+    const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && (isBitgetTickerOrCandleRoute || isBitgetMarketsRoute));
     if (shouldUseReplicatedFallback && isMarketDataRoute) {
+      if (isBitgetMarketsRoute) {
+        const replicatedMarkets = await readReplicatedMarkets(env, url, now().getTime());
+        if (replicatedMarkets) return json(200, replicatedMarkets, request, { 'x-jpti-cache': 'd1-replicated-market-catalog' });
+      }
       const replicatedTicker = await readReplicatedTicker(env, url, now().getTime());
       if (replicatedTicker) return json(200, replicatedTicker, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const replicated = await readReplicatedCandles(env, url);
