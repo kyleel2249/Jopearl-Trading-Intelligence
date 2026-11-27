@@ -296,7 +296,6 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
         || !/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(symbol)
         || !types.includes(rowMarketType) || bySymbol.has(instrumentKey)) continue;
       if (search && ![symbol, id, market.base, market.quote, market.settle].some(value => String(value || '').toLowerCase().includes(search))) continue;
-      latestReceivedAt = Math.max(latestReceivedAt, receivedAt);
       bySymbol.set(instrumentKey, {
         symbol, id, base: market.base || symbol.split('/')[0],
         quote: market.quote || symbol.split('/')[1]?.split(':')[0],
