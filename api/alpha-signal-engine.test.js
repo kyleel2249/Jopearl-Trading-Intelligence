@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAlphaPromotionReadiness, evaluateAlphaSignal, evaluateHistoricalSessionMemory, evaluatePaperExit, normalizeAlphaCandles, runAlphaReplay } from './alpha-signal-engine.js';
+import { evaluateAlphaPromotionReadiness, evaluateAlphaSignal, evaluateHistoricalSessionMemory, evaluatePaperExit, normalizeAlphaCandles, resolveReplayBarExit, runAlphaReplay } from './alpha-signal-engine.js';
 const start=1700000000000,tf=3600000;
 function candles(count=240,mode='up'){
  return Array.from({length:count},(_,i)=>{const trend=mode==='up'?i*.16:mode==='down'?-i*.16:Math.sin(i/5)*2;const close=100+trend+Math.sin(i/3)*.35;return{timestamp:start+i*tf,open:close-.08,high:close+.45,low:close-.45,close,volume:1000+(i%15)*80};});
@@ -94,4 +94,15 @@ test('blocks quote or candle history from a different venue or market symbol', (
  const candleVenueResult=evaluateAlphaSignal(wrongCandleVenue,start+240*tf+5000);
  assert.equal(candleVenueResult.qualityChecks.find(x=>x.id==='candle_source_identity').passed,false);
  assert.equal(candleVenueResult.permissions.paperIntentEligible,false);
+});
+
+test('replay models adverse stop gaps at the candle open and keeps stop-first ambiguity', () => {
+ const longGap=resolveReplayBarExit({side:'buy',bar:{open:90,high:93,low:88},stop:95,target:110});
+ assert.deepEqual(longGap,{price:90,reason:'stop_loss'});
+ const shortGap=resolveReplayBarExit({side:'sell',bar:{open:110,high:112,low:108},stop:105,target:90});
+ assert.deepEqual(shortGap,{price:110,reason:'stop_loss'});
+ const bothTouched=resolveReplayBarExit({side:'buy',bar:{open:100,high:112,low:94},stop:95,target:110});
+ assert.deepEqual(bothTouched,{price:95,reason:'stop_loss'});
+ const targetGap=resolveReplayBarExit({side:'buy',bar:{open:115,high:118,low:112},stop:95,target:110});
+ assert.deepEqual(targetGap,{price:110,reason:'take_profit_2'});
 });
