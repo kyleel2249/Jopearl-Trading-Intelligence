@@ -139,3 +139,54 @@ test('apiRequest falls back to the same Bitget venue when the Cloudflare edge re
     globalThis.fetch = previousFetch;
   }
 }));
+
+test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 200', () => withWindow({ location: new URL('https://app.example.com') }, async () => {
+  const previousFetch = globalThis.fetch;
+  const requestedUrls = [];
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    requestedUrls.push(value);
+    if (value.includes('/api/v3/market/tickers')) {
+      return json({ code: '00000', msg: 'success', data: [{
+        symbol: 'BTCUSDT', lastPrice: '61692.15', bid1Price: '61690', ask1Price: '61694',
+        highPrice24h: '61862.59', lowPrice24h: '59920', volume24h: '3103.02',
+        turnover24h: '188887283.30', price24hPcnt: '0.01208', ts: '1795750000000'
+      }] });
+    }
+    throw new Error('Unexpected direct market URL: ' + value);
+  };
+  try {
+    const result = await apiRequest('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot', {
+      retries: 0,
+      fetchImpl: async () => json({ error: 'Bitget upstream failed inside Cloudflare.', source: 'cloudflare-edge' })
+    });
+    assert.equal(result.status, 200);
+    assert.equal(result.data.exchange, 'bitget');
+    assert.equal(result.data.last, 61692.15);
+    assert.equal(result.data.source, 'browser-direct');
+    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers?category=SPOT&symbol=BTCUSDT')));
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+}));
+
+test('apiRequest does not use Bitget error-envelope recovery for private or other-venue routes', () => withWindow({ location: new URL('https://app.example.com') }, async () => {
+  const previousFetch = globalThis.fetch;
+  let directCalls = 0;
+  globalThis.fetch = async () => { directCalls += 1; throw new Error('Direct fallback must not run.'); };
+  try {
+    const otherVenue = await apiRequest('/api/exchanges/binance/ticker/BTC%2FUSDT?type=spot', {
+      retries: 0,
+      fetchImpl: async () => json({ error: 'venue error' })
+    });
+    assert.equal(otherVenue.data.error, 'venue error');
+    const privateRoute = await apiRequest('/api/account/balance', {
+      retries: 0,
+      fetchImpl: async () => json({ error: 'private route error' })
+    });
+    assert.equal(privateRoute.data.error, 'private route error');
+    assert.equal(directCalls, 0);
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+}));
