@@ -6,11 +6,11 @@
 const base = String(process.env.JPTI_PAGES_URL || 'https://jopearl-trading-intelligence.pages.dev').replace(/\/+$/, '');
 const bitget = 'https://api.bitget.com';
 const categories = [
-  { key: 'spot', label: 'Spot', productCategory: 'SPOT', marketDataCategory: 'SPOT' },
-  { key: 'margin', label: 'Margin', productCategory: 'MARGIN', marketDataCategory: 'SPOT' },
-  { key: 'usdt-futures', label: 'USDT-M', productCategory: 'USDT-FUTURES', marketDataCategory: 'USDT-FUTURES' },
-  { key: 'coin-futures', label: 'Coin-M', productCategory: 'COIN-FUTURES', marketDataCategory: 'COIN-FUTURES' },
-  { key: 'usdc-futures', label: 'USDC-M', productCategory: 'USDC-FUTURES', marketDataCategory: 'USDC-FUTURES' }
+  { key: 'spot', replicationMarketType: 'spot', label: 'Spot', productCategory: 'SPOT', marketDataCategory: 'SPOT' },
+  { key: 'margin', replicationMarketType: 'margin', label: 'Margin', productCategory: 'MARGIN', marketDataCategory: 'SPOT' },
+  { key: 'usdt-futures', replicationMarketType: 'usdt-m', label: 'USDT-M', productCategory: 'USDT-FUTURES', marketDataCategory: 'USDT-FUTURES' },
+  { key: 'coin-futures', replicationMarketType: 'coin-m', label: 'Coin-M', productCategory: 'COIN-FUTURES', marketDataCategory: 'COIN-FUTURES' },
+  { key: 'usdc-futures', replicationMarketType: 'usdc-m', label: 'USDC-M', productCategory: 'USDC-FUTURES', marketDataCategory: 'USDC-FUTURES' }
 ];
 const timeoutMs = 15000;
 const results = [];
@@ -82,6 +82,15 @@ console.log('PASS Cloudflare D1/KV storage health');
 for (const category of categories) {
   const row = { category: category.label, checks: [] };
   try {
+    const d1History = await getJson(base + '/api/replication?exchange=bitget&kind=markets&marketType=' + encodeURIComponent(category.replicationMarketType) + '&limit=100');
+    assert(Number(d1History.count) > 0, category.label + ': no durable D1 instrument metadata was seeded.');
+    row.d1MarketCount = Number(d1History.count);
+    row.d1Examples = (d1History.observations || []).slice(0, 3).map(market => ({
+      marketType: market.marketType || null, symbol: market.symbol || null,
+      id: market.id || null, active: market.active === true,
+      receivedAt: market.receivedAt || null, observedAt: market.observedAt || null
+    }));
+    row.checks.push('D1 instrument metadata ' + row.d1MarketCount);
     const marketUrl = base + '/api/exchanges/bitget/markets?type=' + encodeURIComponent(category.key) + '&search=BTC';
     let marketBody;
     try {
@@ -89,10 +98,11 @@ for (const category of categories) {
     } catch (edgeError) {
       if (!isEdgeUpstream403(edgeError)) throw edgeError;
       row.edgeStatus = 'upstream-403';
+      row.edgeError = edgeError.body?.error || String(edgeError.message || edgeError).slice(0, 220);
       try {
         await verifyDirectCategory(category, row);
         row.status = 'passed-with-edge-warning';
-        row.warning = 'The Pages Worker egress received HTTP 403 from Bitget; direct Bitget public endpoints passed from the GitHub runner.';
+        row.warning = 'The Pages Worker egress received HTTP 403 from Bitget; D1 has ' + row.d1MarketCount + ' durable instrument records, while direct Bitget public endpoints passed from the GitHub runner.';
       } catch (directError) {
         if (directError?.status === 403) {
           row.status = 'runner-region-blocked';
