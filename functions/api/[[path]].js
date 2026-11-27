@@ -1376,6 +1376,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           upstreamMessage: error.upstreamMessage || null,
           upstreamContentType: error.upstreamContentType || null,
           upstreamPreview: error.upstreamPreview || null,
+          upstreamServer: error.upstreamServer || null,
+          upstreamRay: error.upstreamRay || null,
+          upstreamDate: error.upstreamDate || null,
           exchange: 'bitget', productType: 'cfd'
         }, request);
       }
@@ -1408,6 +1411,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           upstreamMessage: error.upstreamMessage || null,
           upstreamContentType: error.upstreamContentType || null,
           upstreamPreview: error.upstreamPreview || null,
+          upstreamServer: error.upstreamServer || null,
+          upstreamRay: error.upstreamRay || null,
+          upstreamDate: error.upstreamDate || null,
           exchange: 'bitget', productType: 'cfd'
         }, request);
       }
