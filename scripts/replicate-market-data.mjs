@@ -139,7 +139,11 @@ export async function runRunnerReplication(options = {}) {
     const finishedAt = new Date().toISOString();
     const summary = buildReplicationSummary({ startedAt, finishedAt, plan, counts, errors, skipped, runId: null });
     logger.error?.(JSON.stringify({ marketsSeen, errors: errors.slice(0, 20) }, null, 2));
-    return { ...summary, markets: marketsSeen, observationsCollected: 0, observationsAccepted: 0, observationsInserted: 0 };
+    return {
+      ...summary,
+      coverage: { ...summary.coverage, bitgetSpotTicker: false, bitgetSpotCandles: false },
+      markets: marketsSeen, observationsCollected: 0, observationsAccepted: 0, observationsInserted: 0
+    };
   }
 
   const response = await fetchImpl(endpoint + INGEST_PATH, {
@@ -159,7 +163,13 @@ export async function runRunnerReplication(options = {}) {
   const finishedAt = new Date().toISOString();
   const summary = buildReplicationSummary({ startedAt, finishedAt, plan, counts, errors, skipped, runId: body.runId || null });
   const report = {
-    ...summary, markets: marketsSeen, observationsCollected: observations.length,
+    ...summary,
+    coverage: {
+      ...summary.coverage,
+      bitgetSpotTicker: observations.some(row => row.exchange === 'bitget' && row.marketType === 'spot' && row.kind === 'ticker'),
+      bitgetSpotCandles: observations.some(row => row.exchange === 'bitget' && row.marketType === 'spot' && row.kind === 'ohlcv')
+    },
+    markets: marketsSeen, observationsCollected: observations.length,
     observationsAccepted: accepted, observationsInserted: counts.inserted,
     source: 'github-actions-direct-market-data'
   };
@@ -171,5 +181,17 @@ export async function runRunnerReplication(options = {}) {
 const isMain = process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 if (isMain) {
   runRunnerReplication({ endpoint: process.env.REPLICATION_URL || DEFAULT_ENDPOINT, token: process.env.JPTI_API_TOKEN, logger: console })
+    .then(report => {
+      const requiresBitgetSpot = /^(1|true|yes)$/i.test(String(process.env.JPTI_REPLICATION_REQUIRE_BITGET_SPOT || ''));
+      const missingRequiredCoverage = requiresBitgetSpot && report.coverage?.bitgetSpotTicker !== true;
+      if (report.status === 'failed' || !(Number(report.observationsAccepted) > 0) || missingRequiredCoverage) {
+        console.error('Replication did not meet its required durable-coverage contract.', JSON.stringify({
+          status: report.status,
+          observationsAccepted: report.observationsAccepted,
+          bitgetSpotTicker: report.coverage?.bitgetSpotTicker === true
+        }));
+        process.exitCode = 1;
+      }
+    })
     .catch(error => { console.error(error?.message || error); process.exitCode = 1; });
 }
