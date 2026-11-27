@@ -27,7 +27,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "${REPLICATION_URL//[[:space:]]/}" ]; then
-            echo "::error title=Replication is not configured::Add the repository variable JPTI_REPLICATION_URL with the production Pages URL ending in /api/replication."
+            echo "::error title=Replication is not configured::Check the pinned production REPLICATION_URL in this workflow."
             exit 1
           fi
           if [ -z "${JPTI_API_TOKEN//[[:space:]]/}" ]; then
@@ -37,12 +37,12 @@ jobs:
           node --input-type=module <<'NODE'
           const raw = process.env.REPLICATION_URL;
           let url;
-          try { url = new URL(raw); } catch { throw new Error('JPTI_REPLICATION_URL must be a valid absolute URL.'); }
+          try { url = new URL(raw); } catch { throw new Error('REPLICATION_URL must be a valid absolute URL.'); }
           const allowedHosts = new Set(['jopearl-trading-intelligence.pages.dev']);
-          if (url.protocol !== 'https:') throw new Error('JPTI_REPLICATION_URL must use HTTPS.');
-          if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('JPTI_REPLICATION_URL host is not an approved JPTI Cloudflare Pages origin. Update the workflow allowlist only after verifying ownership of a custom domain.');
+          if (url.protocol !== 'https:') throw new Error('REPLICATION_URL must use HTTPS.');
+          if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('REPLICATION_URL host is not the approved JPTI production Cloudflare Pages origin. Update the workflow allowlist only after verifying ownership of a custom domain.');
           if (url.pathname !== '/api/replication' || url.search || url.hash || url.username || url.password) {
-            throw new Error('JPTI_REPLICATION_URL must be the exact /api/replication endpoint without query, fragment or embedded credentials.');
+            throw new Error('REPLICATION_URL must be the exact /api/replication endpoint without query, fragment or embedded credentials.');
           }
           console.log('Replication endpoint configuration validated for', url.origin + url.pathname);
           NODE
