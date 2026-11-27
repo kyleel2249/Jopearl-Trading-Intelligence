@@ -110,7 +110,7 @@ test('runner ingest rejects unauthenticated writes and oversized observation bat
   const deniedResponse = await denied({ request: new Request('https://jpti.example/api/replication/ingest', { method: 'POST', body: '{}' }), env: { JPTI_DB: db } });
   assert.equal(deniedResponse.status, 401);
   const accepted = createRunnerReplicationIngestHandler({ verifyToken: async () => ({ ok: true }) });
-  const tooMany = Array.from({ length: 81 }, () => ({ exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', ticker: makeTicker() }));
+  const tooMany = Array.from({ length: 121 }, () => ({ exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', ticker: makeTicker() }));
   const oversizedResponse = await accepted({ request: new Request('https://jpti.example/api/replication/ingest', { method: 'POST', body: JSON.stringify({ observations: tooMany }) }), env: { JPTI_DB: db } });
   assert.equal(oversizedResponse.status, 400);
 });
