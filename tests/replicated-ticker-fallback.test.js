@@ -106,7 +106,7 @@ test('replicated derivative tickers normalize settlement symbols for all Bitget 
     });
     const body = await response.json();
     assert.equal(response.status, 200, item.type);
-    assert.equal(body.marketType, undefined, item.type);
+    assert.equal(body.replication.marketType, item.marketType, item.type);
     assert.equal(body.symbol, item.symbol, item.type);
     assert.equal(body.stale, true, item.type);
     assert.equal(body.source, 'cloudflare-d1-replicated-history', item.type);
