@@ -72,8 +72,8 @@ if (!observations.length) {
 
 let inserted = 0;
 let accepted = 0;
-for (let offset = 0; offset < observations.length; offset += 60) {
-  const batch = observations.slice(offset, offset + 60);
+for (let offset = 0; offset < observations.length; offset += 1500) {
+  const batch = observations.slice(offset, offset + 1500);
   const response = await fetch(endpoint, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-jpti-api-token': token },
