@@ -38,7 +38,8 @@ function makeEnv(rows) {
             const [exchange, ...types] = this.args;
             return { results: rows.filter(row => {
               const payload = JSON.parse(row.payload);
-              return payload.exchange === exchange && types.includes(payload.marketType);
+              return String(payload.exchange).toLowerCase() === String(exchange).toLowerCase()
+                && (!types.length || types.map(type => String(type).toLowerCase()).includes(String(payload.marketType).toLowerCase()));
             }) };
           },
           async first() { return null; }
@@ -142,4 +143,20 @@ test('Bitget derivative catalogue aliases resolve to the exact settlement catego
     assert.equal(body.markets[0].productCategory, item.productCategory, item.type);
     assert.equal(body.markets[0].symbol, item.symbol, item.type);
   }
+});
+
+
+test('D1 catalogue fallback tolerates legacy uppercase exchange and product-category values', async () => {
+  const row = marketRow({ marketType: 'SPOT', productCategory: 'SPOT' });
+  const payload = JSON.parse(row.payload);
+  payload.exchange = 'BITGET';
+  row.payload = JSON.stringify(payload);
+  const response = await createHandler()({
+    request: new Request('https://jpti.test/api/exchanges/bitget/markets?type=spot&search=BTC'),
+    env: makeEnv([row])
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.count, 1);
+  assert.equal(body.markets[0].id, 'BTCUSDT');
 });
