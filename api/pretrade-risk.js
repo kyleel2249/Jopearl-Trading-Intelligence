@@ -49,6 +49,7 @@ pretradeRouter.post('/preflight',async(req,res)=>{
 
 pretradeRouter.post('/futures-gate', (req,res) => {
  try {
+  requirePrivateApiAuth(req);
   const result=evaluateFuturesRisk(req.body||{});
   const eligible=result.decision==='eligible';
   res.json({...result,permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,ordersCreated:0},note:'Futures risk assessment only. No exchange order is created or authorized.'});
