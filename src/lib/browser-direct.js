@@ -403,6 +403,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         sym.marketType = marketType;
         const timeframe = String(route.query.timeframe || '1h');
         const limit = Math.min(500, Math.max(20, Number.parseInt(route.query.limit || '120', 10) || 120));
+        const allowFailover = String(route.query.failover || 'true').toLowerCase() !== 'false' && !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER));
         const r = await withFailover(route.exchange, (venue) => cached('c:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || '') + ':' + timeframe + ':' + limit, CACHE_TTL.ohlcv, async () => {
           if (venue !== 'bitget') {
             const rows = CANDLE_PARSERS[venue](await getJson(candlesUrl(venue, sym, timeframe, limit), opts));
@@ -423,7 +424,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const rows = [...merged.values()].sort((a, b) => a[0] - b[0]);
           if (!rows.length) throw new DirectError('Bitget returned no historical candles for this market.', 404);
           return rows.slice(-limit);
-        }), signal, !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER)));
+        }), signal, allowFailover);
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timeframe, candles: r.value, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'markets': {
