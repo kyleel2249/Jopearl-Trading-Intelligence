@@ -145,6 +145,56 @@ async function readReplicatedCandles(env, url) {
   }
 }
 
+
+async function readReplicatedTicker(env, url, nowMs = Date.now()) {
+  if (!env.JPTI_DB) return null;
+  const match = url.pathname.match(/^\\/api\\/exchanges\\/([a-z0-9_]+)\\/ticker\\/([^/]+)$/i);
+  if (!match) return null;
+  let symbol;
+  try {
+    const raw = decodeURIComponent(match[2]).toUpperCase();
+    symbol = raw.includes('/') ? raw : raw.replace('-', '/');
+  } catch { return null; }
+  const exchange = match[1].toLowerCase();
+  const requestedType = String(url.searchParams.get('type') || 'spot').toLowerCase();
+  const marketType = ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'coin-futures': 'coin-m', 'usdc-futures': 'usdc-m' })[requestedType] || requestedType;
+  if (!['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m'].includes(marketType)) return null;
+  try {
+    const row = await env.JPTI_DB.prepare(
+      "SELECT payload, observed_at, received_at FROM jpti_market_observations WHERE exchange = ? AND market_type = ? AND symbol = ? AND observation_kind = 'ticker' ORDER BY observed_at DESC LIMIT 1"
+    ).bind(exchange, marketType, symbol).first();
+    if (!row?.payload) return null;
+    const observation = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    const receivedAt = Date.parse(observation?.receivedAt || row.received_at || '');
+    const observedAt = Date.parse(observation?.observedAt || row.observed_at || '');
+    const last = Number(observation?.last);
+    if (!(last > 0) || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)) return null;
+    const ageMs = nowMs - receivedAt;
+    // A replicated ticker is useful as a short-lived outage bridge, not as an indefinite live quote.
+    if (ageMs < -5000 || ageMs > 15 * 60 * 1000) return null;
+    return {
+      exchange, symbol, last,
+      bid: Number.isFinite(Number(observation.bid)) ? Number(observation.bid) : null,
+      ask: Number.isFinite(Number(observation.ask)) ? Number(observation.ask) : null,
+      high: Number.isFinite(Number(observation.high)) ? Number(observation.high) : null,
+      low: Number.isFinite(Number(observation.low)) ? Number(observation.low) : null,
+      baseVolume: Number.isFinite(Number(observation.baseVolume)) ? Number(observation.baseVolume) : null,
+      quoteVolume: Number.isFinite(Number(observation.quoteVolume)) ? Number(observation.quoteVolume) : null,
+      percentage: Number.isFinite(Number(observation.changePct)) ? Number(observation.changePct) : null,
+      timestamp: observedAt,
+      stale: true,
+      lastUpdatedAt: new Date(observedAt).toISOString(),
+      source: 'cloudflare-d1-replicated-history',
+      replication: {
+        durable: true, marketType, receivedAt: new Date(receivedAt).toISOString(),
+        ageMs, maxFallbackAgeMs: 15 * 60 * 1000
+      }
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function cacheStaleMarketResponse(env, routeKey, body, occurredAt) {
   if (!env.JPTI_KV) return;
   try {
@@ -1403,6 +1453,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       signal: request.signal
     });
     if ((!result || result.status >= 500) && isMarketDataRoute) {
+      const replicatedTicker = await readReplicatedTicker(env, url, now().getTime());
+      if (replicatedTicker) return json(200, replicatedTicker, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const replicated = await readReplicatedCandles(env, url);
       if (replicated) return json(200, replicated, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const snapshot = await readStoredMarketSnapshot(env, marketRouteKey);
