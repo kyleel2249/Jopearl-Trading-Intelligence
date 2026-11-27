@@ -2,7 +2,7 @@
 
 ## What it does
 
-The Cloudflare Pages API now has a durable replication endpoint for public market observations. It uses the same direct public exchange adapter as the chart API and writes normalized, immutable observations into Cloudflare D1.
+The scheduled replication workflow acquires public market data from the GitHub Actions runner, where the public exchange endpoints are reachable, then sends venue-verified observations to an authenticated Cloudflare Pages ingestion endpoint. Cloudflare Pages validates and normalizes the payloads and writes immutable observations into D1. This avoids relying on Cloudflare Worker egress for exchanges that return HTTP 403/451 from that runtime; it does not introduce a third-party proxy.
 
 Supported public acquisition sources:
 
@@ -20,7 +20,8 @@ The replication layer is public-data-only. It does not request private account a
 - `GET /api/replication` — latest runs, total observations and exchange/category coverage.
 - `GET /api/replication?exchange=bitget&symbol=BTC%2FUSDT%3AUSDT&kind=ohlcv&timeframe=1m&marketType=usdt-m&limit=200` — durable historical observations.
 - `GET /api/replication?exchange=binance&symbol=BTC%2FUSDT&kind=ticker&limit=100` — persisted ticker observations.
-- `POST /api/replication` — run an authenticated acquisition/replication cycle. Send `x-jpti-api-token` or `Authorization: Bearer <token>`.
+- `POST /api/replication` — run the legacy bounded acquisition cycle from the Pages runtime. Send `x-jpti-api-token` or `Authorization: Bearer <token>`.
+- `POST /api/replication/ingest` — accept authenticated, bounded GitHub-runner ticker/OHLCV observations and persist them to D1. It validates exchange, product, symbol, timestamps, prices and candle integrity, and rejects any observation marked as cross-venue failover.
 
 Example request:
 
@@ -52,7 +53,7 @@ The Cloudflare Pages API now has bounded outage fallbacks for replicated D1 tick
 
 ## Continuous scheduling
 
-Cloudflare Pages Functions do not provide a native scheduled-event handler. This build therefore uses a GitHub Actions scheduled caller while keeping the application API, acquisition and storage on Cloudflare Pages/D1.
+Cloudflare Pages Functions do not provide a native scheduled-event handler. The GitHub Actions scheduled caller performs the public REST acquisition directly from the runner, disables cross-venue failover for each requested source, then posts the validated payloads to `/api/replication/ingest`. Cloudflare Pages remains the authenticated ingestion/API layer and D1 remains the durable store. The legacy `POST /api/replication` endpoint is still available for bounded edge-side runs, but it can report upstream 403/451 restrictions that do not affect the GitHub runner.
 
 Configure these GitHub repository settings:
 
@@ -61,7 +62,7 @@ Configure these GitHub repository settings:
 3. Confirm migration `0014_market_data_replication` has been applied to the production D1 database.
 4. Enable the workflow `JPTI Continuous Market Data Replication`.
 
-The workflow runs every five minutes and can also be started manually. It uses bounded batches and retries transient HTTP failures. Missing endpoint/secret configuration now fails the workflow visibly instead of producing a successful no-op. A run must report successful acquisition work; partial source coverage is surfaced as a warning. GitHub Actions scheduling is best-effort and can be delayed by GitHub; it is not a tick-level feed or a hard real-time SLA.
+The workflow runs every five minutes and can also be started manually. The canonical production endpoint is pinned in the workflow, and the authenticated runner-ingest endpoint rejects cross-exchange fallback data. It uses bounded symbol/timeframe batches and records partial source coverage as a warning. GitHub Actions scheduling is best-effort and can be delayed by GitHub; this REST feed is not a tick-level feed or a hard real-time SLA.
 
 ## Optional Cloudflare Pages variables
 
@@ -78,7 +79,7 @@ The workflow runs every five minutes and can also be started manually. It uses b
 - A partial run preserves successful observations and reports failed sources separately.
 - D1 idempotency prevents duplicate rows for the same exchange, category, symbol, observation kind, timeframe and exchange timestamp.
 - This initial replication stores ticker snapshots and OHLCV candles. It does not yet persist full order-book deltas, every public trade, liquidation events, private fills, account positions or funding history.
-- The existing native WebSocket ticker stream remains a separate local/desktop gateway capability. The scheduled Pages replication path is REST-based and deliberately bounded.
+- The existing native WebSocket ticker stream remains a separate local/desktop gateway capability. The scheduled GitHub-runner-to-Pages replication path is REST-based and deliberately bounded.
 - Replicated candles are historical evidence, not a guarantee that the exchange is currently reachable or that a stale candle is executable.
 - Public exchange APIs impose rate limits, product availability restrictions and occasional data corrections. Source timestamps and quality flags must remain attached to observations.
 - This layer is a data pipeline, not a profitable-trading guarantee. Strategy qualification, backtesting, forward paper testing, execution controls and capital-protection gates remain separate requirements.
