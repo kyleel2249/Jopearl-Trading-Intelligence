@@ -70,3 +70,14 @@ test('rejects null and empty OHLCV fields instead of silently coercing volume to
  assert.throws(()=>normalizeAlphaCandles(nullVolume,'1h',start+300*tf),/missing, null or empty/);
  assert.throws(()=>normalizeAlphaCandles(emptyVolume,'1h',start+300*tf),/missing, null or empty/);
 });
+
+test('replay drawdown is measured against the configured initial capital, not a fixed 10,000 baseline', () => {
+ const c=candles(260),common={candles:c,timeframe:'1h',symbol:'BTC/USDT',exchange:'binance',config:{minimumConfidence:50,minimumAgreement:.3},feeBps:10,slippageBps:5};
+ const small=runAlphaReplay({...common,initialCapital:1000},start+261*tf);
+ const large=runAlphaReplay({...common,initialCapital:10000},start+261*tf);
+ assert.ok(small.trades.length>0);
+ assert.equal(small.overall.maxDrawdownPercent,large.overall.maxDrawdownPercent);
+ assert.equal(small.inSample.maxDrawdownPercent,large.inSample.maxDrawdownPercent);
+ assert.equal(small.outOfSample.maxDrawdownPercent,large.outOfSample.maxDrawdownPercent);
+ assert.ok(Math.abs(small.overall.endingCapital*10-large.overall.endingCapital)<0.01);
+});
