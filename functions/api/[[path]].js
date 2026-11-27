@@ -310,8 +310,12 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
         lastUpdatedAt: new Date(observedAt).toISOString()
       });
     }
-    const markets = [...bySymbol.values()];
+    let markets = [...bySymbol.values()];
+    if (requestedType === 'futures') markets = markets.filter(m => m.future || m.swap);
+    if (requestedType === 'perpetual') markets = markets.filter(m => m.swap);
     if (!markets.length) return null;
+    markets.sort((a, b) => String(a.productCategory || '').localeCompare(String(b.productCategory || '')) || String(a.symbol).localeCompare(String(b.symbol)));
+    const latestReceivedAt = markets.reduce((latest, market) => Math.max(latest, Date.parse(market.lastUpdatedAt || '') || 0), 0);
     const counts = {
       spot: markets.filter(m => m.productCategory === 'SPOT').length,
       margin: markets.filter(m => m.productCategory === 'MARGIN').length,
