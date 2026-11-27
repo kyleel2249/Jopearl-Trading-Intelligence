@@ -63,7 +63,7 @@ That message means the server has a secret and the browser sent a different valu
 | Server rejected this token | A secret exists but the value differs | Re-copy the secret exactly, with no quotes. The token is held in session storage, so re-enter it after closing the browser |
 | No secret configured (HTTP 409) | The deployment has no `JPTI_JOURNAL_TOKEN` or `JPTI_API_TOKEN` | Add it as an encrypted Pages secret for Production and Preview, then redeploy |
 
-Panels reload automatically once a token is saved. Each Cloudflare Pages project has its own secrets: if `CLOUDFLARE_PAGES_URL` differs from `https://<CLOUDFLARE_PAGES_PROJECT>.pages.dev`, set the secret on the project you actually open. The deploy workflow's **Verify private access** step reports this, and also tests the token when a `JPTI_JOURNAL_TOKEN` GitHub secret exists.
+Panels reload automatically once a token is saved. Production deployment and private-auth verification are pinned to `https://jopearl-trading-intelligence.pages.dev`; the obsolete `CLOUDFLARE_PAGES_PROJECT` repository variable cannot redirect the production workflow. If the production project is intentionally migrated, update the workflow target and the project's secrets together. The deploy workflow's **Verify private access** step tests the token when a `JPTI_JOURNAL_TOKEN` GitHub secret exists.
 
 The check reports a missing secret as 409 instead of 5xx so it is not mistaken for an API outage.
 
