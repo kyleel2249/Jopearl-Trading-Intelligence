@@ -93,3 +93,46 @@ test('apiRequest supports binary and empty responses', () => withWindow({ locati
   const empty = await apiRequest('/api/x', { fetchImpl: async () => new Response(null, { status: 204 }) });
   assert.equal(empty.status, 204);
 }));
+
+
+test('apiRequest falls back to the same Bitget venue when the Cloudflare edge returns 502', () => withWindow({ location: new URL('https://app.example.com') }, async () => {
+  const previousFetch = globalThis.fetch;
+  const requestedUrls = [];
+  globalThis.fetch = async (url) => {
+    const value = String(url);
+    requestedUrls.push(value);
+    if (value.includes('/api/v3/market/tickers')) {
+      return new Response(JSON.stringify({ code: '403', msg: 'edge route blocked' }), {
+        status: 403, headers: { 'content-type': 'application/json' }
+      });
+    }
+    if (value.includes('/api/v2/spot/market/tickers')) {
+      return new Response(JSON.stringify({ code: '00000', data: [{
+        symbol: 'BTCUSDT', lastPr: '64000.5', bidPr: '64000.4', askPr: '64000.6',
+        high24h: '65000', low24h: '63000', baseVolume: '12', quoteVolume: '768000'
+      }] }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error('Unexpected direct market URL: ' + value);
+  };
+  try {
+    let edgeCalls = 0;
+    const result = await apiRequest('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot', {
+      retries: 0,
+      fetchImpl: async () => {
+        edgeCalls += 1;
+        return json({ error: 'Bitget upstream denied Cloudflare egress.' }, { status: 502 });
+      }
+    });
+    assert.equal(edgeCalls, 1);
+    assert.equal(result.status, 200);
+    assert.equal(result.data.exchange, 'bitget');
+    assert.equal(result.data.requestedExchange, 'bitget');
+    assert.equal(result.data.failedOver, false);
+    assert.equal(result.data.last, 64000.5);
+    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers')));
+    assert.ok(requestedUrls.some(url => url.includes('/api/v2/spot/market/tickers')));
+    assert.ok(requestedUrls.every(url => url.includes('bitget.com')));
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+}));

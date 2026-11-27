@@ -341,7 +341,20 @@ export async function apiRequest(path, {
     if (json !== undefined && !headers.has('content-type')) headers.set('content-type', 'application/json');
     const started = Date.now();
     try {
-      const response = await doFetch(apiUrl(path), { method: verb, headers, body: json !== undefined ? JSON.stringify(json) : body, signal: controller.signal, cache: 'no-store' });
+      let response = await doFetch(apiUrl(path), { method: verb, headers, body: json !== undefined ? JSON.stringify(json) : body, signal: controller.signal, cache: 'no-store' });
+      // apiRequest is the main request path used by several chart and market panels.
+      // Keep its outage recovery consistent with apiFetch: when the edge cannot reach
+      // an exchange, retry public market data directly from the browser on the same venue.
+      // Never use this fallback for writes, private routes, or another venue's 404.
+      const shouldTryDirectMarketFallback = direct
+        && (verb === 'GET' || verb === 'HEAD')
+        && (response.status >= 500 && response.status !== 501
+          || (response.status === 404 && isBitgetMarketDataPath(path)));
+      if (shouldTryDirectMarketFallback) {
+        const fallback = await directFallback(path, { method: verb, signal: controller.signal },
+          response.status === 404 ? 'upstream-not-found' : 'server-error');
+        if (fallback) response = fallback;
+      }
       const latencyMs = Date.now() - started;
       const type = response.headers?.get?.('content-type') || '';
       if (response.status === 204 || response.status === 205 || parse === 'none') return { ok: response.ok, status: response.status, data: null, headers: response.headers, requestId, latencyMs };
