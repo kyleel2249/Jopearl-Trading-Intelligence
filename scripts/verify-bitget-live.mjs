@@ -85,6 +85,11 @@ for (const category of categories) {
     const d1History = await getJson(base + '/api/replication?exchange=bitget&kind=markets&marketType=' + encodeURIComponent(category.replicationMarketType) + '&limit=100');
     assert(Number(d1History.count) > 0, category.label + ': no durable D1 instrument metadata was seeded.');
     row.d1MarketCount = Number(d1History.count);
+    row.d1Examples = (d1History.observations || []).slice(0, 3).map(market => ({
+      marketType: market.marketType || null, symbol: market.symbol || null,
+      id: market.id || null, active: market.active === true,
+      receivedAt: market.receivedAt || null, observedAt: market.observedAt || null
+    }));
     row.checks.push('D1 instrument metadata ' + row.d1MarketCount);
     const marketUrl = base + '/api/exchanges/bitget/markets?type=' + encodeURIComponent(category.key) + '&search=BTC';
     let marketBody;
