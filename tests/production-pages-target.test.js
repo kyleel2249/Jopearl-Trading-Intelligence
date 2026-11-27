@@ -14,7 +14,6 @@ test('Cloudflare deployment is pinned to the canonical production Pages project'
   assert.ok(workflow.includes('JPTI_PAGES_URL: ' + productionOrigin));
   assert.ok(!workflow.includes('vars.CLOUDFLARE_PAGES_PROJECT'));
   assert.ok(!workflow.includes('vars.CLOUDFLARE_PAGES_URL'));
-  assert.ok(!workflow.includes('vars.CLOUDFLARE_PAGES_URL'));
   assert.ok(!workflow.includes('https://jpti.pages.dev'));
 });
 test('scheduled replication uses the canonical production API endpoint', () => {
