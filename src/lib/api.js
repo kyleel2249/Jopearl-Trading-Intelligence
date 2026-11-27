@@ -237,6 +237,24 @@ async function directFallback(path, options, reason) {
   });
 }
 
+async function hasBitgetErrorEnvelope(response) {
+  if (!response?.ok || !response.headers?.get?.('content-type')?.toLowerCase().includes('json')) return false;
+  try {
+    const body = await response.clone().json();
+    return typeof body?.error === 'string' && body.error.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function asUpstreamFailure(response) {
+  return new Response(await response.clone().text(), {
+    status: 502,
+    statusText: 'Bitget upstream failure',
+    headers: response.headers
+  });
+}
+
 export async function apiFetch(path, options = {}) {
   const direct = isDirectCapable(path, options.method || 'GET');
   if (direct && !apiCircuit.shouldTryApi()) {
@@ -265,6 +283,14 @@ export async function apiFetch(path, options = {}) {
       if (served) return served;
     }
     throw error;
+  }
+  if (direct && isBitgetMarketDataPath(path) && await hasBitgetErrorEnvelope(response)) {
+    apiCircuit.failure();
+    const served = await directFallback(path, options, 'upstream-error-envelope');
+    if (served) return served;
+    // Some edge adapters wrap an upstream failure in HTTP 200. Normalize it so
+    // callers cannot mistake an error payload for a valid market observation.
+    return asUpstreamFailure(response);
   }
   if (isHtmlish(response)) {
     apiCircuit.failure(); // a static host or proxy answered with a web page, not the API
@@ -345,11 +371,19 @@ export async function apiRequest(path, {
     const started = Date.now();
     try {
       let response = await doFetch(apiUrl(path), { method: verb, headers, body: json !== undefined ? JSON.stringify(json) : body, signal: controller.signal, cache: 'no-store' });
+      const hasWrappedBitgetFailure = direct && (verb === 'GET' || verb === 'HEAD')
+        && isBitgetMarketDataPath(path) && await hasBitgetErrorEnvelope(response);
+      if (hasWrappedBitgetFailure) {
+        apiCircuit.failure();
+        const fallback = await directFallback(path, { method: verb, signal: controller.signal }, 'upstream-error-envelope');
+        if (fallback) response = fallback;
+        else response = await asUpstreamFailure(response);
+      }
       // apiRequest is the main request path used by several chart and market panels.
       // Keep its outage recovery consistent with apiFetch: when the edge cannot reach
       // an exchange, retry public market data directly from the browser on the same venue.
       // Never use this fallback for writes, private routes, or another venue's 404.
-      const shouldTryDirectMarketFallback = direct
+      const shouldTryDirectMarketFallback = !hasWrappedBitgetFailure && direct
         && (verb === 'GET' || verb === 'HEAD')
         && (response.status >= 500 && response.status !== 501
           || (response.status === 404 && isBitgetMarketDataPath(path)));
