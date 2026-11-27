@@ -118,3 +118,55 @@ test('runner ingest rejects timestamps materially in the future', async () => {
   assert.equal(response.status, 422);
   assert.equal(body.counts.inserted, 0);
 });
+
+
+test('authenticated runner ingest stores integrity-checked OHLCV candles', async () => {
+  const db = makeDb();
+  const handler = createHandler(db);
+  const response = await handler({
+    request: new Request('https://jpti.example/api/replication', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-jpti-api-token': 'test-token' },
+      body: JSON.stringify({
+        mode: 'ingest',
+        observations: [{
+          exchange: 'bitget', marketType: 'usdt-m', symbol: 'BTC/USDT',
+          kind: 'ohlcv', timeframe: '1m',
+          observedAt: new Date(NOW - 60000).toISOString(),
+          open: 90000, high: 92000, low: 89000, close: 91000, volume: 10
+        }]
+      })
+    }),
+    env: { JPTI_DB: db }
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.counts.candles, 1);
+  assert.equal(body.counts.inserted, 1);
+  const observationWrite = db.writes.find(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations'));
+  assert.ok(observationWrite);
+});
+
+test('authenticated runner ingest rejects unsupported candle intervals', async () => {
+  const db = makeDb();
+  const handler = createHandler(db);
+  const response = await handler({
+    request: new Request('https://jpti.example/api/replication', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-jpti-api-token': 'test-token' },
+      body: JSON.stringify({
+        mode: 'ingest',
+        observations: [{
+          exchange: 'bitget', marketType: 'spot', symbol: 'BTC/USDT',
+          kind: 'ohlcv', timeframe: '99x',
+          observedAt: new Date(NOW - 60000).toISOString(),
+          open: 90000, high: 92000, low: 89000, close: 91000, volume: 10
+        }]
+      })
+    }),
+    env: { JPTI_DB: db }
+  });
+  const body = await response.json();
+  assert.equal(response.status, 422);
+  assert.equal(body.counts.inserted, 0);
+});
