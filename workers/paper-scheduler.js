@@ -86,7 +86,18 @@ export function buildStreamStartPayload(rows = [],prioritySymbols=[]) {
     symbol: String(row.symbol || '').toUpperCase().replace(/USDT$/, '/USDT').replace('//', '/')
   })).filter(x => ['binance','bybit','okx','bitget'].includes(x.exchange)
     && ['spot','margin','usdt-m','coin-m','usdc-m'].includes(x.marketType) && /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(x.symbol));
-  const prioritized=(Array.isArray(prioritySymbols)?prioritySymbols:[]).flatMap(symbol=>['binance','bybit','okx','bitget'].map(exchange=>({exchange,marketType:'usdt-m',symbol:String(symbol).toUpperCase().replace(/USDT$/,'/USDT').replace('//','/')})));
+  const normalizedPriority=[...new Set((Array.isArray(prioritySymbols)?prioritySymbols:[])
+    .map(symbol=>String(symbol).toUpperCase().replace(/USDT$/,'/USDT').replace('//','/'))
+    .filter(symbol=>/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(symbol)))];
+  // The 40-stream cap must not silently cut the final symbol's venue set in half.
+  // Keep four-venue coverage for the first nine rotating symbols, then retain Bitget
+  // coverage for every remaining symbol. This protects the full Bitget paper watchlist.
+  const fullCoverageSymbols=normalizedPriority.slice(0,9);
+  const bitgetOnlySymbols=normalizedPriority.slice(9);
+  const prioritized=[
+    ...fullCoverageSymbols.flatMap(symbol=>['binance','bybit','okx','bitget'].map(exchange=>({exchange,marketType:'usdt-m',symbol}))),
+    ...bitgetOnlySymbols.map(symbol=>({exchange:'bitget',marketType:'usdt-m',symbol}))
+  ];
   const baseStreams=streams.length?streams:(prioritized.length?[]:STREAM_FALLBACK);
   const primary=[
     {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
@@ -117,8 +128,15 @@ export async function startMarketStreamCollector(env,prioritySymbols=[],previous
   }
   const started = results.filter(x => x.status === 'connected' || x.status === 'connecting').length;
   if (started < 1) throw new Error('No market streams were started.');
-  for(const symbol of (Array.isArray(previousSymbols)?previousSymbols:[]).filter(x=>!active.has(String(x).toUpperCase()))){
-    for(const exchange of ['binance','bybit','okx','bitget'])try{const config=normalizeStreamRequest({exchange,marketType:'usdt-m',symbol:String(symbol).replace(/USDT$/,'/USDT')});const stub=env.MARKET_STREAMS.get(env.MARKET_STREAMS.idFromName(config.streamId));await stub.fetch('https://stream-hub/stop',{method:'POST'});stopped.push(config.streamId);}catch{}
+  const activeStreamIds=new Set(payload.streams.map(item=>normalizeStreamRequest(item).streamId));
+  for(const symbol of (Array.isArray(previousSymbols)?previousSymbols:[])){
+    for(const exchange of ['binance','bybit','okx','bitget'])try{
+      const config=normalizeStreamRequest({exchange,marketType:'usdt-m',symbol:String(symbol).toUpperCase().replace(/USDT$/,'/USDT')});
+      if(activeStreamIds.has(config.streamId))continue;
+      const stub=env.MARKET_STREAMS.get(env.MARKET_STREAMS.idFromName(config.streamId));
+      const response=await stub.fetch('https://stream-hub/stop',{method:'POST'});
+      if(response.ok)stopped.push(config.streamId);
+    }catch{}
   }
   return { requested: results.length, started, stopped:stopped.length, results };
 }
