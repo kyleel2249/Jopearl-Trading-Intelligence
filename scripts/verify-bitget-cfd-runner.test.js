@@ -57,3 +57,16 @@ test('runner CFD probe reports missing credentials without failing deployment', 
   });
   assert.equal(report.status, 'not-configured');
 });
+
+
+test('runner CFD probe flags a non-read-only key without recommending write permission', async () => {
+  const report = await verifyRunnerCfdAccess({
+    provider: { async request() { return { status: 200, body: {
+      authenticated: true, permissionType: 'read-and-write', permissions: ['uta_trade','withdraw'],
+      utaTradeReadOnly: false, ipWhitelistConfigured: false, ipWhitelistCount: 0
+    } }; } },
+    logger: { log() {}, warn() {} }
+  });
+  assert.equal(report.status, 'permission-mismatch');
+  assert.match(report.warning, /Do not enable write access/);
+});
