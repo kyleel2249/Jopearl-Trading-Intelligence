@@ -215,3 +215,19 @@ test('history endpoint reads persisted observations without exposing credentials
   assert.equal(body.count, 2);
   assert.equal(body.observations[0].exchange, 'binance');
 });
+
+
+test('replication history exposes authenticated D1 market instrument metadata for diagnostics',async()=>{
+ const db=makeDb();
+ const observedAt=new Date(nowValue-1000).toISOString();
+ const receivedAt=new Date(nowValue).toISOString();
+ db.observations.set('bitget-market-btc',{observation_key:'bitget-market-btc',exchange:'bitget',market_type:'spot',symbol:'BTC/USDT',observation_kind:'markets',timeframe:'',observed_at:observedAt,received_at:receivedAt,payload:JSON.stringify({exchange:'bitget',marketType:'spot',symbol:'BTC/USDT',kind:'markets',observedAt,receivedAt,id:'BTCUSDT',active:true,productCategory:'SPOT'})});
+ const handler=createMarketReplicationHandler({provider:{request:async()=>null},now:fixedNow});
+ const response=await handler({request:new Request('https://jpti.example/api/replication?exchange=bitget&kind=markets&marketType=spot&limit=20'),env:{JPTI_DB:db}});
+ const body=await response.json();
+ assert.equal(response.status,200);
+ assert.equal(body.kind,'markets');
+ assert.equal(body.count,1);
+ assert.equal(body.observations[0].id,'BTCUSDT');
+ assert.equal(body.observations[0].marketType,'spot');
+});
