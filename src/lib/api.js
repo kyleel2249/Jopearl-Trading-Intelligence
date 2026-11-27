@@ -323,6 +323,9 @@ export async function apiRequest(path, {
   signal, parse = 'json', retryBaseMs = 500, fetchImpl
 } = {}) {
   const verb = String(method).toUpperCase();
+  // Match apiFetch: only public market-data routes may use browser-direct recovery.
+  // isDirectCapable also excludes private endpoints and non-read methods.
+  const direct = isDirectCapable(path, verb);
   const maxRetries = retries ?? (verb === 'GET' || verb === 'HEAD' ? 2 : 0);
   const requestId = newRequestId();
   const doFetch = fetchImpl || ((...args) => fetch(...args));
