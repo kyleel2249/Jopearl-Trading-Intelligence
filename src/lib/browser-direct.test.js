@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createCircuit } from './api-circuit.js';
 import {
-  DIRECT_EXCHANGES, createDirectProvider, matchDirectRoute, parseSymbol, venueSymbol, tickerUrl, candlesUrl, marketsUrl, parsers, DirectError
+  DIRECT_EXCHANGES, createDirectProvider, matchDirectRoute, parseSymbol, venueSymbol, tickerUrl, bitgetTickerFallbackUrl, candlesUrl, marketsUrl, parsers, DirectError
 } from './browser-direct.js';
 
 const json = (body, status = 200) => ({ ok: status < 400, status, json: async () => body });
@@ -79,6 +79,46 @@ test('urls use each venue format and reject unsupported timeframes', () => {
   assert.match(tickerUrl('bitget', usdc), /symbol=BTCPERP$/);
   assert.match(candlesUrl('bitget', usdc, '1h', 50), /symbol=BTCPERP/);
   assert.match(marketsUrl('binance'), /exchangeInfo/);
+});
+
+test('Bitget v2 ticker fallback URLs preserve spot and derivative product categories', () => {
+  const spot = { ...parseSymbol('BTC/USDT'), marketType: 'spot' };
+  const margin = { ...parseSymbol('BTC/USDT'), marketType: 'margin' };
+  const usdt = { ...parseSymbol('BTC/USDT:USDT'), marketType: 'futures' };
+  const coin = { ...parseSymbol('BTC/USD:BTC'), marketType: 'coin-futures', instrumentId: 'BTCUSD_CM' };
+  const usdc = { ...parseSymbol('BTC/USDC:USDC'), marketType: 'usdc-futures', instrumentId: 'BTCPERP' };
+  assert.match(bitgetTickerFallbackUrl(spot), /\/api\/v2\/spot\/market\/tickers\?symbol=BTCUSDT$/);
+  assert.match(bitgetTickerFallbackUrl(margin), /\/api\/v2\/spot\/market\/tickers\?symbol=BTCUSDT$/);
+  assert.match(bitgetTickerFallbackUrl(usdt), /\/api\/v2\/mix\/market\/ticker\?productType=USDT-FUTURES&symbol=BTCUSDT$/);
+  assert.match(bitgetTickerFallbackUrl(coin), /productType=COIN-FUTURES&symbol=BTCUSD_CM$/);
+  assert.match(bitgetTickerFallbackUrl(usdc), /productType=USDC-FUTURES&symbol=BTCPERP$/);
+});
+
+test('Bitget ticker falls back to the v2 spot endpoint when the v3 ticker route returns 404', async () => {
+  const urls = [];
+  const provider = createDirectProvider({
+    fetchImpl: async url => {
+      urls.push(String(url));
+      if (String(url).includes('/api/v3/market/tickers')) return json({ code: '40400', msg: 'v3 ticker route unavailable' }, 404);
+      if (String(url).includes('/api/v2/spot/market/tickers')) {
+        return json({ code: '00000', data: [{
+          symbol: 'BTCUSDT', lastPr: '61525.65', bidPr: '61525.65', askPr: '61525.66',
+          high24h: '61862.59', low24h: '59920', baseVolume: '3059.390383',
+          quoteVolume: '186165842.704804', change24h: '0.00852', ts: '1795753486801'
+        }] });
+      }
+      throw new Error('Unexpected Bitget ticker URL: ' + url);
+    }
+  });
+  const result = await provider.request('/api/exchanges/bitget/ticker/BTC-USDT?type=spot&failover=false');
+  assert.equal(result.status, 200);
+  assert.equal(result.body.exchange, 'bitget');
+  assert.equal(result.body.requestedExchange, 'bitget');
+  assert.equal(result.body.failedOver, false);
+  assert.equal(result.body.last, 61525.65);
+  assert.ok(urls.some(url => url.includes('/api/v3/market/tickers')));
+  assert.ok(urls.some(url => url.includes('/api/v2/spot/market/tickers')));
+  assert.ok(urls.every(url => url.includes('bitget.com')), 'ticker fallback must remain on Bitget');
 });
 
 test('provider serves ticker and candles in the API shape and caches repeated calls', async () => {
