@@ -116,7 +116,7 @@ test('apiRequest falls back to the same Bitget venue when the Cloudflare edge re
   };
   try {
     let edgeCalls = 0;
-    const result = await apiRequest('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot', {
+    const result = await apiRequest('/api/exchanges/bitget/ticker/ETH%2FUSDT?type=spot', {
       retries: 0,
       fetchImpl: async () => {
         edgeCalls += 1;
@@ -148,8 +148,8 @@ test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 2
     requestedUrls.push(value);
     if (value.includes('/api/v3/market/tickers')) {
       return json({ code: '00000', msg: 'success', data: [{
-        symbol: 'BTCUSDT', lastPrice: '61692.15', bid1Price: '61690', ask1Price: '61694',
-        highPrice24h: '61862.59', lowPrice24h: '59920', volume24h: '3103.02',
+        symbol: 'ETHUSDT', lastPrice: '3162.15', bid1Price: '3160', ask1Price: '3164',
+        highPrice24h: '3186.59', lowPrice24h: '2992', volume24h: '3103.02',
         turnover24h: '188887283.30', price24hPcnt: '0.01208', ts: '1795750000000'
       }] });
     }
@@ -162,9 +162,9 @@ test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 2
     });
     assert.equal(result.status, 200);
     assert.equal(result.data.exchange, 'bitget');
-    assert.equal(result.data.last, 61692.15);
+    assert.equal(result.data.last, 3162.15);
     assert.equal(result.data.source, 'browser-direct');
-    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers?category=SPOT&symbol=BTCUSDT')));
+    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers?category=SPOT&symbol=ETHUSDT')));
   } finally {
     globalThis.fetch = previousFetch;
   }
