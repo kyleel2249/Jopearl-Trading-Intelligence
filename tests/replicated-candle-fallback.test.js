@@ -24,9 +24,9 @@ function makeEnv(symbol, marketType, timeframe = '1m') {
           bind(...args) { this.args = args; return this; },
           async all() {
             if (!sql.includes("observation_kind = 'ohlcv'")) return { results: [] };
-            const [, requestedType, requestedSymbol, requestedTimeframe] = this.args;
+            const [, requestedType, requestedSymbol, requestedTimeframe, requestedLimit] = this.args;
             if (requestedType !== marketType || requestedSymbol !== symbol || requestedTimeframe !== timeframe) return { results: [] };
-            return { results: observations.slice().reverse().map(payload => ({ payload: JSON.stringify(payload), observed_at: payload.observedAt })) };
+            return { results: observations.slice().reverse().slice(0, Number(requestedLimit) || observations.length).map(payload => ({ payload: JSON.stringify(payload), observed_at: payload.observedAt })) };
           }
         };
       }
@@ -40,14 +40,14 @@ test('Bitget candle outage serves exact-venue replicated Spot candles, not anoth
     now: () => new Date(NOW)
   });
   const response = await handler({
-    request: new Request('https://jpti.test/api/exchanges/bitget/ohlcv/BTC-USDT?type=spot&timeframe=1m&limit=30'),
+    request: new Request('https://jpti.test/api/exchanges/bitget/ohlcv/BTC-USDT?type=spot&timeframe=1m&limit=20'),
     env: makeEnv('BTC/USDT', 'spot')
   });
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.exchange, 'bitget');
   assert.equal(body.symbol, 'BTC/USDT');
-  assert.equal(body.candles.length, 24);
+  assert.equal(body.candles.length, 20);
   assert.equal(body.stale, true);
   assert.equal(body.source, 'cloudflare-d1-replicated-history');
   assert.equal(body.replication.marketType, 'spot');
