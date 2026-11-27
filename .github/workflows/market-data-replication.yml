@@ -21,8 +21,15 @@ jobs:
       # Match Pages Functions token precedence. Never print or echo this value.
       JPTI_API_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
     steps:
+      - name: Check out JPTI source
+        uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
       - name: Validate replication endpoint and credentials
-        id: config
         shell: bash
         run: |
           set -euo pipefail
@@ -40,43 +47,18 @@ jobs:
           try { url = new URL(raw); } catch { throw new Error('REPLICATION_URL must be a valid absolute URL.'); }
           const allowedHosts = new Set(['jopearl-trading-intelligence.pages.dev']);
           if (url.protocol !== 'https:') throw new Error('REPLICATION_URL must use HTTPS.');
-          if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('REPLICATION_URL host is not the approved JPTI production Cloudflare Pages origin. Update the workflow allowlist only after verifying ownership of a custom domain.');
+          if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('REPLICATION_URL host is not the approved JPTI production Cloudflare Pages origin.');
           if (url.pathname !== '/api/replication' || url.search || url.hash || url.username || url.password) {
             throw new Error('REPLICATION_URL must be the exact /api/replication endpoint without query, fragment or embedded credentials.');
           }
           console.log('Replication endpoint configuration validated for', url.origin + url.pathname);
           NODE
-          echo "ready=true" >> "$GITHUB_OUTPUT"
-      - name: Run bounded exchange replication cycle
-        if: steps.config.outputs.ready == 'true'
+      - name: Acquire Bitget market data from the GitHub runner and push validated observations to D1
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 20 --max-time 240 \
-            --retry 2 --retry-delay 8 --retry-all-errors \
-            -X POST "$REPLICATION_URL" \
-            -H "content-type: application/json" \
-            -H "x-jpti-api-token: $JPTI_API_TOKEN" \
-            --data '{"includeCandles":true,"marketLimit":1,"candleLimit":80,"timeframes":["1m","5m","1h"]}' \
-            --output replication-result.json
-          node --input-type=module <<'NODE'
-          import fs from 'node:fs';
-          const r = JSON.parse(fs.readFileSync('replication-result.json', 'utf8'));
-          if (!r.runId || !['completed', 'partial'].includes(r.status)) {
-            throw new Error('Replication API did not return a completed or partial run: ' + JSON.stringify({ status: r.status, error: r.error }));
-          }
-          if (!Number(r.counts?.attempted) || !Number(r.counts?.succeeded)) {
-            throw new Error('Replication returned no successful acquisition work. Inspect the API run errors and Cloudflare upstream access.');
-          }
-          console.log('Replication run:', r.runId, 'status:', r.status, 'attempted:', r.counts.attempted, 'succeeded:', r.counts.succeeded, 'inserted:', r.counts.inserted ?? 0);
-          if (r.status === 'partial') {
-            const errors = Array.isArray(r.errors) ? r.errors.slice(0, 5) : [];
-            console.warn('::warning title=Partial market replication::Some configured sources failed. Review bounded errors: ' + JSON.stringify(errors));
-          }
-          NODE
+          node scripts/replicate-market-data.mjs
       - name: Replicate order books, trades, funding, open interest and liquidation events
-        if: steps.config.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -96,7 +78,5 @@ jobs:
             throw new Error('Microstructure API did not return a completed or partial run: ' + JSON.stringify({ status: r.status, error: r.error }));
           }
           console.log('Microstructure run:', r.runId, 'status:', r.status, 'inserted:', r.inserted ?? 0, 'unsupported:', r.coverage?.unsupported ?? 0);
-          if (r.status === 'partial') {
-            console.warn('::warning title=Partial microstructure replication::Review source errors and unsupported coverage in the returned run.');
-          }
+          if (r.status === 'partial') console.warn('::warning title=Partial microstructure replication::Review source errors and unsupported coverage in the returned run.');
           NODE
