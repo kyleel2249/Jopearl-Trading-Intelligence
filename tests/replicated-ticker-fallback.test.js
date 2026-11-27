@@ -10,9 +10,12 @@ function makeEnv(observation) {
     JPTI_DB: {
       prepare(sql) {
         return {
-          bind() { return this; },
+          args: [],
+          bind(...args) { this.args = args; return this; },
           async first() {
             if (sql.includes("observation_kind = 'ticker'")) {
+              const [, marketType, symbol] = this.args;
+              if (!observation || observation.marketType !== marketType || observation.symbol !== symbol) return null;
               return observation ? {
                 payload: JSON.stringify(observation),
                 observed_at: observation.observedAt,
