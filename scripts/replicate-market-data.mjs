@@ -143,7 +143,7 @@ export async function runRunnerReplication(options = {}) {
   const response = await fetchImpl(endpoint + INGEST_PATH, {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'x-jpti-api-token': token },
-    body: JSON.stringify({ mode: 'ingest', attempted: counts.attempted, observations, errors }),
+    body: JSON.stringify({ mode: 'ingest', attempted: observations.length, observations, errors }),
     signal: AbortSignal.timeout(30000)
   });
   const body = await response.json().catch(() => ({}));
