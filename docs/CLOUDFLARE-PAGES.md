@@ -26,7 +26,7 @@ Add these under the repository's **Settings → Secrets and variables → Action
 
 Optional repository variable for native Android builds:
 
-- `CLOUDFLARE_PAGES_URL` — public Pages origin, e.g. `https://jpti.pages.dev`. It is a public URL, not a secret.
+- `CLOUDFLARE_PAGES_URL` — public Pages origin, `https://jopearl-trading-intelligence.pages.dev`. It is a public URL, not a secret.
 
 ## Environment files
 
