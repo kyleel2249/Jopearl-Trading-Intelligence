@@ -109,3 +109,23 @@ test('unexpected WebSocket close still schedules exponential reconnect',async()=
   assert.equal(state.values.get('streamState').status,'reconnecting');
  }finally{globalThis.WebSocket=original;}
 });
+
+
+test('operator stop during REST order-book snapshot prevents the pending WebSocket from starting',async()=>{
+ const originalFetch=globalThis.fetch,originalWebSocket=globalThis.WebSocket;
+ globalThis.WebSocket=TestWebSocket;TestWebSocket.instances=[];
+ let releaseSnapshot;let markSnapshotStarted;
+ const snapshotStarted=new Promise(resolve=>{markSnapshotStarted=resolve;});
+ globalThis.fetch=async()=>{markSnapshotStarted();return new Promise(resolve=>{releaseSnapshot=resolve;});};
+ try{
+  const state=makeStreamHubState(),hub=new MarketStreamHub(state,makeStreamHubEnv());
+  const startPromise=hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'binance',marketType:'spot',symbol:'BTC/USDT'})}));
+  await snapshotStarted;
+  await hub.fetch(new Request('https://stream-hub/stop',{method:'POST'}));
+  releaseSnapshot(new Response(JSON.stringify({lastUpdateId:100,bids:[['100','2']],asks:[['101','3']]}),{status:200,headers:{'content-type':'application/json'}}));
+  await startPromise;
+  assert.equal(TestWebSocket.instances.length,0);
+  assert.equal(state.values.get('operatorStopped'),true);
+  assert.equal(state.values.get('streamState').status,'stopped');
+ }finally{globalThis.fetch=originalFetch;globalThis.WebSocket=originalWebSocket;}
+});
