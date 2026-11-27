@@ -16,6 +16,8 @@ test('stream start payload filters unsupported venues and markets and caps subsc
   {exchange:'unknown',market_type:'spot',symbol:'BADUSDT'}
  ]);
  assert.deepEqual(payload.streams,[
+  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
+  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'},
   {exchange:'binance',marketType:'spot',symbol:'BTC/USDT'},
   {exchange:'bitget',marketType:'usdt-m',symbol:'ETH/USDT'}
  ]);
@@ -30,16 +32,16 @@ test('paper scheduler starts streams through its cross-worker Durable Object bin
   },
   JPTI_DB:{prepare(){return{async all(){return{results:[{exchange:'binance',market_type:'spot',symbol:'BTCUSDT'}]};}};}}
  });
- assert.equal(result.requested,1);
- assert.equal(result.started,1);
- assert.equal(calls.length,1);
+ assert.equal(result.requested,3);
+ assert.equal(result.started,3);
+ assert.equal(calls.length,3);
  assert.equal(calls[0].url,'https://stream-hub/start');
  assert.equal(JSON.parse(calls[0].options.body).symbol,'BTC/USDT');
 });
 
 test('Bitget perpetual catalogue filters inactive/non-USDT contracts and ranks liquidity',()=>{const rows=normalizeBitgetPerpetualUniverse([{symbol:'BTCUSDT',symbolStatus:'normal',quoteCoin:'USDT',baseCoin:'BTC'},{symbol:'ETHUSDT',symbolStatus:'normal',quoteCoin:'USDT',baseCoin:'ETH'},{symbol:'BADUSDT',symbolStatus:'offline',quoteCoin:'USDT'},{symbol:'BTCUSD',symbolStatus:'normal',quoteCoin:'USD'}],[{symbol:'BTCUSDT',usdtVolume:'100'},{symbol:'ETHUSDT',usdtVolume:'250'}]);assert.deepEqual(rows.map(x=>x.symbol),['ETHUSDT','BTCUSDT']);});
 test('perpetual universe rotation covers every symbol without duplicates',()=>{const universe=['BTCUSDT','ETHUSDT','SOLUSDT','XRPUSDT','BNBUSDT'];const first=selectRoundRobinBatch(universe,0,2),second=selectRoundRobinBatch(universe,first.nextOffset,2),third=selectRoundRobinBatch(universe,second.nextOffset,2);assert.deepEqual(first.symbols,['BTCUSDT','ETHUSDT']);assert.deepEqual(second.symbols,['SOLUSDT','XRPUSDT']);assert.deepEqual(third.symbols,['BNBUSDT']);assert.deepEqual(selectRoundRobinBatch(universe,third.nextOffset,2).symbols,['BTCUSDT','ETHUSDT']);});
-test('priority perpetual symbols receive four venue futures streams within the 40-stream cap',()=>{const payload=buildStreamStartPayload([],['BTCUSDT','ETHUSDT']);assert.equal(payload.streams.length,8);assert.deepEqual(payload.streams.slice(0,4).map(x=>x.exchange),['binance','bybit','okx','bitget']);assert.ok(payload.streams.every(x=>x.marketType==='usdt-m'));});
+test('priority perpetual symbols retain four-venue coverage while Bitget Spot and USDT-M stay pinned',()=>{const payload=buildStreamStartPayload([],['BTCUSDT','ETHUSDT']);assert.equal(payload.streams.length,9);assert.deepEqual(payload.streams.slice(0,2),[{exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}]);for(const symbol of ['BTC/USDT','ETH/USDT'])for(const exchange of ['binance','bybit','okx','bitget'])assert.ok(payload.streams.some(x=>x.exchange===exchange&&x.marketType==='usdt-m'&&x.symbol===symbol));});
 
 
 test('Bitget perpetual universe rotation persists a pending cursor until stream startup succeeds',async()=>{
@@ -98,8 +100,25 @@ test('stream rotation starts the replacement futures batch before stopping the p
  const result=await startMarketStreamCollector({MARKET_STREAMS,JPTI_DB},['BTCUSDT'],['ETHUSDT']);
  const firstStop=calls.findIndex(x=>x.url.endsWith('/stop'));
  const lastStart=calls.map(x=>x.url).lastIndexOf('https://stream-hub/start');
- assert.equal(result.requested,4);
- assert.equal(result.started,4);
+ assert.equal(result.requested,5);
+ assert.equal(result.started,5);
  assert.equal(result.stopped,4);
  assert.ok(firstStop>lastStart);
+});
+
+
+test('paper scheduler stream query excludes stale observations and prioritizes Bitget',async()=>{
+ let sql='';const db={prepare(query){sql=query;return{async all(){return{results:[]};}};}};
+ const MARKET_STREAMS={idFromName(id){return id;},get(){return{async fetch(){return new Response(JSON.stringify({status:'connected'}),{status:200});}};}};
+ await startMarketStreamCollector({MARKET_STREAMS,JPTI_DB:db});
+ assert.match(sql,/datetime\(received_at\)>=datetime\('now','-10 minutes'\)/);
+ assert.match(sql,/CASE WHEN exchange='bitget' THEN 0 ELSE 1 END/);
+ assert.match(sql,/CASE WHEN market_type='spot' THEN 0 ELSE 1 END/);
+});
+
+test('Bitget primary streams remain first even when supplemental venues fill the stream pool',()=>{
+ const rows=Array.from({length:60},(_,i)=>({exchange:i%2?'binance':'okx',market_type:'spot',symbol:`COIN${i}/USDT`}));
+ const payload=buildStreamStartPayload(rows);
+ assert.equal(payload.streams.length,40);
+ assert.deepEqual(payload.streams.slice(0,2),[{exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}]);
 });

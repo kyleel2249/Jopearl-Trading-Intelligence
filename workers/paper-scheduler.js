@@ -88,12 +88,16 @@ export function buildStreamStartPayload(rows = [],prioritySymbols=[]) {
     && ['spot','margin','usdt-m','coin-m','usdc-m'].includes(x.marketType) && /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(x.symbol));
   const prioritized=(Array.isArray(prioritySymbols)?prioritySymbols:[]).flatMap(symbol=>['binance','bybit','okx','bitget'].map(exchange=>({exchange,marketType:'usdt-m',symbol:String(symbol).toUpperCase().replace(/USDT$/,'/USDT').replace('//','/')})));
   const baseStreams=streams.length?streams:(prioritized.length?[]:STREAM_FALLBACK);
-  const unique=new Map([...prioritized,...baseStreams].map(x=>[x.exchange+':'+x.marketType+':'+x.symbol,x]));
+  const primary=[
+    {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
+    {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}
+  ];
+  const unique=new Map([...primary,...prioritized,...baseStreams].map(x=>[x.exchange+':'+x.marketType+':'+x.symbol,x]));
   return { streams: [...unique.values()].slice(0, 40) };
 }
 export async function startMarketStreamCollector(env,prioritySymbols=[],previousSymbols=[]) {
   if (!env.MARKET_STREAMS) throw new Error('MARKET_STREAMS Durable Object binding is not configured.');
-  const rows = await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') GROUP BY exchange,market_type,symbol ORDER BY last_seen DESC LIMIT 40").all();
+  const rows = await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') AND datetime(received_at)>=datetime('now','-10 minutes') GROUP BY exchange,market_type,symbol ORDER BY CASE WHEN exchange='bitget' THEN 0 ELSE 1 END,CASE WHEN market_type='spot' THEN 0 ELSE 1 END,last_seen DESC LIMIT 40").all();
   const payload = buildStreamStartPayload(rows.results || [],prioritySymbols);
   const stopped=[];
   const active=new Set((Array.isArray(prioritySymbols)?prioritySymbols:[]).map(x=>String(x).toUpperCase()));
