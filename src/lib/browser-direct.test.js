@@ -276,3 +276,18 @@ test('Bitget derivative failures never silently fall over to another venue spot 
   assert.equal(result.failed, true);
   assert.deepEqual(hosts, ['api.bitget.com']);
 });
+
+
+test('server-side Bitget spot failures stay on Bitget so Cloudflare can use the exact-venue D1 fallback', async () => {
+  const hosts = [];
+  const provider = createDirectProvider({ fetchImpl: async (url) => {
+    hosts.push(new URL(url).hostname);
+    return json({ code: '40001', msg: 'Bitget edge access denied' }, 403);
+  } });
+  const result = await provider.request('/api/exchanges/bitget/ohlcv/BTC-USDT?timeframe=1h&limit=20&type=spot');
+  assert.equal(result.failed, true);
+  assert.equal(result.status, 502);
+  assert.ok(hosts.includes('api.bitget.com'));
+  assert.ok(hosts.every(host => ['api.bitget.com', 'capi.bitget.com', 'api.bitgetapi.com'].includes(host)));
+  assert.ok(!hosts.some(host => ['api.binance.com', 'api.bybit.com', 'www.okx.com'].includes(host)));
+});
