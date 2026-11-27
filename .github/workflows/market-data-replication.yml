@@ -63,8 +63,9 @@ jobs:
           if (!Array.isArray(r.runIds) || !r.runIds.length || !['completed', 'partial'].includes(r.status)) {
             throw new Error('Runner replication did not return a completed or partial D1 ingest: ' + JSON.stringify({ status: r.status, errors: r.errors?.slice(0, 3) }));
           }
-          if (!Number(r.counts?.succeeded) || !Number(r.counts?.valid)) {
-            throw new Error('Runner replication produced no validated market observations.');
+          const persisted = Number(r.counts?.inserted || 0) + Number(r.counts?.duplicates || 0);
+          if (!Number(r.counts?.succeeded) || !Number(r.counts?.valid) || !persisted) {
+            throw new Error('Runner replication produced no confirmed D1 inserts or idempotent duplicates.');
           }
           console.log('Runner replication runs:', r.runIds.join(','), 'status:', r.status, 'attempted:', r.counts.attempted, 'succeeded:', r.counts.succeeded, 'valid:', r.counts.valid, 'inserted:', r.counts.inserted, 'duplicates:', r.counts.duplicates);
           if (r.status === 'partial') {
