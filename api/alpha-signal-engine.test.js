@@ -106,3 +106,8 @@ test('replay models adverse stop gaps at the candle open and keeps stop-first am
  const targetGap=resolveReplayBarExit({side:'buy',bar:{open:115,high:118,low:112},stop:95,target:110});
  assert.deepEqual(targetGap,{price:110,reason:'take_profit_2'});
 });
+
+test('rejects derivative market types from spot-only Alpha position sizing', () => {
+ assert.throws(()=>evaluateAlphaSignal({...input(),marketType:'futures'},start+240*tf+5000),/spot markets only/);
+ assert.throws(()=>evaluateAlphaSignal({...input(),marketType:'perpetual'},start+240*tf+5000),/spot markets only/);
+});
