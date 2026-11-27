@@ -71,11 +71,47 @@ export async function runRunnerReplication(options = {}) {
     return body;
   }
 
+  function appendMarketObservation(market, exchange, marketType) {
+    const symbol = String(market.symbol).toUpperCase();
+    const instrumentId = String(market.id || market.instrumentId || '').trim();
+    if (!instrumentId) return;
+    const productCategory = market.productCategory || ({
+      spot: 'SPOT', margin: 'MARGIN', 'usdt-m': 'USDT-FUTURES',
+      'coin-m': 'COIN-FUTURES', 'usdc-m': 'USDC-FUTURES'
+    })[marketType];
+    observations.push({
+      exchange, marketType, symbol, kind: 'markets',
+      observedAt: new Date().toISOString(),
+      market: {
+        id: instrumentId, symbol, base: market.base || symbol.split('/')[0],
+        quote: market.quote || symbol.split('/')[1]?.split(':')[0],
+        settle: market.settle || null, active: market.active !== false,
+        type: market.type || (market.contract ? 'perpetual' : 'spot'),
+        categories: Array.isArray(market.categories) ? market.categories : [marketType],
+        spot: market.spot ?? marketType === 'spot',
+        margin: market.margin ?? marketType === 'margin',
+        swap: market.swap ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
+        future: market.future ?? false, contract: market.contract ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
+        linear: market.linear ?? (marketType === 'usdt-m' || marketType === 'usdc-m'),
+        inverse: market.inverse ?? marketType === 'coin-m',
+        productCategory, contractType: market.contractType || null,
+        instrumentType: market.instrumentType || 'crypto',
+        precision: market.precision || null, limits: market.limits || null
+      },
+      sourceExchange: exchange, requestedExchange: exchange, failedOver: false
+    });
+    marketsSeen.push({ exchange, marketType, symbol });
+    counts.markets += 1;
+    counts.valid += 1;
+  }
+
   for (const exchange of plan.exchanges) {
     for (const marketType of marketTypesForExchange(exchange, plan.marketTypes)) {
       try {
         const marketPath = '/api/exchanges/' + exchange + '/markets?type=' + encodeURIComponent(marketType) + '&failover=false';
         const catalog = await request(marketPath, exchange, 'Market catalog');
+        const catalogMarkets = selectReplicationMarkets(catalog.markets, plan.symbols, plan.catalogLimit);
+        for (const market of catalogMarkets) appendMarketObservation(market, exchange, marketType);
         const markets = selectReplicationMarkets(catalog.markets, plan.symbols, plan.limit);
         if (!markets.length) {
           skipped.push({ exchange, marketType, stage: 'markets', reason: 'No configured market was listed.' });
@@ -85,37 +121,6 @@ export async function runRunnerReplication(options = {}) {
           const symbol = String(market.symbol).toUpperCase();
           const instrumentId = String(market.id || market.instrumentId || '').trim();
           const instrumentQuery = instrumentId ? '&instrumentId=' + encodeURIComponent(instrumentId) : '';
-          marketsSeen.push({ exchange, marketType, symbol });
-          counts.markets += 1;
-
-          const productCategory = market.productCategory || ({
-            spot: 'SPOT', margin: 'MARGIN', 'usdt-m': 'USDT-FUTURES',
-            'coin-m': 'COIN-FUTURES', 'usdc-m': 'USDC-FUTURES'
-          })[marketType];
-          if (instrumentId) {
-            observations.push({
-              exchange, marketType, symbol, kind: 'markets',
-              observedAt: new Date().toISOString(),
-              market: {
-                id: instrumentId, symbol, base: market.base || symbol.split('/')[0],
-                quote: market.quote || symbol.split('/')[1]?.split(':')[0],
-                settle: market.settle || null, active: market.active !== false,
-                type: market.type || (market.contract ? 'perpetual' : 'spot'),
-                categories: Array.isArray(market.categories) ? market.categories : [marketType],
-                spot: market.spot ?? marketType === 'spot',
-                margin: market.margin ?? marketType === 'margin',
-                swap: market.swap ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
-                future: market.future ?? false, contract: market.contract ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
-                linear: market.linear ?? (marketType === 'usdt-m' || marketType === 'usdc-m'),
-                inverse: market.inverse ?? marketType === 'coin-m',
-                productCategory, contractType: market.contractType || null,
-                instrumentType: market.instrumentType || 'crypto',
-                precision: market.precision || null, limits: market.limits || null
-              },
-              sourceExchange: exchange, requestedExchange: exchange, failedOver: false
-            });
-            counts.valid += 1;
-          }
 
           try {
             const tickerPath = '/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(symbol)
