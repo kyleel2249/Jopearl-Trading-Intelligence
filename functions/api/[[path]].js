@@ -199,18 +199,37 @@ async function readReplicatedTicker(env, url, nowMs = Date.now()) {
     const observedAt = Date.parse(observation?.observedAt || row.observed_at || '');
     const last = Number(observation?.last);
     if (!(last > 0) || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)) return null;
+
+    const optionalNumber = value => value == null || value === '' ? null : Number(value);
+    const bid = optionalNumber(observation.bid);
+    const ask = optionalNumber(observation.ask);
+    const high = optionalNumber(observation.high);
+    const low = optionalNumber(observation.low);
+    const baseVolume = optionalNumber(observation.baseVolume);
+    const quoteVolume = optionalNumber(observation.quoteVolume);
+    const changePct = optionalNumber(observation.changePct);
+    const optionalValues = [bid, ask, high, low, baseVolume, quoteVolume, changePct];
+    if (optionalValues.some(value => value !== null && !Number.isFinite(value))) return null;
+    if ((bid !== null && bid <= 0) || (ask !== null && ask <= 0)) return null;
+    if (bid !== null && ask !== null && bid > ask) return null;
+    if ((high !== null && high <= 0) || (low !== null && low <= 0)) return null;
+    if (high !== null && low !== null && high < low) return null;
+    if (high !== null && last > high) return null;
+    if (low !== null && last < low) return null;
+    if ((baseVolume !== null && baseVolume < 0) || (quoteVolume !== null && quoteVolume < 0)) return null;
+
     const ageMs = nowMs - receivedAt;
     // A replicated ticker is useful as a short-lived outage bridge, not as an indefinite live quote.
     if (ageMs < -5000 || ageMs > 15 * 60 * 1000) return null;
     return {
       exchange, symbol, last,
-      bid: Number.isFinite(Number(observation.bid)) ? Number(observation.bid) : null,
-      ask: Number.isFinite(Number(observation.ask)) ? Number(observation.ask) : null,
-      high: Number.isFinite(Number(observation.high)) ? Number(observation.high) : null,
-      low: Number.isFinite(Number(observation.low)) ? Number(observation.low) : null,
-      baseVolume: Number.isFinite(Number(observation.baseVolume)) ? Number(observation.baseVolume) : null,
-      quoteVolume: Number.isFinite(Number(observation.quoteVolume)) ? Number(observation.quoteVolume) : null,
-      percentage: Number.isFinite(Number(observation.changePct)) ? Number(observation.changePct) : null,
+      bid,
+      ask,
+      high,
+      low,
+      baseVolume,
+      quoteVolume,
+      percentage: changePct,
       timestamp: observedAt,
       stale: true,
       lastUpdatedAt: new Date(observedAt).toISOString(),
