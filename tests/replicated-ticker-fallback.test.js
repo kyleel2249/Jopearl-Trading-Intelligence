@@ -115,3 +115,21 @@ test('replicated derivative tickers normalize settlement symbols for all Bitget 
     assert.equal(body.source, 'cloudflare-d1-replicated-history', item.type);
   }
 });
+
+
+test('Bitget ticker upstream 404 uses a matching durable D1 quote', async () => {
+  const handler = createPagesApiHandler({
+    marketProvider: { request: async () => ({ status: 404, body: { error: 'Exchange answered HTTP 404.' } }) },
+    now: () => new Date(NOW)
+  });
+  const observation = makeObservation(new Date(NOW - 2 * 60 * 1000).toISOString());
+  const response = await handler({
+    request: new Request('https://jpti.example/api/exchanges/bitget/ticker/BTC-USDT?type=spot'),
+    env: makeEnv(observation)
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.source, 'cloudflare-d1-replicated-history');
+  assert.equal(body.exchange, 'bitget');
+  assert.equal(body.stale, true);
+});
