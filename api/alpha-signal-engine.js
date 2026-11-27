@@ -31,8 +31,10 @@ export function normalizeAlphaCandles(input, timeframe, now=Date.now()) {
   if (!tf) throw new Error('Unsupported timeframe. Use a supported interval from 1m through 1w.');
   const rows = input.map((c,i) => {
     const row = Array.isArray(c) ? { timestamp:c[0],open:c[1],high:c[2],low:c[3],close:c[4],volume:c[5] } : c;
-    const values = ['timestamp','open','high','low','close','volume'].map(k=>Number(row?.[k]));
-    if (!values.every(Number.isFinite)) throw new Error('Candle '+i+' contains a missing or non-finite OHLCV field.');
+    const rawValues = ['timestamp','open','high','low','close','volume'].map(k=>row?.[k]);
+    if (rawValues.some(value=>value===null||value===undefined||value==='')) throw new Error('Candle '+i+' contains a missing, null or empty OHLCV field.');
+    const values = rawValues.map(Number);
+    if (!values.every(Number.isFinite)) throw new Error('Candle '+i+' contains a non-finite OHLCV field.');
     const [timestamp,open,high,low,close,volume]=values;
     if (timestamp<=0 || Math.min(open,high,low,close)<=0 || volume<0 || high<Math.max(open,close,low) || low>Math.min(open,close,high)) throw new Error('Candle '+i+' violates positive-price or OHLC consistency rules.');
     if (i && timestamp<=Number((Array.isArray(input[i-1])?input[i-1][0]:input[i-1].timestamp))) throw new Error('Candles must be strictly chronological with unique timestamps.');
