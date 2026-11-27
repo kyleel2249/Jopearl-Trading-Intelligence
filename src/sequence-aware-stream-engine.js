@@ -89,12 +89,32 @@ export function advanceBookSequence(state={},update={}) {
 export function applyOrderBookUpdate(book={},event={}) {
  const snapshot=event.quality?.snapshot||event.payload?.type==='snapshot';
  const bids=snapshot?new Map():new Map(book.bids||[]),asks=snapshot?new Map():new Map(book.asks||[]);
- const apply=(map,levels)=>{for(const level of Array.isArray(levels)?levels:[]){const price=n(level[0]),size=n(level[1]);if(!(price>0)||size===null)continue;if(size===0)map.delete(price);else map.set(price,size);}};
+ let invalidLevel=false;
+ const apply=(map,levels)=>{
+  for(const level of Array.isArray(levels)?levels:[]){
+   const price=n(level?.[0]),size=n(level?.[1]);
+   if(!(price>0)||size===null||size<0){invalidLevel=true;continue;}
+   if(size===0)map.delete(price);else map.set(price,size);
+  }
+ };
  apply(bids,event.payload?.bids);apply(asks,event.payload?.asks);
- return{bids:[...bids.entries()].sort((a,b)=>b[0]-a[0]).slice(0,100),asks:[...asks.entries()].sort((a,b)=>a[0]-b[0]).slice(0,100),lastSequence:event.sequence?.last??event.sequence?.sequence??book.lastSequence??null,valid:event.quality?.bookValid!==false};
+ const sortedBids=[...bids.entries()].sort((a,b)=>b[0]-a[0]).slice(0,100);
+ const sortedAsks=[...asks.entries()].sort((a,b)=>a[0]-b[0]).slice(0,100);
+ const bestBid=sortedBids[0]?.[0]??null,bestAsk=sortedAsks[0]?.[0]??null;
+ const crossed=bestBid!==null&&bestAsk!==null&&bestBid>=bestAsk;
+ const hasTwoSidedDepth=bestBid!==null&&bestAsk!==null;
+ const priorInvalidLevel=!snapshot&&book.invalidLevel===true;
+ const sequenceValid=snapshot?event.quality?.bookValid!==false:book.valid===true&&event.quality?.bookValid!==false;
+ const valid=sequenceValid&&!priorInvalidLevel&&!invalidLevel&&!crossed&&hasTwoSidedDepth;
+ return{
+  bids:sortedBids,asks:sortedAsks,
+  lastSequence:event.sequence?.last??event.sequence?.sequence??book.lastSequence??null,
+  valid,crossed,invalidLevel:priorInvalidLevel||invalidLevel
+ };
 }
 export function summarizeOrderBook(book={}) {
  const bids=book.bids||[],asks=book.asks||[],bestBid=bids[0]?.[0]??null,bestAsk=asks[0]?.[0]??null,mid=bestBid&&bestAsk?(bestBid+bestAsk)/2:null;
  const bidQty=bids.reduce((s,x)=>s+x[1],0),askQty=asks.reduce((s,x)=>s+x[1],0),bidNotional=bids.reduce((s,x)=>s+x[0]*x[1],0),askNotional=asks.reduce((s,x)=>s+x[0]*x[1],0);
- return{bestBid,bestAsk,midPrice:mid,spread:bestBid&&bestAsk?bestAsk-bestBid:null,spreadBps:mid?(bestAsk-bestBid)/mid*10000:null,bidQty,askQty,bidNotional,askNotional,depthImbalance:bidQty+askQty?(bidQty-askQty)/(bidQty+askQty):null,notionalImbalance:bidNotional+askNotional?(bidNotional-askNotional)/(bidNotional+askNotional):null,valid:book.valid===true,lastSequence:book.lastSequence||null};
+ const crossed=bestBid!==null&&bestAsk!==null&&bestBid>=bestAsk;
+ return{bestBid,bestAsk,midPrice:mid,spread:bestBid&&bestAsk?bestAsk-bestBid:null,spreadBps:mid?(bestAsk-bestBid)/mid*10000:null,bidQty,askQty,bidNotional,askNotional,depthImbalance:bidQty+askQty?(bidQty-askQty)/(bidQty+askQty):null,notionalImbalance:bidNotional+askNotional?(bidNotional-askNotional)/(bidNotional+askNotional):null,valid:book.valid===true&&!crossed&&book.invalidLevel!==true,crossed,invalidLevel:book.invalidLevel===true,lastSequence:book.lastSequence||null};
 }

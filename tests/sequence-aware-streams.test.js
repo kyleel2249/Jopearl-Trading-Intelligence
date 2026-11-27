@@ -20,3 +20,32 @@ test('stream control remains private when no control token is configured',async(
  const response=await collector.fetch(new Request('https://collector.test/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'binance',marketType:'spot',symbol:'BTC/USDT'})}),{});
  assert.equal(response.status,401);
 });
+
+test('order-book reconstruction rejects negative quantities and stays invalid until a fresh snapshot',()=>{
+ let book=applyOrderBookUpdate({}, {quality:{snapshot:true},payload:{type:'snapshot',bids:[['100','2']],asks:[['101','3']]},sequence:{last:10}});
+ assert.equal(book.valid,true);
+ book=applyOrderBookUpdate(book,{quality:{bookValid:true},payload:{bids:[['100','-4']]},sequence:{last:11}});
+ assert.equal(book.valid,false);
+ assert.equal(book.invalidLevel,true);
+ assert.equal(summarizeOrderBook(book).valid,false);
+ book=applyOrderBookUpdate(book,{quality:{bookValid:true},payload:{bids:[['100','5']]},sequence:{last:12}});
+ assert.equal(book.valid,false);
+ book=applyOrderBookUpdate(book,{quality:{snapshot:true},payload:{type:'snapshot',bids:[['100','5']],asks:[['101','2']]},sequence:{last:13}});
+ assert.equal(book.valid,true);
+ assert.equal(book.invalidLevel,false);
+});
+test('crossed order books are explicitly invalid and cannot be summarized as trusted depth',()=>{
+ const book=applyOrderBookUpdate({}, {quality:{snapshot:true},payload:{type:'snapshot',bids:[['102','2']],asks:[['101','3']]},sequence:{last:20}});
+ const summary=summarizeOrderBook(book);
+ assert.equal(book.crossed,true);
+ assert.equal(book.valid,false);
+ assert.equal(summary.crossed,true);
+ assert.equal(summary.valid,false);
+ assert.ok(summary.spread<0);
+});
+test('order-book reconstruction rejects non-finite and non-positive price levels',()=>{
+ const book=applyOrderBookUpdate({}, {quality:{snapshot:true},payload:{type:'snapshot',bids:[['0','2'],['NaN','3'],['100','2']],asks:[['101','1']]},sequence:{last:30}});
+ assert.equal(book.valid,false);
+ assert.equal(book.invalidLevel,true);
+ assert.deepEqual(book.bids,[[100,2]]);
+});
