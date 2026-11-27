@@ -215,3 +215,29 @@ test('runner ingest rejects market metadata with mismatched product category or 
  assert.equal(body.counts.inserted,0);
  assert.equal(db.observations.size,0);
 });
+
+
+test('runner replicates a broader instrument catalogue while keeping live price sampling bounded',async()=>{
+ const symbols=['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','BNB/USDT','DOGE/USDT','ADA/USDT','LINK/USDT'];
+ const paths=[],posts=[];
+ const provider={async request(path){
+  paths.push(path);
+  if(path.includes('/markets?'))return{status:200,body:{markets:symbols.map((symbol,index)=>({symbol,id:symbol.replace('/','')+'_ID_'+index,active:true,base:symbol.split('/')[0],quote:'USDT',productCategory:'SPOT',spot:true}))}};
+  if(path.includes('/ticker/'))return{status:200,body:{...makeTicker(),symbol:'BTC/USDT'}};
+  if(path.includes('/ohlcv/'))return{status:200,body:{exchange:'bitget',requestedExchange:'bitget',failedOver:false,candles}};
+  return null;
+ }};
+ const summary=await runRunnerReplication({
+  endpoint:'https://jopearl-trading-intelligence.pages.dev/api/replication',token:'secret',provider,
+  planInput:{exchanges:['bitget'],symbols,marketTypes:['spot'],timeframes:['1m'],marketLimit:1,catalogLimit:8,candleLimit:20},
+  fetchImpl:async(_url,init)=>{posts.push(JSON.parse(init.body));return new Response(JSON.stringify({runId:'catalog-8',status:'completed',counts:{inserted:11,duplicates:0,valid:11}}),{status:200,headers:{'content-type':'application/json'}});},
+  logger:{log(){},warn(){}}
+ });
+ assert.equal(summary.status,'completed');
+ assert.equal(summary.counts.markets,8);
+ assert.equal(summary.counts.inserted,11);
+ assert.equal(paths.filter(path=>path.includes('/ticker/')).length,1);
+ assert.equal(paths.filter(path=>path.includes('/ohlcv/')).length,1);
+ assert.equal(posts[0].observations.filter(row=>row.kind==='markets').length,8);
+ assert.equal(posts[0].observations.filter(row=>row.kind==='ticker').length,1);
+});
