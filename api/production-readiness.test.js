@@ -15,3 +15,12 @@ test('blocks weak secrets, ephemeral storage, missing signoff and wildcard CORS'
 test('never changes live authorization even when configuration passes',()=>{
  const r=evaluateProductionReadiness({env:env(),...deps()});assert.equal(r.permissions.liveExecutionAuthorized,false);assert.equal(r.permissions.ordersCreated,0);
 });
+
+test('production defaults are assessed as a remote API binding, not a development loopback',()=>{
+ const e=env();delete e.JPTI_API_HOST;e.NODE_ENV='production';
+ const r=evaluateProductionReadiness({env:e,...deps()});
+ assert.equal(r.deployment.hostBinding,'remote');
+ assert.equal(r.checks.find(x=>x.id==='api_binding').passed,true);
+ const weak={...e,JPTI_ALLOW_REMOTE_API:'false'};
+ assert.equal(evaluateProductionReadiness({env:weak,...deps()}).checks.find(x=>x.id==='api_binding').passed,false);
+});

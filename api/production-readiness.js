@@ -8,7 +8,7 @@ const loopback=host=>['127.0.0.1','::1','localhost'].includes(host);
 const positive=v=>Number.isFinite(Number(v))&&Number(v)>0?Number(v):null;
 const validCorsOrigin=value=>{if(value==='capacitor://localhost')return true;try{const url=new URL(value);return url.protocol==='https:'&&url.origin===value&&!url.username&&!url.password;}catch{return false;}};
 export function evaluateProductionReadiness({env=process.env,storage=getStorageStatus(),scheduler=getSchedulerLeaseStatus(),exchanges=listExchangeCatalog()}={}){
- const host=String(env.JPTI_API_HOST||'127.0.0.1'),remote=!loopback(host),token=String(env.JPTI_API_TOKEN||''),strongToken=token.length>=32&&new Set(token).size>=12&&!/(password|changeme|example|placeholder)/i.test(token),backend=String(env.JPTI_STORAGE_BACKEND||(env.DATABASE_URL?'postgres':'file')).toLowerCase();
+ const host=String(env.JPTI_API_HOST||(env.NODE_ENV==='production'?'0.0.0.0':'127.0.0.1')),remote=!loopback(host),token=String(env.JPTI_API_TOKEN||''),strongToken=token.length>=32&&new Set(token).size>=12&&!/(password|changeme|example|placeholder)/i.test(token),backend=String(env.JPTI_STORAGE_BACKEND||(env.DATABASE_URL?'postgres':'file')).toLowerCase();
  const origins=String(env.JPTI_CORS_ORIGINS||'https://localhost,capacitor://localhost').split(',').map(x=>x.trim()).filter(Boolean);
  const signoff=env.JPTI_LIVE_TRADING_SIGNOFF==='I_HAVE_REVIEWED_AND_ACCEPT_THE_LIVE_TRADING_RISK';
  const checks=[
