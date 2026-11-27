@@ -223,7 +223,7 @@ test('runner replicates a broader instrument catalogue while keeping live price 
  const provider={async request(path){
   paths.push(path);
   if(path.includes('/markets?'))return{status:200,body:{markets:symbols.map((symbol,index)=>({symbol,id:symbol.replace('/','')+'_ID_'+index,active:true,base:symbol.split('/')[0],quote:'USDT',productCategory:'SPOT',spot:true}))}};
-  if(path.includes('/ticker/'))return{status:200,body:{...makeTicker(),symbol:'BTC/USDT'}};
+  if(path.includes('/ticker/'))return{status:200,body:{...makeTicker(),exchange:'bitget',requestedExchange:'bitget',symbol:'BTC/USDT'}};
   if(path.includes('/ohlcv/'))return{status:200,body:{exchange:'bitget',requestedExchange:'bitget',failedOver:false,candles}};
   return null;
  }};
