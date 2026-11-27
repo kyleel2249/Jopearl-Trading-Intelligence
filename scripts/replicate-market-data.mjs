@@ -1,4 +1,5 @@
 import { pathToFileURL } from 'node:url';
+import { writeFileSync } from 'node:fs';
 import { createDirectProvider } from '../src/lib/browser-direct.js';
 import {
   normalizeReplicationPlan, marketTypesForExchange, selectReplicationMarkets
@@ -140,6 +141,7 @@ async function main() {
     includeCandles: true
   };
   const summary = await runRunnerReplication({ endpoint, token, planInput });
+  writeFileSync(process.env.JPTI_REPLICATION_OUTPUT || 'replication-result.json', JSON.stringify(summary, null, 2));
   if (summary.status === 'partial') process.exitCode = 0;
 }
 
