@@ -19,6 +19,7 @@ export default function AlphaSignalEngine(){
  const loadLedger=useCallback(async()=>{try{const r=await apiFetch('/api/alpha/paper/ledger',{headers:headers(),cache:'no-store'});const d=await r.json();if(r.ok)setLedger(d);}catch{}},[apiToken]);
  useEffect(()=>{loadLedger();},[loadLedger]);
  const getMarketData=useCallback(async()=>{
+  if(marketType!=='spot')throw new Error('Alpha Signal Engine uses spot-only position sizing. Select Spot here; use the Futures Risk Gate for futures or perpetual contracts.');
   const normalized=symbol.trim().toUpperCase();if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(normalized))throw new Error('Enter BASE/QUOTE, or BASE/QUOTE:SETTLE for a Bitget contract.');
   const marketPath=normalized.replace('/','-');
   const [candleResponse,quoteResponse]=await Promise.all([
@@ -28,8 +29,15 @@ export default function AlphaSignalEngine(){
   const [candleData,quoteData]=await Promise.all([candleResponse.json(),quoteResponse.json()]);
   if(!candleResponse.ok)throw new Error(candleData.error||'OHLCV history unavailable.');
   if(!quoteResponse.ok)throw new Error(quoteData.error||'A fresh exchange quote is required.');
+  const verifySource=(data,label)=>{
+   const served=String(data.exchange||'').toLowerCase(),requested=String(data.requestedExchange||data.exchange||'').toLowerCase();
+   const servedSymbol=String(data.symbol||'').trim().toUpperCase().replace(/-/g,'/');
+   if(served!==exchange||requested!==exchange||servedSymbol!==normalized||data.failedOver===true)throw new Error(label+' source does not match the selected exchange and market. Cross-venue fallback is not accepted for Alpha evaluation.');
+  };
+  verifySource(candleData,'Candle history');verifySource(quoteData,'Ticker quote');
   const timestamp=quoteData.timestamp?new Date(quoteData.timestamp).toISOString():quoteData.datetime;
-  return {symbol:normalized,marketType,candles:candleData.candles,quote:{last:quoteData.last,timestamp}};
+  const marketDataIdentity={exchange:candleData.exchange,requestedExchange:candleData.requestedExchange||candleData.exchange,symbol:candleData.symbol,failedOver:candleData.failedOver===true};
+  return {symbol:normalized,marketType,candles:candleData.candles,marketDataIdentity,quote:{exchange:quoteData.exchange,requestedExchange:quoteData.requestedExchange||quoteData.exchange,symbol:quoteData.symbol,failedOver:quoteData.failedOver===true,last:quoteData.last,timestamp}};
  },[exchange,symbol,timeframe,marketType]);
  const run=useCallback(async()=>{
   setBusy(true);setError('');setReplay(null);

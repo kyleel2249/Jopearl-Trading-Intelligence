@@ -31,8 +31,10 @@ export function normalizeAlphaCandles(input, timeframe, now=Date.now()) {
   if (!tf) throw new Error('Unsupported timeframe. Use a supported interval from 1m through 1w.');
   const rows = input.map((c,i) => {
     const row = Array.isArray(c) ? { timestamp:c[0],open:c[1],high:c[2],low:c[3],close:c[4],volume:c[5] } : c;
-    const values = ['timestamp','open','high','low','close','volume'].map(k=>Number(row?.[k]));
-    if (!values.every(Number.isFinite)) throw new Error('Candle '+i+' contains a missing or non-finite OHLCV field.');
+    const rawValues = ['timestamp','open','high','low','close','volume'].map(k=>row?.[k]);
+    if (rawValues.some(value=>value===null||value===undefined||value==='')) throw new Error('Candle '+i+' contains a missing, null or empty OHLCV field.');
+    const values = rawValues.map(Number);
+    if (!values.every(Number.isFinite)) throw new Error('Candle '+i+' contains a non-finite OHLCV field.');
     const [timestamp,open,high,low,close,volume]=values;
     if (timestamp<=0 || Math.min(open,high,low,close)<=0 || volume<0 || high<Math.max(open,close,low) || low>Math.min(open,close,high)) throw new Error('Candle '+i+' violates positive-price or OHLC consistency rules.');
     if (i && timestamp<=Number((Array.isArray(input[i-1])?input[i-1][0]:input[i-1].timestamp))) throw new Error('Candles must be strictly chronological with unique timestamps.');
@@ -101,7 +103,8 @@ export function evaluateHistoricalSessionMemory(records=[],{symbol='unknown',act
 }
 
 export function evaluateAlphaSignal(input={}, now=Date.now()) {
-  const symbol=String(input.symbol||'').trim().toUpperCase(),exchange=String(input.exchange||'').trim().toLowerCase(),timeframe=String(input.timeframe||'');
+  const symbol=String(input.symbol||'').trim().toUpperCase(),exchange=String(input.exchange||'').trim().toLowerCase(),timeframe=String(input.timeframe||''),marketType=String(input.marketType||'spot').trim().toLowerCase();
+  if(marketType!=='spot') throw new Error('Alpha Signal Engine currently supports spot markets only; use the futures risk gate for leveraged or contract instruments.');
   if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(symbol)) throw new Error('Use a normalized BASE/QUOTE symbol such as BTC/USDT.');
   if(!/^[a-z0-9_-]{2,30}$/.test(exchange)) throw new Error('A valid exchange identifier is required.');
   const tf=timeframeMs(timeframe);if(!tf)throw new Error('Unsupported timeframe.');
@@ -148,8 +151,18 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
   const sessionAdjustedConfidence=round(clamp(evidence.confidence+sessionAdjustment,0,95),2);
   const baseDirectionalProbability=round(clamp(50+evidence.score*50,0,100),2);
   const sessionDirectionalProbability=round(clamp(baseDirectionalProbability+(evidence.direction==='buy'?sessionAdjustment:evidence.direction==='sell'?-sessionAdjustment:0),0,100),2);
-  const quote=input.quote||{},quotePrice=Number(quote.last),quoteTime=Date.parse(String(quote.timestamp||''));
-  const quoteAgeMs=Number.isFinite(quoteTime)?now-quoteTime:null,quoteValid=Number.isFinite(quotePrice)&&quotePrice>0&&quoteAgeMs!==null&&quoteAgeMs>=-5000&&quoteAgeMs<=15000;
+  const quote=input.quote||{},marketDataIdentity=input.marketDataIdentity||{};
+  const quotePrice=Number(quote.last),quoteTime=Date.parse(String(quote.timestamp||''));
+  const quoteExchange=String(quote.exchange||'').trim().toLowerCase();
+  const quoteRequestedExchange=String(quote.requestedExchange||quote.exchange||'').trim().toLowerCase();
+  const quoteSymbol=String(quote.symbol||'').trim().toUpperCase().replace(/-/g,'/');
+  const quoteIdentityValid=quoteExchange===exchange&&quoteRequestedExchange===exchange&&quoteSymbol===symbol&&quote.failedOver!==true;
+  const candleExchange=String(marketDataIdentity.exchange||'').trim().toLowerCase();
+  const candleRequestedExchange=String(marketDataIdentity.requestedExchange||marketDataIdentity.exchange||'').trim().toLowerCase();
+  const candleSymbol=String(marketDataIdentity.symbol||'').trim().toUpperCase().replace(/-/g,'/');
+  const candleIdentityValid=candleExchange===exchange&&candleRequestedExchange===exchange&&candleSymbol===symbol&&marketDataIdentity.failedOver!==true;
+  const quoteAgeMs=Number.isFinite(quoteTime)?now-quoteTime:null;
+  const quoteValid=quoteIdentityValid&&Number.isFinite(quotePrice)&&quotePrice>0&&quoteAgeMs!==null&&quoteAgeMs>=-5000&&quoteAgeMs<=15000;
   const candleAgeMs=now-(last.timestamp+tf);
   const entry=quoteValid?quotePrice:last.close,side=evidence.direction,stopDistance=evidence.indicators.atr14*config.atrStopMultiple;
   const stopPrice=side==='buy'?entry-stopDistance:side==='sell'?entry+stopDistance:null;
@@ -161,7 +174,9 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
     {id:'candle_freshness',passed:candleAgeMs>=0&&candleAgeMs<=tf*2,detail:'The last completed OHLCV candle must be no more than two timeframe intervals old.'},
     {id:'account_quote_currency',passed:String(account.currency||'').trim().toUpperCase()===quoteCurrency,detail:'Account equity must use the instrument quote currency ('+quoteCurrency+').' },
     {id:'exposure_quote_currency',passed:Array.isArray(account.exposures)&&account.exposures.every(x=>String(x?.currency||'').trim().toUpperCase()===quoteCurrency),detail:'Every existing exposure must declare marketValue normalized to the same quote currency ('+quoteCurrency+').' },
-    {id:'quote_freshness',passed:quoteValid,detail:'A positive exchange quote timestamped within 15 seconds is required.'},
+    {id:'candle_source_identity',passed:candleIdentityValid,detail:'Completed candles must identify the requested exchange and exact market symbol; cross-venue failover is rejected.'},
+    {id:'quote_source_identity',passed:quoteIdentityValid,detail:'The quote must identify the requested exchange and exact market symbol; cross-venue failover is rejected.'},
+    {id:'quote_freshness',passed:quoteValid,detail:'A positive same-venue exchange quote timestamped within 15 seconds is required.'},
     {id:'signal_direction',passed:evidence.direction!=='neutral',detail:'The ensemble must produce a directional BUY or SELL consensus.'},
     {id:'confidence_threshold',passed:sessionAdjustedConfidence>=config.minimumConfidence,detail:'Session-adjusted heuristic confidence must meet the configured minimum.'},
     {id:'model_agreement',passed:evidence.directionalAgreement>=config.minimumAgreement,detail:'Active specialist models must meet the minimum directional agreement.'},
@@ -182,7 +197,7 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
   const riskChecks=pretrade?.checks||[{id:'risk_inputs',passed:false,detail:'A valid directional setup, fresh quote, account equity and positive order-notional cap are required before risk preflight.'}];
   const qualityPassed=qualityChecks.every(c=>c.passed),riskPassed=Boolean(pretrade?.permissions?.paperIntentEligible);
   const eligible=qualityPassed&&riskPassed;
-  const quoteHash=sha({last:quotePrice,timestamp:quoteTime});
+  const quoteHash=sha({exchange:quoteExchange,requestedExchange:quoteRequestedExchange,symbol:quoteSymbol,failedOver:quote.failedOver===true,last:quotePrice,timestamp:quoteTime});
   const fingerprint=sha([ALPHA_ENGINE_VERSION,symbol,exchange,timeframe,last.timestamp,marketHash,quoteHash,configHash,riskHash,eventRisk?.state||'no-event-risk',eventRisk?.nextEvent?.id||'no-next-event',sessionAdjustment,historicalSessionMemory.adjustment,historicalSessionMemory.sampleCount,sessionSetups.selected?.id||'no-session-setup',sessionSetups.selected?.expectancy?.expectancy??'no-expectancy',gainzAlpha.signal,gainzAlpha.score,gainzAlpha.setup?.phase||'no-gainz-setup',gainzCore.signal,gainzCore.score??0,gainzCore.stage||'no-core-stage',collision.worst,sessionForecast.activeSessions?.join('+')||'no-session'].join('|'));
   const signalId='alpha_'+fingerprint.slice(0,32);
   return {signalId,engine:'JPTI Alpha Signal Engine',engineVersion:ALPHA_ENGINE_VERSION,generatedAt:new Date(now).toISOString(),
@@ -191,14 +206,21 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
     marketRegime:evidence.marketRegime,eventRisk,riskBudgetMultiplier:eventRiskMultiplier,levels:{entry:round(entry),stopLoss:stopPrice===null?null:round(stopPrice),takeProfitOne:tp1===null?null:round(tp1),takeProfitTwo:tp2===null?null:round(tp2),riskRewardOne:config.targetOneR,riskRewardTwo:config.targetTwoR,atrStopMultiple:config.atrStopMultiple},
     sizing:{riskPercent:config.riskPercent,riskBudget:riskBudget===null?null:round(riskBudget),quantity:quantity===null?null:round(quantity),notional:quantity===null?null:round(quantity*entry),method:'risk budget divided by ATR stop distance, capped by configured per-order notional'},
     evidence:{...evidence,marketDataSha256:marketHash,quoteSha256:quoteHash,configurationSha256:configHash,riskConfigurationSha256:riskHash,signalFingerprint:fingerprint,usedOnlyCompletedCandles:true,lookaheadBias:'none_in_signal_calculation'},
-    inputSnapshot:{candles,quote:{last:Number.isFinite(quotePrice)?quotePrice:null,timestamp:quote.timestamp||null},config,account,limits,eventRisk,sessionAdjustment,sessionForecast,historicalSessionMemory,sessionSetups,gainzAlpha,smcIntelligence,gainzCore:{signal:gainzCore.signal,score:gainzCore.score??null,stage:gainzCore.stage||null,asOf:gainzCore.asOf||null},sha256:sha({candles,quote:{last:Number.isFinite(quotePrice)?quotePrice:null,timestamp:quote.timestamp||null},config,account,limits,eventRisk,sessionAdjustment,sessionForecast,historicalSessionMemory,sessionSetups,gainzAlpha,smcIntelligence})},
+    inputSnapshot:{candles,marketDataIdentity,quote:{exchange:quoteExchange,requestedExchange:quoteRequestedExchange,symbol:quoteSymbol,failedOver:quote.failedOver===true,last:Number.isFinite(quotePrice)?quotePrice:null,timestamp:quote.timestamp||null},config,account,limits,eventRisk,sessionAdjustment,sessionForecast,historicalSessionMemory,sessionSetups,gainzAlpha,smcIntelligence,gainzCore:{signal:gainzCore.signal,score:gainzCore.score??null,stage:gainzCore.stage||null,asOf:gainzCore.asOf||null},sha256:sha({candles,marketDataIdentity,quote:{exchange:quoteExchange,requestedExchange:quoteRequestedExchange,symbol:quoteSymbol,failedOver:quote.failedOver===true,last:Number.isFinite(quotePrice)?quotePrice:null,timestamp:quote.timestamp||null},config,account,limits,eventRisk,sessionAdjustment,sessionForecast,historicalSessionMemory,sessionSetups,gainzAlpha,smcIntelligence})},
     qualityChecks,riskChecks,pretradeRisk:pretrade,decision:eligible?'paper_intent_eligible':'blocked',
     permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,exchangeOrdersCreated:0},
     limitations:['Session-adjusted probability estimate is heuristic and requires historical calibration before predictive use.','Confidence is a deterministic consensus heuristic, not a statistically calibrated probability.','The five specialist models are deterministic technical rules, not autonomous LLM agents.','Signal evaluation uses completed OHLCV candles and a separately timestamped exchange quote.','Paper eligibility is not a live-order authorization or a profitability guarantee.']};
 }
-function tradeMetrics(trades) {
+export function resolveReplayBarExit({side,bar,stop,target}) {
+  const stopHit=side==='buy'?bar.low<=stop:side==='sell'?bar.high>=stop:false;
+  const targetHit=side==='buy'?bar.high>=target:side==='sell'?bar.low<=target:false;
+  if(stopHit) return {price:side==='buy'?Math.min(stop,bar.open):Math.max(stop,bar.open),reason:'stop_loss'};
+  if(targetHit) return {price:target,reason:'take_profit_2'};
+  return null;
+}
+function tradeMetrics(trades, startingCapital=10000) {
   const wins=trades.filter(t=>t.pnl>0),losses=trades.filter(t=>t.pnl<0),gp=wins.reduce((s,t)=>s+t.pnl,0),gl=Math.abs(losses.reduce((s,t)=>s+t.pnl,0)),net=trades.reduce((s,t)=>s+t.pnl,0);
-  let equity=10000,peak=equity,maxDd=0;for(const t of trades){equity+=t.pnl;peak=Math.max(peak,equity);maxDd=Math.max(maxDd,(peak-equity)/peak);}
+  let equity=startingCapital,peak=equity,maxDd=0;for(const t of trades){equity+=t.pnl;peak=Math.max(peak,equity);maxDd=Math.max(maxDd,(peak-equity)/peak);}
   return {trades:trades.length,wins:wins.length,losses:losses.length,winRatePercent:trades.length?round(wins.length/trades.length*100,2):null,profitFactor:gl?round(gp/gl,3):gp?null:0,netPnl:round(net,4),expectancy:trades.length?round(net/trades.length,4):null,maxDrawdownPercent:round(maxDd*100,3)};
 }
 export function runAlphaReplay(input={}, now=Date.now()) {
@@ -222,9 +244,8 @@ export function runAlphaReplay(input={}, now=Date.now()) {
     let exitPrice=null,exitIndex=null,exitReason='max_holding_period';
     const maxHold=Math.min(candles.length-1,i+49);
     for(let j=i+1;j<=maxHold;j++){
-      const bar=candles[j],stopHit=side==='buy'?bar.low<=stop:bar.high>=stop,targetHit=side==='buy'?bar.high>=target:bar.low<=target;
-      if(stopHit){exitPrice=stop;exitIndex=j;exitReason='stop_loss';break;}
-      if(targetHit){exitPrice=target;exitIndex=j;exitReason='take_profit_2';break;}
+      const bar=candles[j],barExit=resolveReplayBarExit({side,bar,stop,target});
+      if(barExit){exitPrice=barExit.price;exitIndex=j;exitReason=barExit.reason;break;}
     }
     if(exitPrice===null){exitIndex=maxHold;exitPrice=candles[maxHold].close;}
     const exitFill=exitPrice*(side==='buy'?1-slippageBps/10000:1+slippageBps/10000),gross=(exitFill-entryFill)*qty*(side==='buy'?1:-1),fees=entryFee+exitFill*qty*feeBps/10000,pnl=gross-fees;
@@ -232,9 +253,10 @@ export function runAlphaReplay(input={}, now=Date.now()) {
     trades.push(trade);capital+=pnl;activeUntil=exitIndex;
   }
   const inSample=trades.filter(t=>t.split==='in_sample'),outOfSample=trades.filter(t=>t.split==='out_of_sample');
+  const inSampleEndingCapital=initialCapital+inSample.reduce((sum,t)=>sum+t.pnl,0);
   const inputSnapshot={candles,config,feeBps,slippageBps,initialCapital,symbol:symbol||null,exchange:exchange||null,timeframe,sha256:sha({candles,config,feeBps,slippageBps,initialCapital,symbol,exchange,timeframe})};
   return {engineVersion:ALPHA_ENGINE_VERSION,generatedAt:new Date(now).toISOString(),timeframe,market:{symbol:symbol||null,exchange:exchange||null,quoteCurrency:symbol?symbol.split('/')[1]:String(input.quoteCurrency||'').toUpperCase()||null},parameters:{...config,feeBps,slippageBps,initialCapital},inputSnapshot,data:{candles:candles.length,first:new Date(candles[0].timestamp).toISOString(),last:new Date(candles.at(-1).timestamp).toISOString(),sha256:sha(candles),quoteCurrency:symbol?symbol.split('/')[1]:String(input.quoteCurrency||'').toUpperCase()||null,chronological:true,completedCandlesOnly:true},
-    overall:{...tradeMetrics(trades),endingCapital:round(initialCapital+trades.reduce((s,t)=>s+t.pnl,0),4)},inSample:tradeMetrics(inSample),outOfSample:tradeMetrics(outOfSample),
+    overall:{...tradeMetrics(trades,initialCapital),endingCapital:round(initialCapital+trades.reduce((s,t)=>s+t.pnl,0),4)},inSample:tradeMetrics(inSample,initialCapital),outOfSample:tradeMetrics(outOfSample,inSampleEndingCapital),
     trades:trades.slice(-500),validation:{split:'chronological 70/30 by entry candle',outOfSampleUsedForParameterSelection:false,fill:'next candle open',intrabarAmbiguity:'stop is assumed to execute first if stop and target are both touched in one candle',overlappingPositions:false},
     limitations:['Single instrument, long/short simulation with one open position at a time.','No exchange order-book queue, partial fills, market impact, funding, leverage or liquidation model.','Fixed fee and slippage assumptions; actual venue costs may differ.','OHLCV intrabar ordering is unknown; conservative stop-first handling is used.','Historical replay is not proof of future profitability or a production promotion certificate.']};
 }

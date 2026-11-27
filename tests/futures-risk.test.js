@@ -89,3 +89,25 @@ test('safeMaxLeverage is monotonic and respects the cap', () => {
   assert.equal(safeMaxLeverage({ ...args, stop: 99.99, cap: 20 }), 20, 'a very tight stop is limited only by the cap');
   assert.equal(safeMaxLeverage({ ...args, entry: 100, stop: 0.5, mmr: 0.9, cap: 20 }), null, 'no leverage satisfies the buffer when maintenance margin alone exceeds it');
 });
+
+test('caller-provided limits cannot relax hard risk, leverage, margin or liquidation-buffer policy', () => {
+  const loosened = evaluateFuturesRisk({
+    ...base, riskPercent: 3, leverage: 25,
+    limits: { maxRiskPercent: 100, maxLeverage: 100, maxMarginUtilizationPercent: 100, minLiquidationBufferRatio: 0 }
+  });
+  assert.ok(loosened.failedChecks.includes('risk_budget'));
+  assert.ok(loosened.failedChecks.includes('leverage_cap'));
+  assert.ok(loosened.failedChecks.includes('liquidation_buffer'));
+  assert.equal(loosened.sizing.leverage, 25);
+  const stricter = evaluateFuturesRisk({ ...base, limits: { maxRiskPercent: 0.5, maxLeverage: 5, maxMarginUtilizationPercent: 20, minLiquidationBufferRatio: 2 } });
+  assert.ok(stricter.failedChecks.includes('risk_budget'));
+  assert.ok(stricter.failedChecks.includes('leverage_cap'));
+});
+
+test('invalid side, negative fees and impossible maintenance-margin assumptions fail closed', () => {
+  assert.equal(evaluateFuturesRisk({ ...base, side: 'BUY' }).decision, 'blocked');
+  assert.ok(evaluateFuturesRisk({ ...base, takerFeeBps: -10 }).failedChecks.includes('cost_assumptions'));
+  assert.ok(evaluateFuturesRisk({ ...base, maintenanceMarginRate: -0.01 }).failedChecks.includes('cost_assumptions'));
+  assert.ok(evaluateFuturesRisk({ ...base, maintenanceMarginRate: 0.5 }).failedChecks.includes('cost_assumptions'));
+  assert.equal(evaluateFuturesRisk({ ...base, entry: 1e308, stop: 9.99999999999999e307, equity: Number.MAX_VALUE, riskPercent: 2 }).decision, 'blocked');
+});

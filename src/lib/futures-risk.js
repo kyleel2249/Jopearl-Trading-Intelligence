@@ -42,21 +42,38 @@ export function safeMaxLeverage({ kind, side, entry, stop, mmr, minBuffer, cap }
 export function evaluateFuturesRisk(input = {}) {
   const product = String(input.product || 'futures');
   const model = MODELS[product];
-  const limits = { ...DEFAULT_LIMITS, ...(input.limits || {}) };
+  const requestedLimit = (key) => {
+    const value = positive(input.limits?.[key]);
+    return value === null ? DEFAULT_LIMITS[key] : value;
+  };
+  // Caller settings may tighten policy, never relax the hard safety ceilings.
+  const limits = {
+    maxRiskPercent: Math.min(DEFAULT_LIMITS.maxRiskPercent, requestedLimit('maxRiskPercent')),
+    maxLeverage: Math.min(DEFAULT_LIMITS.maxLeverage, requestedLimit('maxLeverage')),
+    maxMarginUtilizationPercent: Math.min(DEFAULT_LIMITS.maxMarginUtilizationPercent, requestedLimit('maxMarginUtilizationPercent')),
+    minLiquidationBufferRatio: Math.max(DEFAULT_LIMITS.minLiquidationBufferRatio, requestedLimit('minLiquidationBufferRatio'))
+  };
   const assumptions = ['Isolated-margin estimate; fees, funding and tiered maintenance margin are not modelled in the liquidation price.'];
   if (product === 'cfd') return { decision: 'unsupported', supported: false, product, checks: [], assumptions, reason: 'CFD sizing needs the instrument contract specification (lot size, pip value, margin), which the market feed does not supply. No figures were produced.' };
   if (!model) return { decision: 'unsupported', supported: false, product, checks: [], assumptions, reason: 'Unknown product "' + product + '".' };
 
-  const side = input.side === 'short' ? 'short' : 'long';
+  const sideInput = String(input.side || 'long').toLowerCase();
+  const side = sideInput === 'short' || sideInput === 'long' ? sideInput : 'invalid';
   const entry = positive(input.entry), stop = positive(input.stop), equity = positive(input.equity);
   const riskPercent = positive(input.riskPercent);
   const leverage = model.kind === 'cash' ? 1 : positive(input.leverage);
-  const feeRate = Math.max(0, num(input.takerFeeBps) ?? 6) / 10000;
-  const mmr = Math.max(0, num(input.maintenanceMarginRate) ?? 0.005);
+  const rawFeeBps = input.takerFeeBps == null ? 6 : num(input.takerFeeBps);
+  const rawMmr = input.maintenanceMarginRate == null ? 0.005 : num(input.maintenanceMarginRate);
+  const feeAssumptionValid = rawFeeBps !== null && rawFeeBps >= 0 && rawFeeBps <= 1000;
+  const mmrAssumptionValid = rawMmr !== null && rawMmr >= 0 && rawMmr <= 0.2;
+  const feeRate = feeAssumptionValid ? rawFeeBps / 10000 : 0;
+  const mmr = mmrAssumptionValid ? rawMmr : 0.005;
   const checks = [];
   const check = (id, passed, detail) => checks.push({ id, passed: Boolean(passed), detail });
 
-  check('valid_inputs', entry && stop && equity && riskPercent && leverage && leverage >= 1, 'Entry, stop, equity, risk % and (for leveraged products) leverage of at least 1 are required.');
+  check('valid_inputs', entry && stop && equity && riskPercent && leverage && leverage >= 1 && ['long', 'short'].includes(side), 'Entry, stop, equity, risk %, a valid long/short side and (for leveraged products) leverage of at least 1 are required.');
+  check('cost_assumptions', feeAssumptionValid && mmrAssumptionValid, 'Taker fees must be 0–1,000 bps and maintenance margin must be 0–20%.');
+  if (!checks[0].passed || !checks[1].passed) return finish({ product, side, checks, assumptions, sizing: null, liquidation: null });
   if (!checks[0].passed) return { decision: 'blocked', supported: true, product, side, checks, assumptions, sizing: null, liquidation: null };
   const stopOnCorrectSide = side === 'long' ? stop < entry : stop > entry;
   check('stop_side', stopOnCorrectSide, side === 'long' ? 'A long needs its stop below entry.' : 'A short needs its stop above entry.');
@@ -74,6 +91,10 @@ export function evaluateFuturesRisk(input = {}) {
     quantity = riskAmount / perUnit; notional = quantity * entry; initialMargin = notional / leverage; quantityUnit = 'base units';
   }
   const marginUtilization = (initialMargin / equity) * 100;
+  const sizingIsFinite = [riskAmount, quantity, notional, initialMargin, marginUtilization].every(Number.isFinite)
+    && [riskAmount, quantity, notional, initialMargin].every(value => value > 0);
+  check('finite_sizing', sizingIsFinite, 'Risk, quantity, notional and margin calculations must remain finite and positive.');
+  if (!sizingIsFinite) return finish({ product, side, checks, assumptions, sizing: null, liquidation: null });
   const sizing = { riskAmount, quantity, quantityUnit, notional, initialMargin, marginUtilizationPercent: marginUtilization, leverage };
 
   check('risk_budget', riskPercent <= limits.maxRiskPercent, 'Risk of ' + riskPercent + '% must not exceed ' + limits.maxRiskPercent + '% of equity.');

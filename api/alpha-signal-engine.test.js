@@ -1,13 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateAlphaPromotionReadiness, evaluateAlphaSignal, evaluateHistoricalSessionMemory, evaluatePaperExit, normalizeAlphaCandles, runAlphaReplay } from './alpha-signal-engine.js';
+import { evaluateAlphaPromotionReadiness, evaluateAlphaSignal, evaluateHistoricalSessionMemory, evaluatePaperExit, normalizeAlphaCandles, resolveReplayBarExit, runAlphaReplay } from './alpha-signal-engine.js';
 const start=1700000000000,tf=3600000;
 function candles(count=240,mode='up'){
  return Array.from({length:count},(_,i)=>{const trend=mode==='up'?i*.16:mode==='down'?-i*.16:Math.sin(i/5)*2;const close=100+trend+Math.sin(i/3)*.35;return{timestamp:start+i*tf,open:close-.08,high:close+.45,low:close-.45,close,volume:1000+(i%15)*80};});
 }
 const account={equity:10000,dailyPnl:0,exposures:[]};
 const limits={maxDailyLoss:250,maxOrderNotional:2000,maxGrossExposure:5000,maxRiskPercent:1,maxSymbolConcentrationPercent:25,maxQuoteAgeMs:15000};
-function input(mode='up'){const c=candles(240,mode),last=c.at(-1);return{symbol:'BTC/USDT',exchange:'binance',timeframe:'1h',candles:c,account:{...account,currency:'USDT'},quote:{last:last.close,timestamp:new Date(last.timestamp+tf).toISOString()},limits,config:{minimumConfidence:55,minimumAgreement:.4}};}
+function input(mode='up'){const c=candles(240,mode),last=c.at(-1);return{symbol:'BTC/USDT',exchange:'binance',timeframe:'1h',candles:c,marketDataIdentity:{exchange:'binance',requestedExchange:'binance',symbol:'BTC/USDT',failedOver:false},account:{...account,currency:'USDT'},quote:{exchange:'binance',requestedExchange:'binance',symbol:'BTC/USDT',failedOver:false,last:last.close,timestamp:new Date(last.timestamp+tf).toISOString()},limits,config:{minimumConfidence:55,minimumAgreement:.4}};}
 test('normalizes only completed, chronological candles and rejects malformed history',()=>{
  const c=candles();assert.equal(normalizeAlphaCandles(c,'1h',c.at(-1).timestamp+tf).length,c.length);
  assert.equal(normalizeAlphaCandles(c,'1h',c.at(-1).timestamp+tf-1).length,c.length-1);
@@ -63,3 +63,51 @@ test('historical session memory only adjusts after minimum sample and matches se
 });
 
 test('historical session adjustment ignores missing return-R observations',()=>{const rows=Array.from({length:10},(_,i)=>({session:'London',symbol:'BTC/USDT',outcome:i<8?'win':'loss',returnR:i<4?1:null}));const result=evaluateHistoricalSessionMemory(rows,{symbol:'BTC/USDT',activeSessions:['London']});assert.equal(result.status,'insufficient');assert.equal(result.averageR,1);assert.equal(result.adjustment,0);});
+
+test('rejects null and empty OHLCV fields instead of silently coercing volume to zero', () => {
+ const nullVolume=candles();nullVolume[12].volume=null;
+ const emptyVolume=candles();emptyVolume[12].volume='';
+ assert.throws(()=>normalizeAlphaCandles(nullVolume,'1h',start+300*tf),/missing, null or empty/);
+ assert.throws(()=>normalizeAlphaCandles(emptyVolume,'1h',start+300*tf),/missing, null or empty/);
+});
+
+test('replay drawdown is measured against the configured initial capital, not a fixed 10,000 baseline', () => {
+ const c=candles(260),common={candles:c,timeframe:'1h',symbol:'BTC/USDT',exchange:'binance',config:{minimumConfidence:50,minimumAgreement:.3},feeBps:10,slippageBps:5};
+ const small=runAlphaReplay({...common,initialCapital:1000},start+261*tf);
+ const large=runAlphaReplay({...common,initialCapital:10000},start+261*tf);
+ assert.ok(small.trades.length>0);
+ assert.equal(small.overall.maxDrawdownPercent,large.overall.maxDrawdownPercent);
+ assert.equal(small.inSample.maxDrawdownPercent,large.inSample.maxDrawdownPercent);
+ assert.equal(small.outOfSample.maxDrawdownPercent,large.outOfSample.maxDrawdownPercent);
+ assert.ok(Math.abs(small.overall.endingCapital*10-large.overall.endingCapital)<0.01);
+});
+
+test('blocks quote or candle history from a different venue or market symbol', () => {
+ const wrongQuoteVenue=input();wrongQuoteVenue.quote.exchange='okx';
+ const quoteVenueResult=evaluateAlphaSignal(wrongQuoteVenue,start+240*tf+5000);
+ assert.equal(quoteVenueResult.qualityChecks.find(x=>x.id==='quote_source_identity').passed,false);
+ assert.equal(quoteVenueResult.permissions.paperIntentEligible,false);
+ const wrongQuoteSymbol=input();wrongQuoteSymbol.quote.symbol='ETH/USDT';
+ const quoteSymbolResult=evaluateAlphaSignal(wrongQuoteSymbol,start+240*tf+5000);
+ assert.equal(quoteSymbolResult.qualityChecks.find(x=>x.id==='quote_source_identity').passed,false);
+ const wrongCandleVenue=input();wrongCandleVenue.marketDataIdentity.exchange='bybit';
+ const candleVenueResult=evaluateAlphaSignal(wrongCandleVenue,start+240*tf+5000);
+ assert.equal(candleVenueResult.qualityChecks.find(x=>x.id==='candle_source_identity').passed,false);
+ assert.equal(candleVenueResult.permissions.paperIntentEligible,false);
+});
+
+test('replay models adverse stop gaps at the candle open and keeps stop-first ambiguity', () => {
+ const longGap=resolveReplayBarExit({side:'buy',bar:{open:90,high:93,low:88},stop:95,target:110});
+ assert.deepEqual(longGap,{price:90,reason:'stop_loss'});
+ const shortGap=resolveReplayBarExit({side:'sell',bar:{open:110,high:112,low:108},stop:105,target:90});
+ assert.deepEqual(shortGap,{price:110,reason:'stop_loss'});
+ const bothTouched=resolveReplayBarExit({side:'buy',bar:{open:100,high:112,low:94},stop:95,target:110});
+ assert.deepEqual(bothTouched,{price:95,reason:'stop_loss'});
+ const targetGap=resolveReplayBarExit({side:'buy',bar:{open:115,high:118,low:112},stop:95,target:110});
+ assert.deepEqual(targetGap,{price:110,reason:'take_profit_2'});
+});
+
+test('rejects derivative market types from spot-only Alpha position sizing', () => {
+ assert.throws(()=>evaluateAlphaSignal({...input(),marketType:'futures'},start+240*tf+5000),/spot markets only/);
+ assert.throws(()=>evaluateAlphaSignal({...input(),marketType:'perpetual'},start+240*tf+5000),/spot markets only/);
+});

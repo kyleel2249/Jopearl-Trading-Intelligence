@@ -10,10 +10,16 @@ async function withServer(run) {
   const server = await new Promise((resolve) => { const s = app.listen(0, '127.0.0.1', () => resolve(s)); });
   try { return await run('http://127.0.0.1:' + server.address().port); } finally { await new Promise((resolve) => server.close(resolve)); }
 }
-const post = (base, body) => fetch(base + '/api/risk/futures-gate', { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
+const post = (base, body, token = 'test-private-token') => fetch(base + '/api/risk/futures-gate', { method: 'POST', headers: { 'content-type': 'application/json', ...(token ? { 'x-jpti-api-token': token } : {}) }, body: JSON.stringify(body) }).then(async (r) => ({ status: r.status, body: await r.json() }));
 
-test('the futures gate endpoint evaluates a plan and never authorizes orders', async () => {
-  await withServer(async (base) => {
+test('the futures gate endpoint requires private access, evaluates a plan and never authorizes orders', async () => {
+  const previousToken = process.env.JPTI_API_TOKEN;
+  const previousLocalAccess = process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS;
+  process.env.JPTI_API_TOKEN = 'test-private-token';
+  process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = 'false';
+  try { await withServer(async (base) => {
+    const denied = await post(base, { product: 'futures', side: 'long', entry: 100, stop: 95, equity: 10000, riskPercent: 1, leverage: 10 }, null);
+    assert.equal(denied.status, 401);
     const ok = await post(base, { product: 'futures', side: 'long', entry: 100, stop: 95, equity: 10000, riskPercent: 1, leverage: 10, takerFeeBps: 0 });
     assert.equal(ok.status, 200);
     assert.equal(ok.body.decision, 'eligible');
@@ -24,5 +30,8 @@ test('the futures gate endpoint evaluates a plan and never authorizes orders', a
     assert.ok(blocked.body.failedChecks.includes('liquidation_buffer'));
     assert.equal((await post(base, { product: 'cfd' })).body.decision, 'unsupported');
     assert.equal((await post(base, {})).body.decision, 'blocked');
-  });
+  }); } finally {
+    if (previousToken === undefined) delete process.env.JPTI_API_TOKEN; else process.env.JPTI_API_TOKEN = previousToken;
+    if (previousLocalAccess === undefined) delete process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS; else process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = previousLocalAccess;
+  }
 });
