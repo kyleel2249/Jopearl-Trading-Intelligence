@@ -1470,7 +1470,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       method: request.method,
       signal: request.signal
     });
-    if ((!result || result.status >= 500) && isMarketDataRoute) {
+    const isBitgetTickerOrCandleRoute = /^\\/api\\/exchanges\\/bitget\\/(?:ticker|ohlcv)\\//i.test(url.pathname);
+    const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && isBitgetTickerOrCandleRoute);
+    if (shouldUseReplicatedFallback && isMarketDataRoute) {
       const replicatedTicker = await readReplicatedTicker(env, url, now().getTime());
       if (replicatedTicker) return json(200, replicatedTicker, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const replicated = await readReplicatedCandles(env, url);
