@@ -178,7 +178,7 @@ async function readHistory(db, url) {
   const marketType = String(url.searchParams.get('marketType') || '').trim().toLowerCase();
   const limit = Math.max(1, Math.min(500, Number.parseInt(url.searchParams.get('limit') || '200', 10) || 200));
   if (exchange && !DIRECT_EXCHANGES.includes(exchange)) return { status: 400, body: { error: 'Unsupported exchange.' } };
-  if (kind !== 'ticker' && kind !== 'ohlcv') return { status: 400, body: { error: 'kind must be ticker or ohlcv.' } };
+  if (kind !== 'ticker' && kind !== 'ohlcv' && kind !== 'markets') return { status: 400, body: { error: 'kind must be ticker, ohlcv or markets.' } };
   if (symbol && !/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(symbol)) return { status: 400, body: { error: 'Invalid market symbol.' } };
   const clauses = ['observation_kind = ?'];
   const args = [kind];
