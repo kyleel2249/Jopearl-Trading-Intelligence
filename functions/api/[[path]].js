@@ -287,6 +287,8 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       const receivedAt = Date.parse(market?.receivedAt || row.received_at || '');
       const observedAt = Date.parse(market?.observedAt || row.observed_at || '');
       const symbol = String(market?.symbol || '').trim().toUpperCase();
+      const rowMarketType = String(market?.marketType || '').trim().toLowerCase();
+      const instrumentKey = rowMarketType + ':' + symbol;
       const id = String(market?.id || '').trim();
       const ageMs = nowMs - receivedAt;
       if (!symbol || !id || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)
@@ -295,7 +297,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
         || bySymbol.has(symbol)) continue;
       if (search && ![symbol, id, market.base, market.quote, market.settle].some(value => String(value || '').toLowerCase().includes(search))) continue;
       latestReceivedAt = Math.max(latestReceivedAt, receivedAt);
-      bySymbol.set(symbol, {
+      bySymbol.set(instrumentKey, {
         symbol, id, base: market.base || symbol.split('/')[0],
         quote: market.quote || symbol.split('/')[1]?.split(':')[0],
         settle: market.settle || null, active: true, type: market.type || null,
@@ -1595,7 +1597,7 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
     });
     const isBitgetTickerOrCandleRoute = /^\/api\/exchanges\/bitget\/(?:ticker|ohlcv)\//i.test(url.pathname);
     const isBitgetMarketsRoute = /^\/api\/exchanges\/bitget\/markets$/i.test(url.pathname);
-    const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && (isBitgetTickerOrCandleRoute || isBitgetMarketsRoute));
+    const shouldUseReplicatedFallback = !result || result.status >= 500 || (isBitgetMarketsRoute && result.status === 403) || (result.status === 404 && (isBitgetTickerOrCandleRoute || isBitgetMarketsRoute));
     if (shouldUseReplicatedFallback && isMarketDataRoute) {
       if (isBitgetMarketsRoute) {
         const replicatedMarkets = await readReplicatedMarkets(env, url, now().getTime());
