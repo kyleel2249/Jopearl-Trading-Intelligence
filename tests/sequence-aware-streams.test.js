@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeStreamRequest,exchangeStreamConfig,parseStreamMessage,advanceBookSequence,applyOrderBookUpdate,summarizeOrderBook} from '../src/sequence-aware-stream-engine.js';
-import collector from '../workers/market-stream-collector.js';
+import collector, {MarketStreamHub} from '../workers/market-stream-collector.js';
 test('stream plans normalize and reject invalid symbols',()=>{assert.equal(normalizeStreamRequest({exchange:'binance',marketType:'spot',symbol:'BTC/USDT'}).streamId,'binance:spot:BTC/USDT');assert.throws(()=>normalizeStreamRequest({exchange:'bad',symbol:'BTC/USDT'}));assert.equal(normalizeStreamRequest({exchange:'binance',symbol:'BTCUSDT'}).symbol,'BTC/USDT');});
 test('Binance futures stream combines depth, trades, ticker, mark price and liquidation channels',()=>{const c=exchangeStreamConfig({exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT'});assert.match(c.url,/fstream\.binance\.com\/stream\?streams=/);assert.ok(c.streams.some(x=>x.endsWith('@forceOrder')));assert.ok(c.snapshotUrl.includes('/fapi/v1/depth'));});
 test('Binance depth snapshot bridges the first overlapping diff and detects later gaps',()=>{let state=advanceBookSequence({}, {quality:{snapshot:true},sequence:{last:100},receivedAt:'t'}).state;let first=advanceBookSequence(state,{sequence:{first:99,last:102,previous:95}});assert.equal(first.action,'applied');state=first.state;let second=advanceBookSequence(state,{sequence:{first:103,last:105,previous:102}});assert.equal(second.action,'applied');let gap=advanceBookSequence(second.state,{sequence:{first:108,last:109,previous:105}});assert.equal(gap.action,'gap');assert.equal(gap.state.valid,false);});
@@ -48,4 +48,84 @@ test('order-book reconstruction rejects non-finite and non-positive price levels
  assert.equal(book.valid,false);
  assert.equal(book.invalidLevel,true);
  assert.deepEqual(book.bids,[[100,2]]);
+});
+
+
+class TestWebSocket {
+ static instances=[];
+ constructor(url){this.url=url;this.readyState=0;this.listeners=new Map();TestWebSocket.instances.push(this);}
+ addEventListener(name,handler){const list=this.listeners.get(name)||[];list.push(handler);this.listeners.set(name,list);}
+ async dispatch(name,event={}){for(const handler of this.listeners.get(name)||[])await handler(event);}
+ send(){}
+ async close(){this.readyState=3;await this.dispatch('close',{});}
+}
+function makeStreamHubState(){
+ const values=new Map(),alarms=[];
+ return {alarms,values,storage:{
+  sql:{exec(){}},
+  async get(key){return values.get(key);},
+  async put(key,value){values.set(key,value);},
+  async delete(key){return values.delete(key);},
+  async setAlarm(at){alarms.push(at);},
+  async deleteAlarm(){alarms.push('deleted');}
+ }};
+}
+function makeStreamHubEnv(){return{JPTI_DB:{prepare(){return{bind(){return this;},async run(){return{success:true};}};}}};}
+
+test('operator stop is durable and prevents the WebSocket close handler from scheduling reconnect',async()=>{
+ const original=globalThis.WebSocket;globalThis.WebSocket=TestWebSocket;TestWebSocket.instances=[];
+ try{
+  const state=makeStreamHubState(),hub=new MarketStreamHub(state,makeStreamHubEnv());
+  const start=await hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'})}));
+  assert.equal(start.status,200);assert.equal(TestWebSocket.instances.length,1);
+  const liveStatus=await hub.fetch(new Request('https://stream-hub/status'));
+  assert.equal((await liveStatus.json()).status,'connecting');
+  const stop=await hub.fetch(new Request('https://stream-hub/stop',{method:'POST'}));
+  assert.equal(stop.status,200);assert.equal((await stop.json()).status,'stopped');
+  assert.equal(state.values.get('operatorStopped'),true);
+  assert.equal(state.values.get('status'),'stopped');
+  assert.equal(state.values.get('streamState').status,'stopped');
+  assert.equal((await (await hub.fetch(new Request('https://stream-hub/status'))).json()).status,'stopped');
+  assert.deepEqual(state.alarms,['deleted','deleted']);
+  await hub.alarm();
+  assert.equal(TestWebSocket.instances.length,1);
+  assert.deepEqual(state.alarms,['deleted','deleted']);
+  const restart=await hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'})}));
+  assert.equal(restart.status,200);
+  assert.equal(TestWebSocket.instances.length,2);
+  assert.equal(state.values.has('operatorStopped'),false);
+  assert.equal((await (await hub.fetch(new Request('https://stream-hub/status'))).json()).status,'connecting');
+  await hub.fetch(new Request('https://stream-hub/stop',{method:'POST'}));
+ }finally{globalThis.WebSocket=original;}
+});
+
+test('unexpected WebSocket close still schedules exponential reconnect',async()=>{
+ const original=globalThis.WebSocket;globalThis.WebSocket=TestWebSocket;TestWebSocket.instances=[];
+ try{
+  const state=makeStreamHubState(),hub=new MarketStreamHub(state,makeStreamHubEnv());
+  await hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'})}));
+  await TestWebSocket.instances[0].close();
+  assert.equal(state.alarms.filter(value=>value!=='deleted').length,1);
+  assert.equal(state.values.get('streamState').status,'reconnecting');
+ }finally{globalThis.WebSocket=original;}
+});
+
+
+test('operator stop during REST order-book snapshot prevents the pending WebSocket from starting',async()=>{
+ const originalFetch=globalThis.fetch,originalWebSocket=globalThis.WebSocket;
+ globalThis.WebSocket=TestWebSocket;TestWebSocket.instances=[];
+ let releaseSnapshot;let markSnapshotStarted;
+ const snapshotStarted=new Promise(resolve=>{markSnapshotStarted=resolve;});
+ globalThis.fetch=async()=>{markSnapshotStarted();return new Promise(resolve=>{releaseSnapshot=resolve;});};
+ try{
+  const state=makeStreamHubState(),hub=new MarketStreamHub(state,makeStreamHubEnv());
+  const startPromise=hub.fetch(new Request('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({exchange:'binance',marketType:'spot',symbol:'BTC/USDT'})}));
+  await snapshotStarted;
+  await hub.fetch(new Request('https://stream-hub/stop',{method:'POST'}));
+  releaseSnapshot(new Response(JSON.stringify({lastUpdateId:100,bids:[['100','2']],asks:[['101','3']]}),{status:200,headers:{'content-type':'application/json'}}));
+  await startPromise;
+  assert.equal(TestWebSocket.instances.length,0);
+  assert.equal(state.values.get('operatorStopped'),true);
+  assert.equal(state.values.get('streamState').status,'stopped');
+ }finally{globalThis.fetch=originalFetch;globalThis.WebSocket=originalWebSocket;}
 });
