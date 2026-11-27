@@ -122,3 +122,37 @@ test('Bitget primary streams remain first even when supplemental venues fill the
  assert.equal(payload.streams.length,40);
  assert.deepEqual(payload.streams.slice(0,2),[{exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}]);
 });
+
+
+test('ten-symbol watchlist preserves Bitget streams for every symbol within the 40-stream cap',()=>{
+ const symbols=Array.from({length:10},(_,i)=>'COIN'+String(i).padStart(2,'0')+'USDT');
+ const payload=buildStreamStartPayload([],symbols);
+ assert.equal(payload.streams.length,39);
+ for(const symbol of symbols){
+  const normalized=symbol.replace(/USDT$/,'/USDT');
+  assert.ok(payload.streams.some(x=>x.exchange==='bitget'&&x.marketType==='usdt-m'&&x.symbol===normalized));
+ }
+ for(const symbol of symbols.slice(0,9))for(const exchange of ['binance','bybit','okx','bitget'])
+  assert.ok(payload.streams.some(x=>x.exchange===exchange&&x.marketType==='usdt-m'&&x.symbol===symbol.replace(/USDT$/,'/USDT')));
+ assert.deepEqual(payload.streams.slice(0,2),[
+  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
+  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}
+ ]);
+});
+
+test('stream rotation stops obsolete supplemental venues even when the symbol remains in the Bitget watchlist',async()=>{
+ const calls=[];
+ const MARKET_STREAMS={
+  idFromName(name){return name;},
+  get(id){return{async fetch(url){calls.push({id,url});return new Response(JSON.stringify({status:url.endsWith('/stop')?'stopped':'connected'}),{status:200,headers:{'content-type':'application/json'}});}};}
+ };
+ const JPTI_DB={prepare(){return{async all(){return{results:[]};}};}};
+ const symbols=Array.from({length:10},(_,i)=>'COIN'+String(i).padStart(2,'0')+'USDT');
+ const result=await startMarketStreamCollector({MARKET_STREAMS,JPTI_DB},symbols,[symbols[9]]);
+ assert.equal(result.requested,39);
+ assert.equal(result.started,39);
+ const tail=symbols[9].replace(/USDT$/,'/USDT');
+ for(const exchange of ['binance','bybit','okx'])assert.ok(calls.some(x=>x.id===exchange+':usdt-m:'+tail&&x.url.endsWith('/stop')));
+ assert.ok(!calls.some(x=>x.id==='bitget:usdt-m:'+tail&&x.url.endsWith('/stop')));
+ assert.equal(result.stopped,3);
+});
