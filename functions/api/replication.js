@@ -137,7 +137,7 @@ async function ingestRunnerObservations(db, rows, now) {
     markets: new Set(observations.map(row => row.symbol)).size
   };
   await db.prepare(
-    'INSERT INTO jpti_market_replication_runs (run_id,status,started_at,plan_json,counts_json,errors_json) VALUES (?,\\'running\\',?,?,?,?)'
+    "INSERT INTO jpti_market_replication_runs (run_id,status,started_at,plan_json,counts_json,errors_json) VALUES (?, 'running', ?, ?, ?, ?)"
   ).bind(runId, startedAt, JSON.stringify({ source: 'github-actions-direct-ingest', transport: 'authenticated-push', observationCount: counts.attempted }), JSON.stringify(counts), '[]').run();
   try { counts.inserted = await saveObservations(db, observations); }
   catch (error) { normalized.errors.push({ stage: 'd1-write', error: String(error?.message || error).slice(0, 220) }); }
