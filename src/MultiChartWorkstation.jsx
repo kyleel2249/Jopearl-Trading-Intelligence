@@ -1,12 +1,13 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Activity, Columns2, Grid2X2, Layout, Save, SlidersHorizontal, Trash2 } from 'lucide-react';
 import LiveCandlestickChart from './LiveCandlestickChart.jsx';
+import { DEFAULT_CHART_EXCHANGE } from './chart-defaults.js';
 
 const EXCHANGES = ['bitget', 'binance', 'bybit', 'okx'];
 const SYMBOLS = ['BTC/USDT','ETH/USDT','SOL/USDT','BNB/USDT','XRP/USDT','DOGE/USDT','ADA/USDT','AVAX/USDT','LINK/USDT','SOPH/USDT'];
 const TIMEFRAMES = ['1m','3m','5m','15m','30m','1h','2h','4h','6h','8h','12h','1d','3d','1w','1M'];
 const STORAGE_KEY = 'jpti.market-workstation.v1';
-const makeTile = (index, mode) => ({ id: 'chart-' + index, exchange: index === 0 && mode === 'spot' ? 'binance' : 'bitget', symbol: index === 0 ? 'BTC/USDT' : ['ETH/USDT','SOL/USDT','BNB/USDT'][index % 3], timeframe: ['15m','1h','4h','1d'][index % 4], marketType: mode === 'futures' ? 'futures' : 'spot' });
+const makeTile = (index, mode) => ({ id: 'chart-' + index, exchange: DEFAULT_CHART_EXCHANGE, symbol: index === 0 ? 'BTC/USDT' : ['ETH/USDT','SOL/USDT','BNB/USDT'][index % 3], timeframe: ['15m','1h','4h','1d'][index % 4], marketType: mode === 'futures' ? 'futures' : 'spot' });
 
 function readSaved(mode) {
   try {
