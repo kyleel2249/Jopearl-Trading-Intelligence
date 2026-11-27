@@ -153,7 +153,7 @@ async function readReplicatedCandles(env, url) {
     const rows = (result?.results || []).map(row => {
       try { return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { return null; }
     }).filter(row => row && [row.open, row.high, row.low, row.close, row.volume].every(value => Number.isFinite(Number(value))));
-    if (rows.length < 21) return null;
+    if (rows.length < Math.min(21, limit)) return null;
     rows.reverse();
     return {
       exchange, symbol, timeframe,
