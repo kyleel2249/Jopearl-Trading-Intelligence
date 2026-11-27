@@ -49,3 +49,28 @@ test('order-book reconstruction rejects non-finite and non-positive price levels
  assert.equal(book.invalidLevel,true);
  assert.deepEqual(book.bids,[[100,2]]);
 });
+
+
+test('scheduled stream selection always reserves Bitget Spot and USDT-M before supplemental venues',()=>{
+ const rows=[
+  {exchange:'binance',market_type:'spot',symbol:'ETH/USDT',last_seen:'2026-11-27T09:00:00.000Z'},
+  {exchange:'bybit',market_type:'usdt-m',symbol:'BTC/USDT',last_seen:'2026-11-27T09:01:00.000Z'},
+  {exchange:'bitget',market_type:'coin-m',symbol:'BTC/USD:BTC',last_seen:'2026-11-27T08:59:00.000Z'}
+ ];
+ const streams=collector.selectScheduledStreams(rows,4);
+ assert.deepEqual(streams.slice(0,2),[
+  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
+  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}
+ ]);
+ assert.equal(streams.length,4);
+ assert.equal(new Set(streams.map(x=>x.exchange+':'+x.marketType+':'+x.symbol)).size,streams.length);
+});
+
+test('scheduled stream selection excludes malformed rows and respects its bounded capacity',()=>{
+ const rows=Array.from({length:60},(_,i)=>({exchange:'binance',market_type:'spot',symbol:`COIN${i}/USDT`,last_seen:new Date(1700000000000+i).toISOString()}));
+ rows.push({exchange:'bad venue',market_type:'spot',symbol:'BTC/USDT'});
+ const streams=collector.selectScheduledStreams(rows,12);
+ assert.equal(streams.length,12);
+ assert.equal(streams[0].exchange,'bitget');
+ assert.equal(streams[1].marketType,'usdt-m');
+});
