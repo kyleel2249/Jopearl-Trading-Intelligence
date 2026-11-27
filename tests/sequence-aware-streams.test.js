@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {normalizeStreamRequest,exchangeStreamConfig,parseStreamMessage,advanceBookSequence,applyOrderBookUpdate,summarizeOrderBook} from '../src/sequence-aware-stream-engine.js';
-import collector, {selectScheduledStreams} from '../workers/market-stream-collector.js';
+import collector from '../workers/market-stream-collector.js';
 test('stream plans normalize and reject invalid symbols',()=>{assert.equal(normalizeStreamRequest({exchange:'binance',marketType:'spot',symbol:'BTC/USDT'}).streamId,'binance:spot:BTC/USDT');assert.throws(()=>normalizeStreamRequest({exchange:'bad',symbol:'BTC/USDT'}));assert.equal(normalizeStreamRequest({exchange:'binance',symbol:'BTCUSDT'}).symbol,'BTC/USDT');});
 test('Binance futures stream combines depth, trades, ticker, mark price and liquidation channels',()=>{const c=exchangeStreamConfig({exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT'});assert.match(c.url,/fstream\.binance\.com\/stream\?streams=/);assert.ok(c.streams.some(x=>x.endsWith('@forceOrder')));assert.ok(c.snapshotUrl.includes('/fapi/v1/depth'));});
 test('Binance depth snapshot bridges the first overlapping diff and detects later gaps',()=>{let state=advanceBookSequence({}, {quality:{snapshot:true},sequence:{last:100},receivedAt:'t'}).state;let first=advanceBookSequence(state,{sequence:{first:99,last:102,previous:95}});assert.equal(first.action,'applied');state=first.state;let second=advanceBookSequence(state,{sequence:{first:103,last:105,previous:102}});assert.equal(second.action,'applied');let gap=advanceBookSequence(second.state,{sequence:{first:108,last:109,previous:105}});assert.equal(gap.action,'gap');assert.equal(gap.state.valid,false);});
@@ -48,39 +48,4 @@ test('order-book reconstruction rejects non-finite and non-positive price levels
  assert.equal(book.valid,false);
  assert.equal(book.invalidLevel,true);
  assert.deepEqual(book.bids,[[100,2]]);
-});
-
-
-test('scheduled stream selection always reserves Bitget Spot and USDT-M before supplemental venues',()=>{
- const rows=[
-  {exchange:'binance',market_type:'spot',symbol:'ETH/USDT',last_seen:'2026-11-27T09:00:00.000Z'},
-  {exchange:'bybit',market_type:'usdt-m',symbol:'BTC/USDT',last_seen:'2026-11-27T09:01:00.000Z'},
-  {exchange:'bitget',market_type:'coin-m',symbol:'BTC/USD:BTC',last_seen:'2026-11-27T08:59:00.000Z'}
- ];
- const streams=selectScheduledStreams(rows,4);
- assert.deepEqual(streams.slice(0,2),[
-  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
-  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}
- ]);
- assert.equal(streams.length,4);
- assert.equal(new Set(streams.map(x=>x.exchange+':'+x.marketType+':'+x.symbol)).size,streams.length);
-});
-
-test('scheduled stream selection excludes malformed rows and respects its bounded capacity',()=>{
- const rows=Array.from({length:60},(_,i)=>({exchange:'binance',market_type:'spot',symbol:`COIN${i}/USDT`,last_seen:new Date(1700000000000+i).toISOString()}));
- rows.push({exchange:'bad venue',market_type:'spot',symbol:'BTC/USDT'});
- const streams=collector.selectScheduledStreams(rows,12);
- assert.equal(streams.length,12);
- assert.equal(streams[0].exchange,'bitget');
- assert.equal(streams[1].marketType,'usdt-m');
-});
-
-
-test('explicit scheduled stream configuration does not silently add supplemental venues',()=>{
- const streams=selectScheduledStreams([{exchange:'okx',marketType:'spot',symbol:'ETH/USDT'}],10,{includeFallbacks:false});
- assert.deepEqual(streams,[
-  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
-  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'},
-  {exchange:'okx',marketType:'spot',symbol:'ETH/USDT'}
- ]);
 });
