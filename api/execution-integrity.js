@@ -19,7 +19,8 @@ const canonical = value => {
 export function createOrderIdempotencyKey(order={}) {
   const required=['accountId','venue','symbol','side','type','quantity'];
   for(const key of required) if(order[key]===undefined||order[key]===null||String(order[key]).trim()==='') throw new TypeError('Missing idempotency field: '+key);
-  const normalized={accountId:String(order.accountId),venue:String(order.venue).toLowerCase(),symbol:String(order.symbol).toUpperCase(),side:String(order.side).toLowerCase(),type:String(order.type).toLowerCase(),quantity:String(order.quantity),price:order.price??null,stopPrice:order.stopPrice??null,clientIntentId:String(order.clientIntentId||'')};
+  const decimal=value=>{const n=Number(value);if(!Number.isFinite(n)||n<=0)throw new TypeError('Order quantity and prices must be positive finite numbers.');return String(n);};
+  const normalized={accountId:String(order.accountId),venue:String(order.venue).toLowerCase(),symbol:String(order.symbol).toUpperCase(),side:String(order.side).toLowerCase(),type:String(order.type).toLowerCase(),quantity:decimal(order.quantity),price:order.price==null?null:decimal(order.price),stopPrice:order.stopPrice==null?null:decimal(order.stopPrice),clientIntentId:String(order.clientIntentId||'')};
   return 'jpti_'+createHash('sha256').update(canonical(normalized)).digest('hex');
 }
 export function transitionExecutionState(current,next) {
@@ -41,7 +42,8 @@ export function assessExecutionRecovery({localOrder={},exchangeOrder=null,lookup
   if(['filled','cancelled','rejected'].includes(localState)) return {action:'terminal_noop',state:localState,resubmit:false};
   const submitted=Date.parse(submittedAt||localOrder.submittedAt||'');
   if(!Number.isFinite(submitted)||now-submitted<retryAfterMs) return {action:'wait_and_reconcile',state:'unknown',resubmit:false,reason:'submission_grace_period'};
-  return {action:'safe_to_recreate_with_same_client_id',state:'reconciliation_required',resubmit:true,clientOrderId:localOrder.clientOrderId||null,reason:'authoritative_lookup_confirmed_absent'};
+  if(!String(localOrder.clientOrderId||'').trim()) return {action:'manual_review',state:'reconciliation_required',resubmit:false,reason:'stable_client_order_id_missing'};
+  return {action:'safe_to_recreate_with_same_client_id',state:'reconciliation_required',resubmit:true,clientOrderId:localOrder.clientOrderId,reason:'authoritative_lookup_confirmed_absent'};
 }
 export function enforceExecutionRisk({riskAssessment={},marketData={},killSwitch=false,duplicateIntent=false,liveTradingEnabled=false,operatorAuthorized=false}={}) {
   const failures=[];

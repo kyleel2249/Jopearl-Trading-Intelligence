@@ -16,6 +16,7 @@ export function evaluateSequenceContinuity({previousSequence=null,firstSequence=
  const expected=previous+1;
  if(first!==null&&first>expected) return {valid:false,action:'recover_snapshot',nextSequence:previous,reason:'sequence_gap',expected,received:first};
  if(first!==null&&last<expected) return {valid:false,action:'recover_snapshot',nextSequence:previous,reason:'sequence_does_not_bridge'};
+ if(first===null&&last!==expected) return {valid:false,action:'recover_snapshot',nextSequence:previous,reason:'continuity_unproven',expected,received:last};
  return {valid:true,action:'apply',nextSequence:last,reason:null};
 }
 export function assessCrossVenueSynchronization(quotes=[],{now=Date.now(),maxAgeMs=15000,maxSkewMs=3000,minVenues=2,outlierPct=1.5}={}) {
