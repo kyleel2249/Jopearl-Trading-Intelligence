@@ -88,6 +88,35 @@ export async function runRunnerReplication(options = {}) {
           marketsSeen.push({ exchange, marketType, symbol });
           counts.markets += 1;
 
+          const productCategory = market.productCategory || ({
+            spot: 'SPOT', margin: 'MARGIN', 'usdt-m': 'USDT-FUTURES',
+            'coin-m': 'COIN-FUTURES', 'usdc-m': 'USDC-FUTURES'
+          })[marketType];
+          if (instrumentId) {
+            observations.push({
+              exchange, marketType, symbol, kind: 'markets',
+              observedAt: new Date().toISOString(),
+              market: {
+                id: instrumentId, symbol, base: market.base || symbol.split('/')[0],
+                quote: market.quote || symbol.split('/')[1]?.split(':')[0],
+                settle: market.settle || null, active: market.active !== false,
+                type: market.type || (market.contract ? 'perpetual' : 'spot'),
+                categories: Array.isArray(market.categories) ? market.categories : [marketType],
+                spot: market.spot ?? marketType === 'spot',
+                margin: market.margin ?? marketType === 'margin',
+                swap: market.swap ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
+                future: market.future ?? false, contract: market.contract ?? ['usdt-m','coin-m','usdc-m'].includes(marketType),
+                linear: market.linear ?? (marketType === 'usdt-m' || marketType === 'usdc-m'),
+                inverse: market.inverse ?? marketType === 'coin-m',
+                productCategory, contractType: market.contractType || null,
+                instrumentType: market.instrumentType || 'crypto',
+                precision: market.precision || null, limits: market.limits || null
+              },
+              sourceExchange: exchange, requestedExchange: exchange, failedOver: false
+            });
+            counts.valid += 1;
+          }
+
           try {
             const tickerPath = '/api/exchanges/' + exchange + '/ticker/' + encodeURIComponent(symbol)
               + '?type=' + encodeURIComponent(marketType) + instrumentQuery + '&failover=false';
