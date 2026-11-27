@@ -63,3 +63,10 @@ test('historical session memory only adjusts after minimum sample and matches se
 });
 
 test('historical session adjustment ignores missing return-R observations',()=>{const rows=Array.from({length:10},(_,i)=>({session:'London',symbol:'BTC/USDT',outcome:i<8?'win':'loss',returnR:i<4?1:null}));const result=evaluateHistoricalSessionMemory(rows,{symbol:'BTC/USDT',activeSessions:['London']});assert.equal(result.status,'insufficient');assert.equal(result.averageR,1);assert.equal(result.adjustment,0);});
+
+test('rejects null and empty OHLCV fields instead of silently coercing volume to zero', () => {
+ const nullVolume=candles();nullVolume[12].volume=null;
+ const emptyVolume=candles();emptyVolume[12].volume='';
+ assert.throws(()=>normalizeAlphaCandles(nullVolume,'1h',start+300*tf),/missing, null or empty/);
+ assert.throws(()=>normalizeAlphaCandles(emptyVolume,'1h',start+300*tf),/missing, null or empty/);
+});
