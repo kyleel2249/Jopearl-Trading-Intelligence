@@ -4,7 +4,7 @@ JPTI's web application and public market-data API are hosted together on Cloudfl
 
 1. Deploy the `jpti` Pages project and wait for the deployment to finish.
 2. Confirm `https://YOUR-PAGES-HOST/api/health` returns JSON with `mode: cloudflare-edge`.
-3. For the Android build workflow, set the GitHub Actions variable `CLOUDFLARE_PAGES_URL` to the public Pages origin (for example `https://jpti.pages.dev`).
+3. Android builds are pinned to the production Pages API origin `https://jopearl-trading-intelligence.pages.dev`; the old `CLOUDFLARE_PAGES_URL` override is no longer used by the build workflows.
 4. No external API gateway URL, gateway token, Render service or exchange API key is required for public market charts.
 5. Open Connection Settings and tap **Check Cloudflare connection**.
 

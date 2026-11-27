@@ -110,6 +110,25 @@ test('provider fails over to the next venue and says so', async () => {
   assert.equal(r.body.exchange, 'okx'); assert.equal(r.body.requestedExchange, 'binance'); assert.equal(r.body.failedOver, true);
 });
 
+test('provider disables cross-venue failover when the replication runner requests a source-pure quote', async () => {
+  const urls = [];
+  const provider = createDirectProvider({
+    fetchImpl: async url => {
+      urls.push(String(url));
+      return json({ msg: 'Restricted exchange egress' }, 451);
+    }
+  });
+  const ticker = await provider.request('/api/exchanges/binance/ticker/BTC-USDT?failover=false');
+  assert.equal(ticker.failed, true);
+  assert.ok(urls.length > 0);
+  assert.ok(urls.every(url => !/api\.bybit\.com|okx\.com|bitget\.com/i.test(url)), 'ticker requests stay on the requested exchange');
+  urls.length = 0;
+  const candles = await provider.request('/api/exchanges/binance/ohlcv/BTC-USDT?timeframe=1m&limit=20&failover=false');
+  assert.equal(candles.failed, true);
+  assert.ok(urls.length > 0);
+  assert.ok(urls.every(url => !/api\.bybit\.com|okx\.com|bitget\.com/i.test(url)), 'candle requests stay on the requested exchange');
+});
+
 test('provider reports failure (not invented data) when every venue is down, and 404 for bad symbols', async () => {
   const down = createDirectProvider({ fetchImpl: async () => { throw new TypeError('Failed to fetch'); } });
   const r = await down.request('/api/exchanges/binance/ticker/BTC-USDT');

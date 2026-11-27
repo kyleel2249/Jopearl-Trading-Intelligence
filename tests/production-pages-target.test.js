@@ -32,6 +32,23 @@ test('Android builds use the same production API origin as the web deployment', 
   }
 });
 
+test('manual Pages deploy command targets the canonical production project', () => {
+  const manifest = JSON.parse(read('../package.json'));
+  assert.ok(manifest.scripts['deploy:pages'].includes('--project-name jopearl-trading-intelligence'));
+  assert.ok(!manifest.scripts['deploy:pages'].includes('--project-name jpti'));
+});
+
+test('scheduled replication uses runner acquisition and the authenticated D1 ingest route', () => {
+  const workflow = read('../.github/workflows/market-data-replication.yml');
+  const runner = read('../scripts/replicate-market-data.mjs');
+  assert.ok(workflow.includes('REPLICATION_URL: ' + productionOrigin + '/api/replication'));
+  assert.ok(workflow.includes('node scripts/replicate-market-data.mjs'));
+  assert.ok(!workflow.includes('-X POST "$REPLICATION_URL"'));
+  assert.ok(runner.includes("'/ingest'"));
+  assert.ok(runner.includes('&failover=false'));
+  assert.ok(runner.includes('cross-venue failover data was rejected'));
+});
+
 test('Bitget live verification defaults to the established production site', () => {
   const script = read('../scripts/verify-bitget-live.mjs');
   assert.ok(script.includes("process.env.JPTI_PAGES_URL || '" + productionOrigin + "'"));

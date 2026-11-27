@@ -47,7 +47,7 @@ GitHub repository secrets:
 - `CLOUDFLARE_ACCOUNT_ID` — Cloudflare account ID.
 
 Optional GitHub repository variable:
-- `CLOUDFLARE_PAGES_URL` — public Pages origin used by Android builds, for example `https://jpti.pages.dev`.
+- Android builds use the pinned production Pages API origin `https://jopearl-trading-intelligence.pages.dev`.
 
 Cloudflare Pages project:
 - Project name: `jpti`

@@ -26,7 +26,7 @@ The JSON secret is passed to Wrangler's Pages secret bulk command. Secret values
 
 Add these under **Repository → Settings → Secrets and variables → Actions → Variables**:
 
-- `CLOUDFLARE_PAGES_PROJECT`: optional; defaults to `jpti`.
+- Production deploy workflow pins `CLOUDFLARE_PAGES_PROJECT` to `jopearl-trading-intelligence`; the stale repository variable is ignored by the production deployment.
 - `CLOUDFLARE_PAGES_URL`: public deployed Pages URL used by the live verification step.
 - `VITE_APP_NAME`: defaults to `JPTI`.
 - `VITE_APP_ENV`: defaults to `production`.
