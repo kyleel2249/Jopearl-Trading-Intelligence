@@ -198,9 +198,9 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
     permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,exchangeOrdersCreated:0},
     limitations:['Session-adjusted probability estimate is heuristic and requires historical calibration before predictive use.','Confidence is a deterministic consensus heuristic, not a statistically calibrated probability.','The five specialist models are deterministic technical rules, not autonomous LLM agents.','Signal evaluation uses completed OHLCV candles and a separately timestamped exchange quote.','Paper eligibility is not a live-order authorization or a profitability guarantee.']};
 }
-function tradeMetrics(trades) {
+function tradeMetrics(trades, startingCapital=10000) {
   const wins=trades.filter(t=>t.pnl>0),losses=trades.filter(t=>t.pnl<0),gp=wins.reduce((s,t)=>s+t.pnl,0),gl=Math.abs(losses.reduce((s,t)=>s+t.pnl,0)),net=trades.reduce((s,t)=>s+t.pnl,0);
-  let equity=10000,peak=equity,maxDd=0;for(const t of trades){equity+=t.pnl;peak=Math.max(peak,equity);maxDd=Math.max(maxDd,(peak-equity)/peak);}
+  let equity=startingCapital,peak=equity,maxDd=0;for(const t of trades){equity+=t.pnl;peak=Math.max(peak,equity);maxDd=Math.max(maxDd,(peak-equity)/peak);}
   return {trades:trades.length,wins:wins.length,losses:losses.length,winRatePercent:trades.length?round(wins.length/trades.length*100,2):null,profitFactor:gl?round(gp/gl,3):gp?null:0,netPnl:round(net,4),expectancy:trades.length?round(net/trades.length,4):null,maxDrawdownPercent:round(maxDd*100,3)};
 }
 export function runAlphaReplay(input={}, now=Date.now()) {
@@ -234,9 +234,10 @@ export function runAlphaReplay(input={}, now=Date.now()) {
     trades.push(trade);capital+=pnl;activeUntil=exitIndex;
   }
   const inSample=trades.filter(t=>t.split==='in_sample'),outOfSample=trades.filter(t=>t.split==='out_of_sample');
+  const inSampleEndingCapital=initialCapital+inSample.reduce((sum,t)=>sum+t.pnl,0);
   const inputSnapshot={candles,config,feeBps,slippageBps,initialCapital,symbol:symbol||null,exchange:exchange||null,timeframe,sha256:sha({candles,config,feeBps,slippageBps,initialCapital,symbol,exchange,timeframe})};
   return {engineVersion:ALPHA_ENGINE_VERSION,generatedAt:new Date(now).toISOString(),timeframe,market:{symbol:symbol||null,exchange:exchange||null,quoteCurrency:symbol?symbol.split('/')[1]:String(input.quoteCurrency||'').toUpperCase()||null},parameters:{...config,feeBps,slippageBps,initialCapital},inputSnapshot,data:{candles:candles.length,first:new Date(candles[0].timestamp).toISOString(),last:new Date(candles.at(-1).timestamp).toISOString(),sha256:sha(candles),quoteCurrency:symbol?symbol.split('/')[1]:String(input.quoteCurrency||'').toUpperCase()||null,chronological:true,completedCandlesOnly:true},
-    overall:{...tradeMetrics(trades),endingCapital:round(initialCapital+trades.reduce((s,t)=>s+t.pnl,0),4)},inSample:tradeMetrics(inSample),outOfSample:tradeMetrics(outOfSample),
+    overall:{...tradeMetrics(trades,initialCapital),endingCapital:round(initialCapital+trades.reduce((s,t)=>s+t.pnl,0),4)},inSample:tradeMetrics(inSample,initialCapital),outOfSample:tradeMetrics(outOfSample,inSampleEndingCapital),
     trades:trades.slice(-500),validation:{split:'chronological 70/30 by entry candle',outOfSampleUsedForParameterSelection:false,fill:'next candle open',intrabarAmbiguity:'stop is assumed to execute first if stop and target are both touched in one candle',overlappingPositions:false},
     limitations:['Single instrument, long/short simulation with one open position at a time.','No exchange order-book queue, partial fills, market impact, funding, leverage or liquidation model.','Fixed fee and slippage assumptions; actual venue costs may differ.','OHLCV intrabar ordering is unknown; conservative stop-first handling is used.','Historical replay is not proof of future profitability or a production promotion certificate.']};
 }
