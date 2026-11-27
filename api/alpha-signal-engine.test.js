@@ -7,7 +7,7 @@ function candles(count=240,mode='up'){
 }
 const account={equity:10000,dailyPnl:0,exposures:[]};
 const limits={maxDailyLoss:250,maxOrderNotional:2000,maxGrossExposure:5000,maxRiskPercent:1,maxSymbolConcentrationPercent:25,maxQuoteAgeMs:15000};
-function input(mode='up'){const c=candles(240,mode),last=c.at(-1);return{symbol:'BTC/USDT',exchange:'binance',timeframe:'1h',candles:c,account:{...account,currency:'USDT'},quote:{last:last.close,timestamp:new Date(last.timestamp+tf).toISOString()},limits,config:{minimumConfidence:55,minimumAgreement:.4}};}
+function input(mode='up'){const c=candles(240,mode),last=c.at(-1);return{symbol:'BTC/USDT',exchange:'binance',timeframe:'1h',candles:c,marketDataIdentity:{exchange:'binance',requestedExchange:'binance',symbol:'BTC/USDT',failedOver:false},account:{...account,currency:'USDT'},quote:{exchange:'binance',requestedExchange:'binance',symbol:'BTC/USDT',failedOver:false,last:last.close,timestamp:new Date(last.timestamp+tf).toISOString()},limits,config:{minimumConfidence:55,minimumAgreement:.4}};}
 test('normalizes only completed, chronological candles and rejects malformed history',()=>{
  const c=candles();assert.equal(normalizeAlphaCandles(c,'1h',c.at(-1).timestamp+tf).length,c.length);
  assert.equal(normalizeAlphaCandles(c,'1h',c.at(-1).timestamp+tf-1).length,c.length-1);
@@ -80,4 +80,18 @@ test('replay drawdown is measured against the configured initial capital, not a 
  assert.equal(small.inSample.maxDrawdownPercent,large.inSample.maxDrawdownPercent);
  assert.equal(small.outOfSample.maxDrawdownPercent,large.outOfSample.maxDrawdownPercent);
  assert.ok(Math.abs(small.overall.endingCapital*10-large.overall.endingCapital)<0.01);
+});
+
+test('blocks quote or candle history from a different venue or market symbol', () => {
+ const wrongQuoteVenue=input();wrongQuoteVenue.quote.exchange='okx';
+ const quoteVenueResult=evaluateAlphaSignal(wrongQuoteVenue,start+240*tf+5000);
+ assert.equal(quoteVenueResult.qualityChecks.find(x=>x.id==='quote_source_identity').passed,false);
+ assert.equal(quoteVenueResult.permissions.paperIntentEligible,false);
+ const wrongQuoteSymbol=input();wrongQuoteSymbol.quote.symbol='ETH/USDT';
+ const quoteSymbolResult=evaluateAlphaSignal(wrongQuoteSymbol,start+240*tf+5000);
+ assert.equal(quoteSymbolResult.qualityChecks.find(x=>x.id==='quote_source_identity').passed,false);
+ const wrongCandleVenue=input();wrongCandleVenue.marketDataIdentity.exchange='bybit';
+ const candleVenueResult=evaluateAlphaSignal(wrongCandleVenue,start+240*tf+5000);
+ assert.equal(candleVenueResult.qualityChecks.find(x=>x.id==='candle_source_identity').passed,false);
+ assert.equal(candleVenueResult.permissions.paperIntentEligible,false);
 });
