@@ -307,7 +307,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
         productCategory: market.productCategory, contractType: market.contractType || null,
         instrumentType: market.instrumentType || 'crypto', precision: market.precision || null,
         limits: market.limits || null, stale: true,
-        lastUpdatedAt: new Date(observedAt).toISOString()
+        lastUpdatedAt: new Date(observedAt).toISOString(), receivedAt: new Date(receivedAt).toISOString()
       });
     }
     let markets = [...bySymbol.values()];
@@ -315,7 +315,8 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
     if (requestedType === 'perpetual') markets = markets.filter(m => m.swap);
     if (!markets.length) return null;
     markets.sort((a, b) => String(a.productCategory || '').localeCompare(String(b.productCategory || '')) || String(a.symbol).localeCompare(String(b.symbol)));
-    const latestReceivedAt = markets.reduce((latest, market) => Math.max(latest, Date.parse(market.lastUpdatedAt || '') || 0), 0);
+    const latestReceivedAt = markets.reduce((latest, market) => Math.max(latest, Date.parse(market.receivedAt || '') || 0), 0);
+    const maxAgeMs = markets.reduce((age, market) => Math.max(age, nowMs - (Date.parse(market.receivedAt || '') || nowMs)), 0);
     const counts = {
       spot: markets.filter(m => m.productCategory === 'SPOT').length,
       margin: markets.filter(m => m.productCategory === 'MARGIN').length,
@@ -334,7 +335,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       fetchedAt: new Date(latestReceivedAt).toISOString(), categoryErrors: [],
       unsupported: { cfd: 'CFD instruments require the separate authenticated Bitget UTA provider.', options: 'Options are not included in this replicated public instrument catalogue.' },
       source: 'cloudflare-d1-replicated-market-catalog',
-      replication: { durable: true, marketTypes: types, ageMs: Math.max(0, nowMs - latestReceivedAt), maxFallbackAgeMs: 6 * 60 * 60 * 1000 },
+      replication: { durable: true, marketTypes: types, ageMs: Math.max(0, maxAgeMs), maxFallbackAgeMs: 6 * 60 * 60 * 1000 },
       note: 'Instrument metadata was replicated from the exact exchange. This is a bounded stale catalogue snapshot (maximum six hours), not a live exchange response.'
     };
   } catch {
