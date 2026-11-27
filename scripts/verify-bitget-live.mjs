@@ -3,7 +3,7 @@
 // Read-only: verifies public market data only. Bitget may return HTTP 403 to a
 // Cloudflare Pages Worker egress path; that condition is reported as a
 // edge warning, not misreported as an application or credential failure.
-const base = String(process.env.JPTI_PAGES_URL || 'https://jpti.pages.dev').replace(/\/+$/, '');
+const base = String(process.env.JPTI_PAGES_URL || 'https://jopearl-trading-intelligence.pages.dev').replace(/\/+$/, '');
 const bitget = 'https://api.bitget.com';
 const categories = [
   { key: 'spot', label: 'Spot', productCategory: 'SPOT', marketDataCategory: 'SPOT' },
