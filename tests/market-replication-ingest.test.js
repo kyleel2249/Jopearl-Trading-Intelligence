@@ -66,7 +66,7 @@ test('authenticated runner ingest stores a normalized Bitget ticker in durable D
   assert.equal(body.counts.valid, 1);
   assert.equal(body.counts.inserted, 1);
   assert.equal(body.source, 'github-actions-direct-ingest');
-  assert.ok(db.writes.some(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations')));
+  assert.ok(db.writes.some(write => write.sql.includes('INSERT INTO jpti_market_observations')));
 });
 
 test('runner ingest rejects unsupported market types and malformed prices without storing them', async () => {
@@ -85,7 +85,7 @@ test('runner ingest rejects unsupported market types and malformed prices withou
   assert.equal(body.status, 'failed');
   assert.equal(body.counts.inserted, 0);
   assert.equal(body.errorCount, 2);
-  assert.ok(!db.writes.some(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations')));
+  assert.ok(!db.writes.some(write => write.sql.includes('INSERT INTO jpti_market_observations')));
 });
 
 test('runner ingest rejects unauthenticated writes', async () => {
@@ -143,7 +143,7 @@ test('authenticated runner ingest stores integrity-checked OHLCV candles', async
   assert.equal(response.status, 200);
   assert.equal(body.counts.candles, 1);
   assert.equal(body.counts.inserted, 1);
-  const observationWrite = db.writes.find(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations'));
+  const observationWrite = db.writes.find(write => write.sql.includes('INSERT INTO jpti_market_observations'));
   assert.ok(observationWrite);
 });
 
