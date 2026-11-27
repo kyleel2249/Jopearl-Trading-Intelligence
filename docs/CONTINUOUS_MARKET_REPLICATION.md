@@ -48,7 +48,7 @@ Migration `0014_market_data_replication.sql` creates:
 
 Duplicate observations are ignored through a deterministic composite key. Existing `jpti_events` market snapshots remain intact; the new tables provide a time-series history rather than overwriting the latest snapshot.
 
-The existing Cloudflare chart API now falls back to replicated D1 OHLCV history when a live OHLCV request fails. It marks the result as stale and identifies `cloudflare-d1-replicated-history` as its source. Existing live data remains preferred whenever available.
+The Cloudflare Pages API now has bounded outage fallbacks for replicated D1 ticker and OHLCV observations. A replicated ticker is served only when its edge receipt time is within 15 minutes; it is always marked `stale: true`, includes its observation/receipt timestamps and identifies `cloudflare-d1-replicated-history` as its source. Replicated candles are also explicitly marked stale. Live exchange data remains preferred whenever available. The fallback is a continuity aid for chart inspection, not a live quote or an execution price.
 
 ## Continuous scheduling
 
@@ -56,12 +56,12 @@ Cloudflare Pages Functions do not provide a native scheduled-event handler. This
 
 Configure these GitHub repository settings:
 
-1. Add repository variable `JPTI_REPLICATION_URL` with the deployed Pages endpoint, for example `https://YOUR-PAGES-DOMAIN/api/replication`.
-2. Add repository secret `JPTI_API_TOKEN` with the same token configured as a Cloudflare Pages secret (`JPTI_API_TOKEN` or the supported `JPTI_JOURNAL_TOKEN` fallback).
+1. Add repository variable `JPTI_REPLICATION_URL` with the deployed JPTI Pages endpoint, for example `https://jopearl-trading-intelligence.pages.dev/api/replication`. The workflow rejects unknown hosts until a verified custom domain is added to its allowlist.
+2. Add repository secret `JPTI_JOURNAL_TOKEN` (preferred) or `JPTI_API_TOKEN` with the same value configured as the Cloudflare Pages secret.
 3. Confirm migration `0014_market_data_replication` has been applied to the production D1 database.
 4. Enable the workflow `JPTI Continuous Market Data Replication`.
 
-The workflow runs every five minutes and can also be started manually. It uses bounded batches and retries transient HTTP failures. GitHub Actions scheduling is best-effort and can be delayed by GitHub; it is not a tick-level feed or a hard real-time SLA.
+The workflow runs every five minutes and can also be started manually. It uses bounded batches and retries transient HTTP failures. Missing endpoint/secret configuration now fails the workflow visibly instead of producing a successful no-op. A run must report successful acquisition work; partial source coverage is surfaced as a warning. GitHub Actions scheduling is best-effort and can be delayed by GitHub; it is not a tick-level feed or a hard real-time SLA.
 
 ## Optional Cloudflare Pages variables
 
