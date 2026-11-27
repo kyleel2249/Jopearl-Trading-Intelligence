@@ -36,15 +36,17 @@ export async function verifyRunnerCfdAccess({ secrets = {}, provider = createBit
   try {
     const result = await provider.request(secrets, { kind: 'diagnostics' });
     const body = result?.body || {};
+    const utaTradeReadOnly = body.utaTradeReadOnly === true;
     const report = {
       source: 'github-actions-runner',
-      status: 'passed',
+      status: utaTradeReadOnly ? 'passed' : 'permission-mismatch',
       authenticated: body.authenticated === true,
       permissionType: body.permissionType || null,
       permissions: Array.isArray(body.permissions) ? body.permissions : [],
-      utaTradeReadOnly: body.utaTradeReadOnly === true,
+      utaTradeReadOnly,
       ipWhitelistConfigured: body.ipWhitelistConfigured === true,
-      ipWhitelistCount: Number(body.ipWhitelistCount) || 0
+      ipWhitelistCount: Number(body.ipWhitelistCount) || 0,
+      warning: utaTradeReadOnly ? null : 'The signed endpoint is reachable, but the key is not read-only with uta_trade permission. Do not enable write access; create or adjust a read-only UTA key.'
     };
     logger.log?.(JSON.stringify(report, null, 2));
     return report;
