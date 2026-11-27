@@ -62,7 +62,10 @@ async function signedGet(env, path, params, { fetchImpl = fetch, now = () => Dat
       upstreamCode: payload?.code == null ? null : String(payload.code),
       upstreamMessage: payload?.msg || payload?.message || null,
       upstreamContentType: contentType,
-      upstreamPreview: payload ? null : responseText.slice(0, 180)
+      upstreamPreview: payload && (payload.code != null || payload.msg || payload.message) ? null : responseText.slice(0, 180),
+      upstreamServer: response.headers?.get?.('server') || null,
+      upstreamRay: response.headers?.get?.('cf-ray') || null,
+      upstreamDate: response.headers?.get?.('date') || null
     });
   }
   if (!payload || String(payload.code) !== '00000') {
