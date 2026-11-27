@@ -139,14 +139,19 @@ async function ingestRunnerObservations(db, rows, now) {
   await db.prepare(
     "INSERT INTO jpti_market_replication_runs (run_id,status,started_at,plan_json,counts_json,errors_json) VALUES (?, 'running', ?, ?, ?, ?)"
   ).bind(runId, startedAt, JSON.stringify({ source: 'github-actions-direct-ingest', transport: 'authenticated-push', observationCount: counts.attempted }), JSON.stringify(counts), '[]').run();
+  let storageError = null;
   try { counts.inserted = await saveObservations(db, observations); }
-  catch (error) { normalized.errors.push({ stage: 'd1-write', error: String(error?.message || error).slice(0, 220) }); }
+  catch (error) {
+    storageError = String(error?.message || error).slice(0, 220);
+    normalized.errors.push({ stage: 'd1-write', error: storageError });
+  }
   const finishedAt = now().toISOString();
   const summary = buildReplicationSummary({
     startedAt, finishedAt,
     plan: { source: 'github-actions-direct-ingest', transport: 'authenticated-push' },
     counts, errors: normalized.errors, skipped: [], runId
   });
+  if (storageError) summary.status = 'failed';
   await db.prepare(
     'UPDATE jpti_market_replication_runs SET status=?,finished_at=?,duration_ms=?,counts_json=?,errors_json=? WHERE run_id=?'
   ).bind(summary.status, finishedAt, summary.durationMs, JSON.stringify(summary.counts), JSON.stringify(summary.errors), runId).run();
@@ -155,7 +160,7 @@ async function ingestRunnerObservations(db, rows, now) {
       'INSERT INTO jpti_market_replication_cursors (cursor_key,cursor_value,updated_at) VALUES (?,?,?) ON CONFLICT(cursor_key) DO UPDATE SET cursor_value=excluded.cursor_value,updated_at=excluded.updated_at'
     ).bind('last-successful-run', runId, finishedAt).run();
   }
-  return { ...summary, storage: 'cloudflare-d1', immutableObservations: true, source: 'github-actions-direct-ingest', liveExecutionAuthorized: false };
+  return { ...summary, ...(storageError ? { storageError } : {}), storage: 'cloudflare-d1', immutableObservations: true, source: 'github-actions-direct-ingest', liveExecutionAuthorized: false };
 }
 
 function safeJson(value, fallback) {
@@ -214,7 +219,7 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
       if (!Array.isArray(parsed.value.observations)) return reply(400, { error: 'mode=ingest requires an observations array.' });
       try {
         const summary = await ingestRunnerObservations(env.JPTI_DB, parsed.value.observations, now);
-        return reply(summary.status === 'failed' ? 422 : 200, summary);
+        return reply(summary.storageError ? 503 : summary.status === 'failed' ? 422 : 200, summary);
       } catch (error) {
         return reply(503, { error: 'Authenticated runner observations could not be committed to D1.', detail: String(error?.message || error).slice(0, 180) });
       }
