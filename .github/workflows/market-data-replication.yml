@@ -17,7 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 8
     env:
-      REPLICATION_URL: ${{ vars.JPTI_REPLICATION_URL }}
+      REPLICATION_URL: https://jopearl-trading-intelligence.pages.dev/api/replication
       # Match Pages Functions token precedence. Never print or echo this value.
       JPTI_API_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
     steps:
