@@ -12,7 +12,7 @@ import { operationsRouter, startOperationsScheduler, stopOperationsScheduler } f
 import { initializeSchedulerLease, closeSchedulerLease } from './scheduler-lease.js';
 import { initializeStorage, closeStorage } from './storage.js';
 import { assertLiveTradingAllowed, orderSchema, requirePrivateApiAuth } from './policy.js';
-import { buildCrossVenueComparison } from './market-intelligence.js';
+import { buildSynchronizedCrossVenueComparison } from './market-intelligence.js';
 import { futuresRouter } from './futures-intelligence.js';
 import { futuresPaperRouter } from './futures-paper.js';
 import { assetIntelligenceRouter } from './asset-intelligence.js';
@@ -250,7 +250,7 @@ app.get('/api/exchanges/compare/ticker', async (req, res) => {
     }
   }));
   const observations = results.filter((item) => item.observation).map((item) => item.observation);
-  const comparison = buildCrossVenueComparison(symbol, observations, Number(process.env.JPTI_CROSS_VENUE_OUTLIER_PERCENT) || 0.5);
+  const comparison = buildSynchronizedCrossVenueComparison(symbol, observations, Number(process.env.JPTI_CROSS_VENUE_OUTLIER_PERCENT) || 0.5);
   const payload = { ...comparison, results: results.map(({ exchange, status, error, httpStatus }) => ({ exchange, status, ...(error ? { error } : {}), ...(httpStatus ? { httpStatus } : {}) })),
     cache: 'miss', cacheTtlMs: 5000, note: 'Public exchange tickers only. No private keys or orders are used.' };
   crossVenueCache.set(cacheKey, { createdAt: Date.now(), payload });
