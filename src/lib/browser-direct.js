@@ -388,7 +388,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
-        }), signal, !(route.exchange === 'bitget' && marketType !== 'spot'));
+        }), signal, route.query.failover !== 'false' && !(route.exchange === 'bitget' && marketType !== 'spot'));
         const t = r.value;
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
@@ -422,7 +422,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
           const rows = [...merged.values()].sort((a, b) => a[0] - b[0]);
           if (!rows.length) throw new DirectError('Bitget returned no historical candles for this market.', 404);
           return rows.slice(-limit);
-        }), signal, !(route.exchange === 'bitget' && marketType !== 'spot'));
+        }), signal, route.query.failover !== 'false' && !(route.exchange === 'bitget' && marketType !== 'spot'));
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timeframe, candles: r.value, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'markets': {
