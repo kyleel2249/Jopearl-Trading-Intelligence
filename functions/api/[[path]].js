@@ -64,6 +64,7 @@ async function readMarketCache(env, routeKey) {
     const key = 'jpti:market:v1:' + await sha256Hex(routeKey);
     const cached = await env.JPTI_KV.get(key, 'json');
     if (!cached || !Number.isInteger(cached.status) || !cached.body) return null;
+    if (!marketSnapshotMatchesRoute(routeKey, cached.body)) return null;
     return isFreshEntry(cached.cachedAt, marketCacheTtl(routeKey) * 1000) ? { ...cached, key } : null;
   } catch {
     return null;
@@ -84,6 +85,7 @@ async function persistMarketSnapshot(env, routeKey, body, occurredAt) {
 }
 
 async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
+  if (!marketSnapshotMatchesRoute(routeKey, body)) return;
   const ttl = marketCacheTtl(routeKey);
   if (env.JPTI_KV) {
     try {
@@ -100,6 +102,22 @@ async function cacheMarketResponse(env, routeKey, status, body, occurredAt) {
   await persistMarketSnapshot(env, routeKey, body, occurredAt);
 }
 
+function marketSnapshotMatchesRoute(routeKey, body) {
+  let route;
+  try { route = new URL(routeKey, 'https://jpti.invalid'); } catch { return false; }
+  const match = route.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/(markets|ticker\/([^/]+)|ohlcv\/([^/]+))$/i);
+  if (!match) return true;
+  const expectedExchange = match[1].toLowerCase();
+  if (String(body?.exchange || '').toLowerCase() !== expectedExchange) return false;
+  if (match[2] === 'markets') return true;
+  let rawSymbol;
+  try { rawSymbol = decodeURIComponent(match[3] || match[4] || ''); } catch { return false; }
+  const marketType = normalizeReplicatedMarketType(route.searchParams.get('type'));
+  const expectedSymbol = normalizeReplicatedMarketSymbol(rawSymbol, marketType);
+  const actualSymbol = normalizeReplicatedMarketSymbol(body?.symbol, marketType);
+  return Boolean(expectedSymbol && actualSymbol && expectedSymbol === actualSymbol);
+}
+
 async function readStoredMarketSnapshot(env, routeKey) {
   if (!env.JPTI_DB) return null;
   try {
@@ -108,6 +126,7 @@ async function readStoredMarketSnapshot(env, routeKey) {
     ).bind(routeKey).first();
     if (!row?.payload) return null;
     const body = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload;
+    if (!marketSnapshotMatchesRoute(routeKey, body)) return null;
     return { body, occurredAt: row.occurred_at || null };
   } catch {
     return null;
