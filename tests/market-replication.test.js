@@ -79,6 +79,15 @@ test('replication planner stays within Cloudflare subrequest budget for all venu
   assert.ok(bounded.requestBudget.estimatedSubrequests <= 45);
 });
 
+test('replication runner can isolate Bitget primary coverage while preserving supplemental venue plans', () => {
+  const primary = normalizeReplicationPlan({}, { JPTI_REPLICATION_EXCHANGES: 'bitget' });
+  const supplemental = normalizeReplicationPlan({}, { JPTI_REPLICATION_EXCHANGES: 'binance,bybit,okx' });
+  assert.deepEqual(primary.exchanges, ['bitget']);
+  assert.deepEqual(supplemental.exchanges, ['binance', 'bybit', 'okx']);
+  assert.deepEqual(primary.marketTypes, ['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
+  assert.ok(supplemental.exchanges.every(exchange => marketTypesForExchange(exchange, supplemental.marketTypes).length === 1));
+});
+
 test('default allowlist covers Bitget USDT, inverse and USDC contract symbols', () => {
   const plan = normalizeReplicationPlan();
   assert.ok(plan.symbols.includes('BTC/USDT'));
