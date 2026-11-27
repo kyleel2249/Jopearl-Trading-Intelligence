@@ -153,3 +153,7 @@ jobs:
 
       - name: Diagnose signed Bitget CFD access from the GitHub runner
         run: npm run verify:bitget:cfd-runner
+        env:
+          JPTI_BITGET_API_KEY: ${{ secrets.JPTI_BITGET_API_KEY }}
+          JPTI_BITGET_API_SECRET: ${{ secrets.JPTI_BITGET_API_SECRET }}
+          JPTI_BITGET_API_PASSPHRASE: ${{ secrets.JPTI_BITGET_API_PASSPHRASE }}
