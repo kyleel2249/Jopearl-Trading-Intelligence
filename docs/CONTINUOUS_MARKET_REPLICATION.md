@@ -56,8 +56,8 @@ Cloudflare Pages Functions do not provide a native scheduled-event handler. This
 
 Configure these GitHub repository settings:
 
-1. Add repository variable `JPTI_REPLICATION_URL` with the deployed JPTI Pages endpoint, for example `https://jopearl-trading-intelligence.pages.dev/api/replication`. The workflow rejects unknown hosts until a verified custom domain is added to its allowlist.
-2. Add repository secret `JPTI_JOURNAL_TOKEN` (preferred) or `JPTI_API_TOKEN` with the same value configured as the Cloudflare Pages secret.
+1. The scheduled workflow is pinned to `https://jopearl-trading-intelligence.pages.dev/api/replication`; no endpoint variable is required. If the production domain changes, update the workflow endpoint and its trusted-host allowlist together.
+2. Add repository secret `JPTI_JOURNAL_TOKEN` (preferred) or `JPTI_API_TOKEN` with the same value configured as the Cloudflare Pages secret. The current deployment verification confirms the GitHub token is accepted by the established production Pages origin.
 3. Confirm migration `0014_market_data_replication` has been applied to the production D1 database.
 4. Enable the workflow `JPTI Continuous Market Data Replication`.
 
