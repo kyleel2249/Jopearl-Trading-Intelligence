@@ -34,7 +34,8 @@ export function normalizeReplicationPlan(input = {}, env = {}) {
   if (!exchanges.length) throw Object.assign(new Error('At least one supported exchange is required.'), { status: 400 });
   if (!symbols.length) throw Object.assign(new Error('At least one valid BASE/QUOTE symbol is required.'), { status: 400 });
   if (!timeframes.length && includeCandles) throw Object.assign(new Error('At least one supported candle timeframe is required.'), { status: 400 });
-  return { exchanges, symbols, timeframes: includeCandles ? timeframes : [], marketTypes: requestedTypes, limit, candleLimit, includeCandles };
+  const catalogLimit = Math.max(1, Math.min(20, Number.parseInt(input.catalogLimit ?? env.JPTI_REPLICATION_CATALOG_LIMIT ?? '8', 10) || 8));
+  return { exchanges, symbols, timeframes: includeCandles ? timeframes : [], marketTypes: requestedTypes, limit, candleLimit, catalogLimit, includeCandles };
 }
 
 export function boundReplicationPlanToSubrequestBudget(plan, groupCount, maxSubrequests = 45) {
