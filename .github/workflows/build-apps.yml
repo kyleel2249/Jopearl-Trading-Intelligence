@@ -70,7 +70,7 @@ jobs:
           VITE_APP_NAME: JPTI
           VITE_APP_ENV: production
           # Native WebViews use the public Cloudflare Pages origin for the same Pages Functions API.
-          VITE_API_BASE_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jpti.pages.dev' }}
+          VITE_API_BASE_URL: ${{ vars.CLOUDFLARE_PAGES_URL || 'https://jopearl-trading-intelligence.pages.dev' }}
       - name: Synchronize Capacitor Android project
         run: npx cap sync android
       - name: Prepare Android production signing key
