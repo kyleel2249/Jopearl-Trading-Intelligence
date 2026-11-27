@@ -49,20 +49,20 @@ Migration `0014_market_data_replication.sql` creates:
 
 Duplicate observations are ignored through a deterministic composite key. Existing `jpti_events` market snapshots remain intact; the new tables provide a time-series history rather than overwriting the latest snapshot.
 
-The Cloudflare Pages API now has bounded outage fallbacks for replicated D1 ticker and OHLCV observations. A replicated ticker is served only when its edge receipt time is within 15 minutes; it is always marked `stale: true`, includes its observation/receipt timestamps and identifies `cloudflare-d1-replicated-history` as its source. Replicated candles are also explicitly marked stale. Live exchange data remains preferred whenever available. The fallback is a continuity aid for chart inspection, not a live quote or an execution price.
+The Cloudflare Pages API now has bounded outage fallbacks for replicated D1 ticker and OHLCV observations. A replicated ticker is served only when its edge receipt time is within 15 minutes; it is always marked `stale: true`, includes its observation/receipt timestamps and identifies `cloudflare-d1-replicated-history` as its source. Replicated candles are also explicitly marked stale. Live exchange data remains preferred whenever available. The fallback is a continuity aid for chart inspection, not a live quote or an execution price. Authenticated runner ingestion revalidates every row, stamps its own D1 receipt time, rejects invalid/future timestamps and malformed OHLCV, and writes observations idempotently.
 
 ## Continuous scheduling
 
-Cloudflare Pages Functions do not provide a native scheduled-event handler. The GitHub Actions scheduled caller performs the public REST acquisition directly from the runner, disables cross-venue failover for each requested source, then posts the validated payloads to `/api/replication/ingest`. Cloudflare Pages remains the authenticated ingestion/API layer and D1 remains the durable store. The legacy `POST /api/replication` endpoint is still available for bounded edge-side runs, but it can report upstream 403/451 restrictions that do not affect the GitHub runner.
+Cloudflare Pages Functions do not provide a native scheduled-event handler. This build therefore uses GitHub Actions as the scheduled acquisition runner while keeping the authenticated ingestion API and durable storage on Cloudflare Pages/D1. The runner fetches Bitget public market data directly from GitHub-hosted infrastructure and pushes normalized observations to D1. This avoids relying on Cloudflare Worker outbound IP access to Bitget, which has returned HTTP 403. It is a direct exchange connection, not a third-party proxy.
 
 Configure these GitHub repository settings:
 
 1. The scheduled workflow is pinned to `https://jopearl-trading-intelligence.pages.dev/api/replication`; no endpoint variable is required. If the production domain changes, update the workflow endpoint and its trusted-host allowlist together.
-2. Add repository secret `JPTI_JOURNAL_TOKEN` (preferred) or `JPTI_API_TOKEN` with the same value configured as the Cloudflare Pages secret. The current deployment verification confirms the GitHub token is accepted by the established production Pages origin.
+2. Add repository secret `JPTI_JOURNAL_TOKEN` (preferred) or `JPTI_API_TOKEN` with the same value configured as the Cloudflare Pages secret. The manual production run verified that a configured GitHub Actions secret authenticated successfully against the canonical Pages endpoint.
 3. Confirm migration `0014_market_data_replication` has been applied to the production D1 database.
 4. Enable the workflow `JPTI Continuous Market Data Replication`.
 
-The workflow runs every five minutes and can also be started manually. The canonical production endpoint is pinned in the workflow, and the authenticated runner-ingest endpoint rejects cross-exchange fallback data. It uses bounded symbol/timeframe batches and records partial source coverage as a warning. GitHub Actions scheduling is best-effort and can be delayed by GitHub; this REST feed is not a tick-level feed or a hard real-time SLA.
+The workflow runs every five minutes and can also be started manually. It checks out the repository, runs the direct Bitget acquisition client on the GitHub runner, and pushes normalized observations in bounded authenticated batches. It then runs the existing order-book/trade/funding/open-interest/liquidation acquisition cycle. Missing endpoint/secret configuration fails visibly instead of producing a successful no-op. A run with zero valid ticker/candle observations fails; partial source coverage is surfaced as a warning. GitHub Actions scheduling is best-effort and can be delayed by GitHub; it is not a tick-level feed or a hard real-time SLA.
 
 ## Optional Cloudflare Pages variables
 
