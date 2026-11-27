@@ -152,7 +152,7 @@ function normalizeReplicatedMarketSymbol(value, marketType) {
 
 function normalizeReplicatedMarketType(value) {
   const requested = String(value || 'spot').trim().toLowerCase();
-  return ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'coin-futures': 'coin-m', 'usdc-futures': 'usdc-m' })[requested] || requested;
+  return ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'usdt-m-futures': 'usdt-m', 'coin-futures': 'coin-m', 'coin-m-futures': 'coin-m', 'usdc-futures': 'usdc-m', 'usdc-m-futures': 'usdc-m' })[requested] || requested;
 }
 
 async function readReplicatedCandles(env, url) {
