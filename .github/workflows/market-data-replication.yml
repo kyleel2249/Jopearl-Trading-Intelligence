@@ -65,6 +65,7 @@ jobs:
           # Bitget is the primary venue. Other exchange restrictions must not starve its D1 freshness.
           JPTI_REPLICATION_EXCHANGES: bitget
           JPTI_REPLICATION_MARKET_LIMIT: '1'
+          JPTI_REPLICATION_CATALOG_LIMIT: '8'
           JPTI_REPLICATION_CANDLE_LIMIT: '80'
           JPTI_REPLICATION_TIMEFRAMES: '1m,5m,1h'
           JPTI_REPLICATION_REQUIRE_BITGET_SPOT: 'true'
@@ -79,6 +80,7 @@ jobs:
           # Keep Binance, Bybit and OKX available for consensus when their regional routes respond.
           JPTI_REPLICATION_EXCHANGES: binance,bybit,okx
           JPTI_REPLICATION_MARKET_LIMIT: '1'
+          JPTI_REPLICATION_CATALOG_LIMIT: '8'
           JPTI_REPLICATION_CANDLE_LIMIT: '60'
           JPTI_REPLICATION_TIMEFRAMES: '1m,5m,1h'
         run: |

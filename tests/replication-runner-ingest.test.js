@@ -110,7 +110,7 @@ test('runner ingest rejects unauthenticated writes and oversized observation bat
   const deniedResponse = await denied({ request: new Request('https://jpti.example/api/replication/ingest', { method: 'POST', body: '{}' }), env: { JPTI_DB: db } });
   assert.equal(deniedResponse.status, 401);
   const accepted = createRunnerReplicationIngestHandler({ verifyToken: async () => ({ ok: true }) });
-  const tooMany = Array.from({ length: 81 }, () => ({ exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', ticker: makeTicker() }));
+  const tooMany = Array.from({ length: 121 }, () => ({ exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT', kind: 'ticker', ticker: makeTicker() }));
   const oversizedResponse = await accepted({ request: new Request('https://jpti.example/api/replication/ingest', { method: 'POST', body: JSON.stringify({ observations: tooMany }) }), env: { JPTI_DB: db } });
   assert.equal(oversizedResponse.status, 400);
 });
@@ -134,17 +134,19 @@ test('runner acquires requested venues only and posts validated observations to 
     planInput: { exchanges: ['binance'], symbols: ['BTC/USDT'], marketTypes: ['spot'], timeframes: ['1m'], marketLimit: 1, candleLimit: 20 },
     fetchImpl: async (url, init) => {
       posts.push({ url, init, body: JSON.parse(init.body) });
-      return new Response(JSON.stringify({ runId: 'ingest-1', status: 'completed', counts: { inserted: 3, duplicates: 0, valid: 3 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ runId: 'ingest-1', status: 'completed', counts: { inserted: 4, duplicates: 0, valid: 4 } }), { status: 200, headers: { 'content-type': 'application/json' } });
     },
     logger: { log() {}, warn() {} }
   });
   assert.equal(summary.status, 'completed');
   assert.equal(summary.counts.succeeded, 3);
-  assert.equal(summary.counts.inserted, 3);
+  assert.equal(summary.counts.inserted, 4);
   assert.equal(posts.length, 1);
   assert.equal(posts[0].url, 'https://jopearl-trading-intelligence.pages.dev/api/replication/ingest');
   assert.equal(posts[0].init.headers['x-jpti-api-token'], 'secret');
-  assert.equal(posts[0].body.observations.length, 2);
+  assert.equal(posts[0].body.observations.length, 3);
+  assert.equal(posts[0].body.observations[0].kind, 'markets');
+  assert.equal(posts[0].body.observations[0].market.id, 'BTCUSDT');
   assert.ok(paths.filter(path => path.includes('/ticker/') || path.includes('/ohlcv/')).every(path => path.includes('failover=false')));
 });
 
@@ -152,7 +154,7 @@ test('runner records a failover response as an error and never persists it under
   const posts = [];
   const provider = {
     async request(path) {
-      if (path.includes('/markets?')) return { status: 200, body: { markets: [{ symbol: 'BTC/USDT', active: true }] } };
+      if (path.includes('/markets?')) return { status: 200, body: { markets: [{ symbol: 'BTC/USDT', id: 'BTCUSDT', active: true }] } };
       if (path.includes('/ticker/')) return { status: 200, body: { ...makeTicker(), exchange: 'okx', requestedExchange: 'binance', failedOver: true } };
       if (path.includes('/ohlcv/')) return { status: 200, body: { exchange: 'binance', requestedExchange: 'binance', failedOver: false, candles } };
       return null;
@@ -163,13 +165,79 @@ test('runner records a failover response as an error and never persists it under
     planInput: { exchanges: ['binance'], symbols: ['BTC/USDT'], marketTypes: ['spot'], timeframes: ['1m'], marketLimit: 1, candleLimit: 20 },
     fetchImpl: async (_url, init) => {
       posts.push(JSON.parse(init.body));
-      return new Response(JSON.stringify({ runId: 'ingest-2', status: 'partial', counts: { inserted: 2, duplicates: 0, valid: 2 } }), { status: 200, headers: { 'content-type': 'application/json' } });
+      return new Response(JSON.stringify({ runId: 'ingest-2', status: 'partial', counts: { inserted: 3, duplicates: 0, valid: 3 } }), { status: 200, headers: { 'content-type': 'application/json' } });
     },
     logger: { log() {}, warn() {} }
   });
   assert.equal(summary.status, 'partial');
   assert.equal(summary.counts.tickers, 0);
   assert.equal(summary.counts.candles, 2);
-  assert.equal(posts[0].observations.length, 1);
+  assert.equal(posts[0].observations.length, 2);
+  assert.equal(posts[0].observations[0].kind, 'markets');
   assert.match(posts[0].errors[0].error, /cross-venue failover data was rejected/i);
+});
+
+
+test('authenticated runner ingest stores exact-venue Bitget market instrument metadata',async()=>{
+ const db=makeDb();
+ const handler=createRunnerReplicationIngestHandler({now:()=>new Date(NOW),verifyToken:async()=>({ok:true})});
+ const response=await handler({request:new Request('https://jpti.example/api/replication/ingest',{
+  method:'POST',headers:{'content-type':'application/json','x-jpti-api-token':'secret'},
+  body:JSON.stringify({observations:[{
+   exchange:'bitget',marketType:'spot',symbol:'BTC/USDT',kind:'markets',
+   observedAt:new Date(NOW-1000).toISOString(),
+   market:{id:'BTCUSDT',symbol:'BTC/USDT',base:'BTC',quote:'USDT',active:true,productCategory:'SPOT',spot:true},
+   sourceExchange:'bitget',requestedExchange:'bitget',failedOver:false
+  }]})
+ }),env:{JPTI_DB:db}});
+ const body=await response.json();
+ assert.equal(response.status,200);
+ assert.equal(body.counts.markets,1);
+ assert.equal(body.counts.inserted,1);
+ const saved=[...db.observations.values()][0];
+ assert.equal(saved.observation_kind,'markets');
+ assert.equal(JSON.parse(saved.payload).id,'BTCUSDT');
+});
+
+test('runner ingest rejects market metadata with mismatched product category or inactive instrument',async()=>{
+ const db=makeDb();
+ const handler=createRunnerReplicationIngestHandler({now:()=>new Date(NOW),verifyToken:async()=>({ok:true})});
+ const base={exchange:'bitget',marketType:'spot',symbol:'BTC/USDT',kind:'markets',observedAt:new Date(NOW-1000).toISOString(),sourceExchange:'bitget',requestedExchange:'bitget',failedOver:false};
+ const response=await handler({request:new Request('https://jpti.example/api/replication/ingest',{
+  method:'POST',body:JSON.stringify({observations:[
+   {...base,market:{id:'BTCUSDT',symbol:'BTC/USDT',active:true,productCategory:'USDT-FUTURES'}},
+   {...base,market:{id:'BTCUSDT',symbol:'BTC/USDT',active:false,productCategory:'SPOT'}}
+  ]})
+ }),env:{JPTI_DB:db}});
+ const body=await response.json();
+ assert.equal(response.status,502);
+ assert.equal(body.status,'failed');
+ assert.equal(body.counts.inserted,0);
+ assert.equal(db.observations.size,0);
+});
+
+
+test('runner replicates a broader instrument catalogue while keeping live price sampling bounded',async()=>{
+ const symbols=['BTC/USDT','ETH/USDT','SOL/USDT','XRP/USDT','BNB/USDT','DOGE/USDT','ADA/USDT','LINK/USDT'];
+ const paths=[],posts=[];
+ const provider={async request(path){
+  paths.push(path);
+  if(path.includes('/markets?'))return{status:200,body:{markets:symbols.map((symbol,index)=>({symbol,id:symbol.replace('/','')+'_ID_'+index,active:true,base:symbol.split('/')[0],quote:'USDT',productCategory:'SPOT',spot:true}))}};
+  if(path.includes('/ticker/'))return{status:200,body:{...makeTicker(),exchange:'bitget',requestedExchange:'bitget',symbol:'BTC/USDT'}};
+  if(path.includes('/ohlcv/'))return{status:200,body:{exchange:'bitget',requestedExchange:'bitget',failedOver:false,candles}};
+  return null;
+ }};
+ const summary=await runRunnerReplication({
+  endpoint:'https://jopearl-trading-intelligence.pages.dev/api/replication',token:'secret',provider,
+  planInput:{exchanges:['bitget'],symbols,marketTypes:['spot'],timeframes:['1m'],marketLimit:1,catalogLimit:8,candleLimit:20},
+  fetchImpl:async(_url,init)=>{posts.push(JSON.parse(init.body));return new Response(JSON.stringify({runId:'catalog-8',status:'completed',counts:{inserted:11,duplicates:0,valid:11}}),{status:200,headers:{'content-type':'application/json'}});},
+  logger:{log(){},warn(){}}
+ });
+ assert.equal(summary.status,'completed');
+ assert.equal(summary.counts.markets,8);
+ assert.equal(summary.counts.inserted,11);
+ assert.equal(paths.filter(path=>path.includes('/ticker/')).length,1);
+ assert.equal(paths.filter(path=>path.includes('/ohlcv/')).length,1);
+ assert.equal(posts[0].observations.filter(row=>row.kind==='markets').length,8);
+ assert.equal(posts[0].observations.filter(row=>row.kind==='ticker').length,1);
 });

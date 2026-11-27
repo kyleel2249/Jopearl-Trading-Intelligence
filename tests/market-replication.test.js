@@ -71,6 +71,13 @@ test('replication plan bounds symbols, exchanges, market categories and timefram
   assert.equal(plan.limit, 20);
 });
 
+test('catalogue replication limit is independently bounded from live ticker sampling', () => {
+  const plan = normalizeReplicationPlan({ marketLimit: 1, catalogLimit: 8 });
+  assert.equal(plan.limit, 1);
+  assert.equal(plan.catalogLimit, 8);
+  assert.equal(normalizeReplicationPlan({ catalogLimit: 99 }).catalogLimit, 20);
+});
+
 test('replication planner stays within Cloudflare subrequest budget for all venue categories', () => {
   const plan = normalizeReplicationPlan({ exchanges: ['binance', 'bybit', 'okx', 'bitget'], timeframes: ['1m', '5m', '15m', '1h'], marketLimit: 10 });
   const bounded = boundReplicationPlanToSubrequestBudget(plan, 8, 45);

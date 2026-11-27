@@ -5,8 +5,8 @@ import { verifyPrivateToken } from '../../private-auth.js';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: HEADERS });
-const MAX_BODY_BYTES = 128 * 1024;
-const MAX_ITEMS = 80;
+const MAX_BODY_BYTES = 256 * 1024;
+const MAX_ITEMS = 120;
 const MAX_CANDLES_PER_ITEM = 200;
 const MARKET_TYPES = new Set(['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
 const SYMBOL_PATTERN = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
@@ -60,7 +60,7 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
     if (parsed.error) return reply(parsed.status, { error: parsed.error });
     const input = parsed.value || {};
     if (!Array.isArray(input.observations) || input.observations.length < 1 || input.observations.length > MAX_ITEMS) {
-      return reply(400, { error: 'observations must contain between 1 and ' + MAX_ITEMS + ' bounded ticker/candle items.' });
+      return reply(400, { error: 'observations must contain between 1 and ' + MAX_ITEMS + ' bounded market/ticker/candle items.' });
     }
 
     const startedAt = now().toISOString();
@@ -104,6 +104,48 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
       const nestedFailedOver = item.kind === 'ticker' && item.ticker?.failedOver === true;
       if (item.failedOver !== false || nestedFailedOver || sourceExchange !== exchange || requestedExchange !== exchange || nestedExchange !== exchange || nestedRequested !== exchange) {
         errors.push({ stage: 'source-integrity', error: 'Cross-exchange failover data cannot be stored under the requested venue.', exchange, marketType, symbol });
+        continue;
+      }
+
+      if (item.kind === 'markets') {
+        const market = item.market && typeof item.market === 'object' && !Array.isArray(item.market) ? item.market : {};
+        const id = String(market.id || market.instrumentId || '').trim();
+        const productCategory = String(market.productCategory || ({
+          spot: 'SPOT', margin: 'MARGIN', 'usdt-m': 'USDT-FUTURES',
+          'coin-m': 'COIN-FUTURES', 'usdc-m': 'USDC-FUTURES'
+        })[marketType] || '').toUpperCase();
+        const expectedCategory = ({
+          spot: 'SPOT', margin: 'MARGIN', 'usdt-m': 'USDT-FUTURES',
+          'coin-m': 'COIN-FUTURES', 'usdc-m': 'USDC-FUTURES'
+        })[marketType];
+        const observedMs = Date.parse(item.observedAt || '');
+        if (!id || id.length > 100 || productCategory !== expectedCategory || market.active === false
+          || !Number.isFinite(observedMs) || observedMs <= 0 || observedMs > now().getTime() + 5000
+          || String(market.symbol || symbol).toUpperCase() !== symbol) {
+          errors.push({ stage: 'market-validation', error: 'Instrument metadata failed identity, category, status or timestamp validation.', exchange, marketType, symbol });
+          continue;
+        }
+        observations.push({
+          exchange, marketType, symbol, kind: 'markets',
+          observedAt: new Date(observedMs).toISOString(), receivedAt: now().toISOString(),
+          id, base: String(market.base || symbol.split('/')[0]).slice(0, 30),
+          quote: String(market.quote || symbol.split('/')[1]?.split(':')[0] || '').slice(0, 30),
+          settle: market.settle == null ? null : String(market.settle).slice(0, 30),
+          active: true, type: String(market.type || '').slice(0, 24),
+          categories: Array.isArray(market.categories) ? market.categories.map(x => String(x).slice(0, 24)).slice(0, 8) : [marketType],
+          spot: market.spot === true, margin: market.margin === true, swap: market.swap === true,
+          future: market.future === true, contract: market.contract === true,
+          linear: typeof market.linear === 'boolean' ? market.linear : null,
+          inverse: typeof market.inverse === 'boolean' ? market.inverse : null,
+          productCategory, contractType: market.contractType == null ? null : String(market.contractType).slice(0, 40),
+          instrumentType: String(market.instrumentType || 'crypto').slice(0, 30),
+          precision: market.precision && typeof market.precision === 'object' ? market.precision : null,
+          limits: market.limits && typeof market.limits === 'object' ? market.limits : null,
+          quality: { timestamped: true, exactVenue: true, activeInstrument: true, stale: false }
+        });
+        counts.succeeded++;
+        counts.markets++;
+        counts.valid++;
         continue;
       }
 
