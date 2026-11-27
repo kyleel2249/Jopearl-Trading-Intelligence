@@ -1,0 +1,51 @@
+name: JPTI Pull Request Validation
+
+on:
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: jpti-pr-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v5
+      - name: Set up Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install locked dependencies
+        run: npm ci --no-audit --no-fund
+      - name: Run syntax, adapter and undefined-reference checks
+        run: npm run check
+      - name: Run chart and institutional intelligence regression suites
+        run: npm test
+      - name: Build and verify Cloudflare Pages output
+        run: npm run build:pages
+        env:
+          VITE_APP_NAME: JPTI
+          VITE_APP_ENV: production
+          VITE_API_BASE_URL: ''
+          VITE_WS_URL: ''
+          VITE_ENABLE_ANALYTICS: 'true'
+          VITE_ENABLE_CRASH_REPORTING: 'true'
+          VITE_ENABLE_PERFORMANCE_MONITORING: 'true'
+          VITE_ENABLE_CONFIG_DIAGNOSTICS: 'true'
+      - name: Validate scheduled paper Worker bundle
+        run: npx --no-install wrangler deploy --dry-run --config workers/wrangler.toml
+      - name: Validate sequence-aware market stream collector
+        run: npx --no-install wrangler deploy --dry-run --config workers/market-stream-collector.wrangler.toml
+      - name: Validate autonomous department scheduler
+        run: npx --no-install wrangler deploy --dry-run --config workers/department-intelligence-scheduler.wrangler.toml
+      - name: Validate edge intelligence scheduler
+        run: npx --no-install wrangler deploy --dry-run --config workers/edge-intelligence-scheduler.wrangler.toml
