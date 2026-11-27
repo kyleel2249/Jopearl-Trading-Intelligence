@@ -42,7 +42,7 @@ async function saveObservations(db, observations) {
   for (let offset = 0; offset < observations.length; offset += 40) {
     const chunk = observations.slice(offset, offset + 40);
     const statements = chunk.map(observation => db.prepare(
-      'INSERT OR IGNORE INTO jpti_market_observations (observation_key,exchange,market_type,symbol,observation_kind,timeframe,observed_at,received_at,payload,quality) VALUES (?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO jpti_market_observations (observation_key,exchange,market_type,symbol,observation_kind,timeframe,observed_at,received_at,payload,quality) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_key) DO NOTHING'
     ).bind(
       replicationObservationKey(observation), observation.exchange, observation.marketType, observation.symbol,
       observation.kind, observation.timeframe || '', observation.observedAt, observation.receivedAt,
