@@ -14,7 +14,9 @@ const post = (base, body, token = 'test-private-token') => fetch(base + '/api/ri
 
 test('the futures gate endpoint requires private access, evaluates a plan and never authorizes orders', async () => {
   const previousToken = process.env.JPTI_API_TOKEN;
+  const previousLocalAccess = process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS;
   process.env.JPTI_API_TOKEN = 'test-private-token';
+  process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = 'false';
   try { await withServer(async (base) => {
     const denied = await post(base, { product: 'futures', side: 'long', entry: 100, stop: 95, equity: 10000, riskPercent: 1, leverage: 10 }, null);
     assert.equal(denied.status, 401);
@@ -30,5 +32,6 @@ test('the futures gate endpoint requires private access, evaluates a plan and ne
     assert.equal((await post(base, {})).body.decision, 'blocked');
   }); } finally {
     if (previousToken === undefined) delete process.env.JPTI_API_TOKEN; else process.env.JPTI_API_TOKEN = previousToken;
+    if (previousLocalAccess === undefined) delete process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS; else process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = previousLocalAccess;
   }
 });
