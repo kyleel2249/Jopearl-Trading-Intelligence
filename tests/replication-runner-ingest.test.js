@@ -154,7 +154,7 @@ test('runner records a failover response as an error and never persists it under
   const posts = [];
   const provider = {
     async request(path) {
-      if (path.includes('/markets?')) return { status: 200, body: { markets: [{ symbol: 'BTC/USDT', active: true }] } };
+      if (path.includes('/markets?')) return { status: 200, body: { markets: [{ symbol: 'BTC/USDT', id: 'BTCUSDT', active: true }] } };
       if (path.includes('/ticker/')) return { status: 200, body: { ...makeTicker(), exchange: 'okx', requestedExchange: 'binance', failedOver: true } };
       if (path.includes('/ohlcv/')) return { status: 200, body: { exchange: 'binance', requestedExchange: 'binance', failedOver: false, candles } };
       return null;
