@@ -140,6 +140,39 @@ for (const category of categories) {
   if (row.status === 'passed') console.log('PASS ' + category.label + ': ' + row.checks.join(', '));
 }
 
+const cors = { category: 'Browser CORS', checks: [] };
+try {
+  const url = bitget + '/api/v3/market/tickers?category=SPOT&symbol=BTCUSDT';
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let response;
+  try {
+    response = await fetch(url, {
+      headers: { accept: 'application/json', Origin: base },
+      signal: controller.signal,
+      cache: 'no-store'
+    });
+  } finally { clearTimeout(timer); }
+  cors.httpStatus = response.status;
+  cors.allowOrigin = response.headers.get('access-control-allow-origin') || null;
+  if (!response.ok) {
+    cors.status = 'probe-blocked';
+    cors.warning = 'Bitget rejected the origin-bearing browser CORS probe with HTTP ' + response.status + '.';
+  } else if (cors.allowOrigin !== '*' && cors.allowOrigin !== base) {
+    cors.status = 'blocked-cors';
+    cors.warning = 'Bitget did not return Access-Control-Allow-Origin for the JPTI production origin; browser-direct fetch will be blocked by CORS.';
+  } else {
+    cors.status = 'passed';
+    cors.checks.push('Bitget public GET includes an allowed origin for the production site');
+  }
+} catch (error) {
+  cors.status = 'probe-failed';
+  cors.warning = String(error?.message || error);
+}
+results.push(cors);
+if (cors.status === 'passed') console.log('PASS Browser CORS: ' + cors.checks.join(', '));
+else console.warn('WARN Browser CORS: ' + cors.warning);
+
 const cfd = { category: 'CFD', checks: [] };
 if (!platformHealth.capabilities?.bitgetCfdConfigured) {
   cfd.status = 'not-configured';
@@ -206,7 +239,7 @@ results.push(cfd);
 
 const failures = results.filter((row) => row.status === 'failed');
 const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
-const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'blocked-permissions' || row.status === 'not-configured');
+const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'blocked-permissions' || row.status === 'not-configured' || row.status === 'blocked-cors' || row.status === 'probe-blocked');
 console.log(JSON.stringify({
   target: base,
   status: failures.length ? 'failed' : accessWarnings.length ? 'passed-with-access-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
