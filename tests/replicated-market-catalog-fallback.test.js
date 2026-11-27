@@ -124,3 +124,22 @@ test('replicated market catalogue never answers a different exchange request', a
   assert.equal(response.status, 502);
   assert.equal((await response.json()).error, 'Bybit upstream unavailable');
 });
+
+
+test('Bitget derivative catalogue aliases resolve to the exact settlement category', async () => {
+  const cases = [
+    { type: 'usdt-m-futures', marketType: 'usdt-m', productCategory: 'USDT-FUTURES', symbol: 'BTC/USDT:USDT' },
+    { type: 'coin-m-futures', marketType: 'coin-m', productCategory: 'COIN-FUTURES', symbol: 'BTC/USD:BTC' },
+    { type: 'usdc-m-futures', marketType: 'usdc-m', productCategory: 'USDC-FUTURES', symbol: 'BTC/USDC:USDC' }
+  ];
+  for (const item of cases) {
+    const response = await createHandler()({
+      request: new Request('https://jpti.test/api/exchanges/bitget/markets?type=' + item.type),
+      env: makeEnv([marketRow({ marketType: item.marketType, symbol: item.symbol, id: item.productCategory, productCategory: item.productCategory })])
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200, item.type);
+    assert.equal(body.markets[0].productCategory, item.productCategory, item.type);
+    assert.equal(body.markets[0].symbol, item.symbol, item.type);
+  }
+});
