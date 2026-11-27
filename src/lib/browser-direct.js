@@ -185,6 +185,37 @@ export function tickerUrl(exchange, sym) {
   return HOSTS.bitget + '/api/v3/market/tickers?category=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(s);
 }
 
+export function bitgetTickerFallbackUrl(sym) {
+  const symbol = venueSymbol('bitget', sym);
+  const category = BITGET_CATEGORIES[String(sym.marketType || 'spot').toLowerCase()] || 'SPOT';
+  if (category === 'SPOT') {
+    return HOSTS.bitget + '/api/v2/spot/market/tickers?symbol=' + encodeURIComponent(symbol);
+  }
+  return HOSTS.bitget + '/api/v2/mix/market/ticker?productType=' + encodeURIComponent(category) + '&symbol=' + encodeURIComponent(symbol);
+}
+
+async function fetchTicker(exchange, sym, options) {
+  const parse = payload => {
+    const ticker = TICKER_PARSERS[exchange](payload);
+    if (ticker.last === null) throw new DirectError('The exchange returned no price.', 502);
+    return ticker;
+  };
+  try {
+    return parse(await getJson(tickerUrl(exchange, sym), options));
+  } catch (primaryError) {
+    if (exchange !== 'bitget' || primaryError?.status === 400) throw primaryError;
+    try {
+      return parse(await getJson(bitgetTickerFallbackUrl(sym), options));
+    } catch (fallbackError) {
+      throw new DirectError(
+        'Bitget v3 ticker failed: ' + String(primaryError?.message || primaryError).slice(0, 120) +
+        '; v2 ticker fallback failed: ' + String(fallbackError?.message || fallbackError).slice(0, 120),
+        fallbackError?.status || primaryError?.status || 502
+      );
+    }
+  }
+}
+
 export function candlesUrl(exchange, sym, timeframe, limit, endTime = null) {
   const frame = FRAMES[exchange]?.[timeframe];
   if (!frame) throw new DirectError('Unsupported timeframe: ' + timeframe, 400);
@@ -340,11 +371,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         if (!venues.length) throw new DirectError('Select at least one supported direct-data exchange.', 400);
         const results = await Promise.all(venues.map(async (venue) => {
           try {
-            const ticker = await cached('t:' + venue + sym.symbol, CACHE_TTL.ticker, async () => {
-              const value = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
-              if (value.last === null) throw new DirectError('The exchange returned no price.', 502);
-              return value;
-            });
+            const ticker = await cached('t:' + venue + sym.symbol, CACHE_TTL.ticker, async () => fetchTicker(venue, sym, opts));
             return { exchange: venue, status: 'ok', observation: {
               exchange: venue, symbol: sym.symbol, last: ticker.last, bid: ticker.bid, ask: ticker.ask,
               baseVolume: ticker.baseVolume, quoteVolume: ticker.quoteVolume, percentage: ticker.percentage,
