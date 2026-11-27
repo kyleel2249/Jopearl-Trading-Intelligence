@@ -103,7 +103,7 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
       const nestedExchange = item.kind === 'ticker' ? String(item.ticker?.exchange || '').toLowerCase() : sourceExchange;
       const nestedRequested = item.kind === 'ticker' ? String(item.ticker?.requestedExchange || '').toLowerCase() : requestedExchange;
       const nestedFailedOver = item.kind === 'ticker' && item.ticker?.failedOver === true;
-      if (item.failedOver === true || nestedFailedOver || (sourceExchange && sourceExchange !== exchange) || (requestedExchange && requestedExchange !== exchange) || (nestedExchange && nestedExchange !== exchange) || (nestedRequested && nestedRequested !== exchange)) {
+      if (item.failedOver !== false || nestedFailedOver || sourceExchange !== exchange || requestedExchange !== exchange || nestedExchange !== exchange || nestedRequested !== exchange) {
         errors.push({ stage: 'source-integrity', error: 'Cross-exchange failover data cannot be stored under the requested venue.', exchange, marketType, symbol });
         continue;
       }
