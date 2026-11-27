@@ -157,7 +157,7 @@ test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 2
     throw new Error('Unexpected direct market URL: ' + value);
   };
   try {
-    const result = await apiRequest('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot', {
+    const result = await apiRequest('/api/exchanges/bitget/ticker/ETH%2FUSDT?type=spot', {
       retries: 0,
       fetchImpl: async () => json({ error: 'Bitget upstream failed inside Cloudflare.', source: 'cloudflare-edge' })
     });
