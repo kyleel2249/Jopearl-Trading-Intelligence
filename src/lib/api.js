@@ -214,6 +214,11 @@ const isHtmlish = (response) => {
 
 // Venue-specific market requests must remain source-pure during browser fallback.
 // A failed Bitget request must never silently become a Binance/Bybit/OKX quote.
+function isBitgetMarketDataPath(path) {
+  const pathname = String(path || '').split('?')[0].replace(/\\/+$/, '');
+  return /^\\/api\\/exchanges\\/bitget\\/(?:markets|ticker\\/[^/]+|ohlcv\\/[^/]+)$/i.test(pathname);
+}
+
 function directFallbackPath(path) {
   const raw = String(path || '');
   const [pathname, query = ''] = raw.split('?');
@@ -277,7 +282,7 @@ export async function apiFetch(path, options = {}) {
       const served = await directFallback(path, options, 'server-error');
       if (served) return served;
     }
-  } else if (response.status === 404 && direct) {
+  } else if (response.status === 404 && direct && isBitgetMarketDataPath(path)) {
     // Some exchange/edge combinations surface an upstream 404 even while the
     // public endpoint is reachable from the browser. Retry the same venue only;
     // invalid symbols remain 404 and are never replaced with another exchange.
