@@ -170,3 +170,26 @@ test('authenticated runner ingest rejects unsupported candle intervals', async (
   assert.equal(response.status, 422);
   assert.equal(body.counts.inserted, 0);
 });
+
+
+test('runner ingest reports D1 constraint failures instead of classifying them as duplicates',async()=>{
+ const db=makeDb();
+ db.batch=async()=>{throw new Error('CHECK constraint failed: observation_kind');};
+ const handler=createHandler(db);
+ const response=await handler({
+  request:new Request('https://jpti.example/api/replication/ingest',{
+   method:'POST',headers:{'content-type':'application/json','x-jpti-api-token':'test-token'},
+   body:JSON.stringify({observations:[{
+    exchange:'bitget',marketType:'spot',symbol:'BTC/USDT',kind:'markets',
+    observedAt:new Date(NOW-1000).toISOString(),
+    market:{id:'BTCUSDT',symbol:'BTC/USDT',active:true,productCategory:'SPOT'},
+    sourceExchange:'bitget',requestedExchange:'bitget',failedOver:false
+   }]})
+  }),env:{JPTI_DB:db}
+ });
+ const body=await response.json();
+ assert.equal(response.status,200);
+ assert.equal(body.status,'partial');
+ assert.equal(body.counts.inserted,0);
+ assert.ok(body.errors.some(error=>error.stage==='d1-write'&&/CHECK constraint failed/.test(error.error)));
+});
