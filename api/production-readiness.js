@@ -16,6 +16,7 @@ export function evaluateProductionReadiness({env=process.env,storage=getStorageS
   {id:'api_token',passed:strongToken,severity:'critical',detail:'API token must contain at least 32 characters.'},
   {id:'durable_storage',passed:backend==='postgres'&&Boolean(env.DATABASE_URL)&&storage.initialized===true&&storage.durable===true,severity:'critical',detail:'Initialized PostgreSQL storage is required for multi-instance production operation.'},
   {id:'distributed_scheduler',passed:scheduler.initialized===true&&scheduler.coordination==='postgres-distributed',severity:'critical',detail:'PostgreSQL scheduler lease coordination must be initialized.'},
+  {id:'execution_idempotency_store',passed:storage.executionIntentStoreAvailable===true,severity:'critical',detail:'Atomic PostgreSQL execution-intent storage must be initialized before live order submission.'},
   {id:'cors_origins',passed:origins.length>0&&!origins.includes('*')&&origins.every(validCorsOrigin),severity:'high',detail:'CORS must use explicit HTTPS or Capacitor origins; wildcard origins are forbidden.'},
   {id:'order_notional_cap',passed:positive(env.JPTI_MAX_ORDER_NOTIONAL_USDT)!==null&&positive(env.JPTI_MAX_ORDER_NOTIONAL_USDT)<=10000,severity:'critical',detail:'A positive per-order notional cap no greater than 10,000 USDT is required.'},
   {id:'exchange_credentials',passed:exchanges.some(x=>x.configured),severity:'high',detail:'At least one server-side exchange connection must be configured.'},

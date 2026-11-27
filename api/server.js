@@ -387,7 +387,7 @@ app.use((error, _req, res, _next) => {
   }
   const status = Number.isInteger(error.status) ? error.status : 502;
   // Do not return request configs, headers, or raw exchange objects to clients.
-  res.status(status).json({ error: error.message || 'Exchange gateway error', name: error.name || 'Error' });
+  res.status(status).json({ error: error.message || 'Exchange gateway error', name: error.name || 'Error', ...(error.code ? { code: error.code } : {}), ...(error.clientOrderId ? { clientOrderId: error.clientOrderId } : {}), ...(error.existingIntent ? { existingIntent: error.existingIntent } : {}) });
 });
 
 await initializeStorage();

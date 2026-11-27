@@ -54,6 +54,22 @@ CREATE TABLE IF NOT EXISTS jpti_schema_migrations (
   version TEXT PRIMARY KEY,
   applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+CREATE TABLE IF NOT EXISTS jpti_execution_intents (
+  idempotency_key TEXT PRIMARY KEY,
+  account_id TEXT NOT NULL,
+  exchange_id TEXT NOT NULL,
+  symbol TEXT NOT NULL,
+  client_order_id TEXT NOT NULL,
+  request JSONB NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('submitting','submitted','acknowledged','partially_filled','filled','cancelled','rejected','unknown','reconciliation_required')),
+  response JSONB,
+  exchange_order_id TEXT,
+  last_error TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE(account_id, exchange_id, client_order_id)
+);
+CREATE INDEX IF NOT EXISTS jpti_execution_intents_status ON jpti_execution_intents(status, updated_at DESC);
 `;
 
 async function getPool() {
@@ -297,8 +313,38 @@ export async function setSyncCursor(key, value) {
   return cursor;
 }
 
+export async function reserveExecutionIntent({ idempotencyKey, accountId, exchangeId, symbol, clientOrderId, request } = {}) {
+  assertInitialized();
+  if (backend !== 'postgres') throw Object.assign(new Error('Live execution requires PostgreSQL-backed atomic idempotency storage.'), { status: 503 });
+  if (![idempotencyKey, accountId, exchangeId, symbol, clientOrderId].every(value => typeof value === 'string' && value.trim())) throw new Error('Execution intent identity fields are required.');
+  const db = await getPool();
+  const inserted = await db.query(
+    "INSERT INTO jpti_execution_intents(idempotency_key,account_id,exchange_id,symbol,client_order_id,request,status) VALUES($1,$2,$3,$4,$5,$6::jsonb,'submitting') ON CONFLICT DO NOTHING RETURNING idempotency_key,account_id,exchange_id,symbol,client_order_id,status,response,exchange_order_id,created_at,updated_at",
+    [idempotencyKey, accountId, exchangeId, symbol, clientOrderId, JSON.stringify(request || {})]
+  );
+  if (inserted.rowCount) return { reserved: true, intent: inserted.rows[0] };
+  const existing = await db.query(
+    'SELECT idempotency_key,account_id,exchange_id,symbol,client_order_id,status,response,exchange_order_id,created_at,updated_at FROM jpti_execution_intents WHERE idempotency_key=$1 OR (account_id=$2 AND exchange_id=$3 AND client_order_id=$4) LIMIT 1',
+    [idempotencyKey, accountId, exchangeId, clientOrderId]
+  );
+  return { reserved: false, intent: existing.rows[0] || null };
+}
+
+export async function updateExecutionIntent({ idempotencyKey, status, response = null, exchangeOrderId = null, error = null } = {}) {
+  assertInitialized();
+  if (backend !== 'postgres') throw Object.assign(new Error('Execution intent updates require PostgreSQL-backed storage.'), { status: 503 });
+  const allowed = new Set(['submitted','acknowledged','partially_filled','filled','cancelled','rejected','unknown','reconciliation_required']);
+  if (!allowed.has(status)) throw new Error('Unsupported execution intent status.');
+  const result = await (await getPool()).query(
+    'UPDATE jpti_execution_intents SET status=$2,response=$3::jsonb,exchange_order_id=$4,last_error=$5,updated_at=NOW() WHERE idempotency_key=$1 RETURNING idempotency_key,status,response,exchange_order_id,updated_at',
+    [idempotencyKey, status, response === null ? null : JSON.stringify(response), exchangeOrderId, error ? String(error).slice(0,1000) : null]
+  );
+  if (!result.rowCount) throw Object.assign(new Error('Execution intent reservation was not found.'), { status: 404 });
+  return result.rows[0];
+}
+
 export function getStorageStatus() {
-  return { backend, durable: backend === 'postgres', initialized, databaseConfigured: Boolean(process.env.DATABASE_URL) };
+  return { backend, durable: backend === 'postgres', initialized, databaseConfigured: Boolean(process.env.DATABASE_URL), executionIntentStoreAvailable: backend === 'postgres' && initialized };
 }
 
 export async function closeStorage() {

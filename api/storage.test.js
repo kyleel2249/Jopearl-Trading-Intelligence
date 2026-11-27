@@ -10,7 +10,7 @@ import { join } from 'node:path';
 // so the module is imported dynamically after they are set.
 process.env.JPTI_DATA_DIR = mkdtempSync(join(tmpdir(), 'jpti-storage-test-'));
 process.env.JPTI_STORAGE_BACKEND = 'file';
-const { appendStoredEvent, appendUniqueLedgerEvent, commitLedgerBatchAndCursor, getOutboxStatus, getStorageStatus, getSyncCursor, initializeStorage, readStoredEvents, setSyncCursor } = await import('./storage.js');
+const { appendStoredEvent, appendUniqueLedgerEvent, commitLedgerBatchAndCursor, getOutboxStatus, getStorageStatus, getSyncCursor, initializeStorage, readStoredEvents, setSyncCursor, reserveExecutionIntent, updateExecutionIntent } = await import('./storage.js');
 
 test('file storage initializes and reports its selected backend', async () => {
   const status = await initializeStorage();
@@ -78,4 +78,11 @@ test('file storage applies kind filtering before the requested result limit', as
   const events = await readStoredEvents(5, 'storage-filter-target');
   assert.ok(events.some(event => event.marker === marker), 'older matching events should not be hidden by unrelated newer events');
   assert.equal(events.length, 1);
+});
+
+test('live execution idempotency fails closed on non-PostgreSQL storage', async () => {
+  await initializeStorage();
+  assert.equal(getStorageStatus().executionIntentStoreAvailable, false);
+  await assert.rejects(() => reserveExecutionIntent({ idempotencyKey:'k', accountId:'a', exchangeId:'bitget', symbol:'BTC/USDT', clientOrderId:'client-123456', request:{} }), /PostgreSQL-backed/);
+  await assert.rejects(() => updateExecutionIntent({ idempotencyKey:'k', status:'unknown' }), /PostgreSQL-backed/);
 });
