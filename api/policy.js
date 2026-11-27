@@ -59,7 +59,7 @@ export function requirePrivateApiAuth(req) {
   const loopbackServer = ['127.0.0.1', '::1', 'localhost'].includes(process.env.JPTI_API_HOST || '127.0.0.1');
   if (process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS === 'true' && localAddress && loopbackServer) return;
   const expectedToken = process.env.JPTI_API_TOKEN;
-  if (!tokensMatch(expectedToken, req.get('x-jpti-api-token'))) {
+  if (!tokensMatch(expectedToken, requestApiToken(req))) {
     throw Object.assign(new Error('Missing or invalid JPTI API authorization token.'), { status: 401 });
   }
 }
