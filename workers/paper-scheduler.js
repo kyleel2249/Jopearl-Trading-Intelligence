@@ -111,7 +111,6 @@ export async function startMarketStreamCollector(env,prioritySymbols=[],previous
   const rows = await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') AND datetime(received_at)>=datetime('now','-10 minutes') GROUP BY exchange,market_type,symbol ORDER BY CASE WHEN exchange='bitget' THEN 0 ELSE 1 END,CASE WHEN market_type='spot' THEN 0 ELSE 1 END,last_seen DESC LIMIT 40").all();
   const payload = buildStreamStartPayload(rows.results || [],prioritySymbols);
   const stopped=[];
-  const active=new Set((Array.isArray(prioritySymbols)?prioritySymbols:[]).map(x=>String(x).toUpperCase()));
   const results = [];
   for (let i = 0; i < payload.streams.length; i += 6) {
     const batch = await Promise.all(payload.streams.slice(i, i + 6).map(async item => {
