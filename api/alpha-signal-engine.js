@@ -210,6 +210,13 @@ export function evaluateAlphaSignal(input={}, now=Date.now()) {
     permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,exchangeOrdersCreated:0},
     limitations:['Session-adjusted probability estimate is heuristic and requires historical calibration before predictive use.','Confidence is a deterministic consensus heuristic, not a statistically calibrated probability.','The five specialist models are deterministic technical rules, not autonomous LLM agents.','Signal evaluation uses completed OHLCV candles and a separately timestamped exchange quote.','Paper eligibility is not a live-order authorization or a profitability guarantee.']};
 }
+export function resolveReplayBarExit({side,bar,stop,target}) {
+  const stopHit=side==='buy'?bar.low<=stop:side==='sell'?bar.high>=stop:false;
+  const targetHit=side==='buy'?bar.high>=target:side==='sell'?bar.low<=target:false;
+  if(stopHit) return {price:side==='buy'?Math.min(stop,bar.open):Math.max(stop,bar.open),reason:'stop_loss'};
+  if(targetHit) return {price:target,reason:'take_profit_2'};
+  return null;
+}
 function tradeMetrics(trades, startingCapital=10000) {
   const wins=trades.filter(t=>t.pnl>0),losses=trades.filter(t=>t.pnl<0),gp=wins.reduce((s,t)=>s+t.pnl,0),gl=Math.abs(losses.reduce((s,t)=>s+t.pnl,0)),net=trades.reduce((s,t)=>s+t.pnl,0);
   let equity=startingCapital,peak=equity,maxDd=0;for(const t of trades){equity+=t.pnl;peak=Math.max(peak,equity);maxDd=Math.max(maxDd,(peak-equity)/peak);}
@@ -236,9 +243,8 @@ export function runAlphaReplay(input={}, now=Date.now()) {
     let exitPrice=null,exitIndex=null,exitReason='max_holding_period';
     const maxHold=Math.min(candles.length-1,i+49);
     for(let j=i+1;j<=maxHold;j++){
-      const bar=candles[j],stopHit=side==='buy'?bar.low<=stop:bar.high>=stop,targetHit=side==='buy'?bar.high>=target:bar.low<=target;
-      if(stopHit){exitPrice=stop;exitIndex=j;exitReason='stop_loss';break;}
-      if(targetHit){exitPrice=target;exitIndex=j;exitReason='take_profit_2';break;}
+      const bar=candles[j],barExit=resolveReplayBarExit({side,bar,stop,target});
+      if(barExit){exitPrice=barExit.price;exitIndex=j;exitReason=barExit.reason;break;}
     }
     if(exitPrice===null){exitIndex=maxHold;exitPrice=candles[maxHold].close;}
     const exitFill=exitPrice*(side==='buy'?1-slippageBps/10000:1+slippageBps/10000),gross=(exitFill-entryFill)*qty*(side==='buy'?1:-1),fees=entryFee+exitFill*qty*feeBps/10000,pnl=gross-fees;
