@@ -46,7 +46,9 @@ export async function runRunnerReplication(options = {}) {
   if (planInput.limit === undefined && planInput.marketLimit !== undefined) planInput.limit = planInput.marketLimit;
   const basePlan = normalizeReplicationPlan(planInput, env);
   const groupCount = basePlan.exchanges.reduce((sum, exchange) => sum + marketTypesForExchange(exchange, basePlan.marketTypes).length, 0);
-  const plan = boundReplicationPlanToSubrequestBudget(basePlan, groupCount, options.maxSubrequests || 45);
+  const boundedPlan = boundReplicationPlanToSubrequestBudget(basePlan, groupCount, options.maxSubrequests || 45);
+  // The D1 ingest endpoint accepts at most 128 KB per request; keep each grouped candle item bounded.
+  const plan = { ...boundedPlan, candleLimit: Math.min(boundedPlan.candleLimit, options.maxCandlesPerRequest || 60) };
   const startedAt = new Date().toISOString();
   const observations = [];
   const errors = [];
