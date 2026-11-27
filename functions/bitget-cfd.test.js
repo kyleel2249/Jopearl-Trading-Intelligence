@@ -95,3 +95,23 @@ test('Bitget CFD account diagnostics reveal read-only UTA permissions without ac
   assert.equal(JSON.stringify(result.body).includes('must-not-leak'), false);
   assert.equal(JSON.stringify(result.body).includes('192.0.2.1'), false);
 });
+
+
+test('Bitget CFD diagnostics preserve generic JSON denial bodies and safe edge headers', async () => {
+  const provider = createBitgetCfdProvider({
+    fetchImpl: async () => ({
+      ok: false, status: 403,
+      headers: { get: (name) => ({ 'content-type': 'application/json', server: 'cloudflare', 'cf-ray': 'abc123-IAD', date: 'Fri, 27 Nov 2026 09:00:00 GMT' }[name.toLowerCase()] || null) },
+      text: async () => JSON.stringify({ error: 'Access denied by upstream edge policy' })
+    })
+  });
+  await assert.rejects(() => provider.request(env, { kind: 'diagnostics' }), (error) => {
+    assert.equal(error.upstreamStatus, 403);
+    assert.match(error.upstreamPreview, /Access denied by upstream edge policy/);
+    assert.equal(error.upstreamServer, 'cloudflare');
+    assert.equal(error.upstreamRay, 'abc123-IAD');
+    assert.equal(error.upstreamDate, 'Fri, 27 Nov 2026 09:00:00 GMT');
+    assert.equal(String(error.message).includes('test-secret'), false);
+    return true;
+  });
+});
