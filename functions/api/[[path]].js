@@ -153,7 +153,7 @@ async function readReplicatedCandles(env, url) {
     const rows = (result?.results || []).map(row => {
       try { return typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { return null; }
     }).filter(row => row && [row.open, row.high, row.low, row.close, row.volume].every(value => Number.isFinite(Number(value))));
-    if (rows.length < 21) return null;
+    if (rows.length < Math.min(21, limit)) return null;
     rows.reverse();
     return {
       exchange, symbol, timeframe,
@@ -1470,7 +1470,9 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
       method: request.method,
       signal: request.signal
     });
-    if ((!result || result.status >= 500) && isMarketDataRoute) {
+    const isBitgetTickerOrCandleRoute = /^\/api\/exchanges\/bitget\/(?:ticker|ohlcv)\//i.test(url.pathname);
+    const shouldUseReplicatedFallback = !result || result.status >= 500 || (result.status === 404 && isBitgetTickerOrCandleRoute);
+    if (shouldUseReplicatedFallback && isMarketDataRoute) {
       const replicatedTicker = await readReplicatedTicker(env, url, now().getTime());
       if (replicatedTicker) return json(200, replicatedTicker, request, { 'x-jpti-cache': 'd1-replicated-history' });
       const replicated = await readReplicatedCandles(env, url);
