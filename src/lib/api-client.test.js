@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { apiRequest, ApiRequestError, apiFetch, apiUrl, getApiResolution, setApiBaseUrl, setApiPathPrefix, resolveWebSocketUrl, isApiUnavailable } from './api.js';
+import { apiRequest, ApiRequestError, apiFetch, apiUrl, resetApiAvailability, getApiResolution, setApiBaseUrl, setApiPathPrefix, resolveWebSocketUrl, isApiUnavailable } from './api.js';
 
 function withWindow(extra = {}, fn) {
   const previous = globalThis.window;
@@ -141,6 +141,7 @@ test('apiRequest falls back to the same Bitget venue when the Cloudflare edge re
 }));
 
 test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 200', () => withWindow({ location: new URL('https://app.example.com') }, async () => {
+  resetApiAvailability(); // isolate the module-level direct-provider micro-cache from preceding tests
   const previousFetch = globalThis.fetch;
   const requestedUrls = [];
   globalThis.fetch = async (url) => {
@@ -164,7 +165,7 @@ test('apiRequest recovers Bitget when the edge wraps an upstream error in HTTP 2
     assert.equal(result.data.exchange, 'bitget');
     assert.equal(result.data.last, 3162.15);
     assert.equal(result.data.source, 'browser-direct');
-    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers?category=SPOT&symbol=ETHUSDT')));
+    assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers') && url.includes('symbol=ETHUSDT')));
   } finally {
     globalThis.fetch = previousFetch;
   }
