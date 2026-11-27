@@ -15,6 +15,7 @@ import {
   sizeTicket, splitSymbol, systemStatus, ticketLevels, toPips, upcomingCalendar, utcClock, volatilityRiskView
 } from './terminal-dashboard-data.js';
 import './TerminalDashboard.css';
+import { resolveSavedChartMarket } from './chart-defaults.js';
 
 /* ------------------------------------------------------------------ utils */
 const store = {
@@ -22,7 +23,7 @@ const store = {
   set(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ } }
 };
 const TIMEFRAMES = [['1m', '1m'], ['5m', '5m'], ['15m', '15m'], ['1h', '1h'], ['4h', '4h'], ['1d', '1D']];
-const SYMBOL_PRESETS = ['EUR/USDT', 'GBP/USDT', 'AUD/USDT', 'BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'LINK/USDT'];
+const SYMBOL_PRESETS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'EUR/USDT', 'GBP/USDT', 'AUD/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'LINK/USDT'];
 const DEFAULT_OVERLAYS = { smc: false, sessions: true, institutional: false, bands: false, liquidity: true, liquidityTargets: true };
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳' };
 const SESSION_COLOR = { sydney: '#9b8cf6', tokyo: '#4a9bf5', london: '#a767ee', 'new-york': '#f0a848' };
@@ -389,8 +390,17 @@ function StatusBar({ status, lastUpdate }) {
 
 /* -------------------------------------------------------------- the page */
 export default function TerminalDashboard({ page, onNavigate, onOpenMenu, onSymbolChange, health, operations, loadError, lastRefresh, children }) {
-  const [exchange, setExchangeState] = useState(() => store.get('jpti.terminal.exchange', 'binance'));
-  const [symbol, setSymbolState] = useState(() => store.get('jpti.terminal.symbol', 'EUR/USDT'));
+  const [marketSeed] = useState(() => resolveSavedChartMarket(
+    store.get('jpti.terminal.exchange', null),
+    store.get('jpti.terminal.symbol', null)
+  ));
+  const [exchange, setExchangeState] = useState(marketSeed.exchange);
+  const [symbol, setSymbolState] = useState(marketSeed.symbol);
+  useEffect(() => {
+    if (!marketSeed.migrated) return;
+    store.set('jpti.terminal.exchange', marketSeed.exchange);
+    store.set('jpti.terminal.symbol', marketSeed.symbol);
+  }, [marketSeed]);
   const [timeframe, setTimeframeState] = useState(() => store.get('jpti.terminal.timeframe', '15m'));
   const [marketType, setMarketTypeState] = useState(() => store.get('jpti.terminal.marketType', 'spot'));
   const [marketSide, setMarketSide] = useState(() => store.get('jpti.terminal.marketSide', 'buy'));
