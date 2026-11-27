@@ -87,7 +87,7 @@ test('Spot and Futures workspaces initialize the multi-chart terminal with the c
   const workstation = read('../src/MultiChartWorkstation.jsx');
   assert.match(app, /<MultiChartWorkstation mode=\{page === 'Futures' \? 'futures' : 'spot'\}/);
   assert.match(workstation, /mode === 'futures' \? 'futures' : 'spot'/);
-  assert.match(workstation, /index === 0 && mode === 'spot' \? 'binance' : 'bitget'/);
+  assert.match(workstation, /exchange: DEFAULT_CHART_EXCHANGE/);
   assert.match(workstation, /initialMarketType=\{tile\.marketType\}/);
 });
 
