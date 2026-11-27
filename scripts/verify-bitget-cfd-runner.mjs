@@ -55,7 +55,7 @@ export async function verifyRunnerCfdAccess({ secrets = {}, provider = createBit
     if (error?.code === 'BITGET_CFD_CREDENTIALS_REQUIRED') {
       status = 'not-configured';
       warning = 'The GitHub deployment secret map does not contain the Bitget CFD read-only credentials.';
-    } else if (upstream.status === 401) {
+    } else if (upstream.status === 401 || ['40006', '40009'].includes(upstream.code)) {
       status = 'invalid-credentials-or-signature';
       warning = 'Bitget rejected the signed GitHub-runner request with HTTP 401. Check the API key, passphrase, secret and signature configuration.';
     } else if (upstream.status === 403) {
