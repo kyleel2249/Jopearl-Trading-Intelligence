@@ -280,8 +280,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       "SELECT payload, observed_at, received_at FROM jpti_market_observations WHERE exchange = ? AND market_type IN (" + placeholders + ") AND observation_kind = 'markets' ORDER BY received_at DESC LIMIT 1000"
     ).bind(exchange, ...types).all();
     const bySymbol = new Map();
-    let latestReceivedAt = 0;
-    for (const row of result?.results || []) {
+        for (const row of result?.results || []) {
       let market;
       try { market = typeof row.payload === 'string' ? JSON.parse(row.payload) : row.payload; } catch { continue; }
       const receivedAt = Date.parse(market?.receivedAt || row.received_at || '');
