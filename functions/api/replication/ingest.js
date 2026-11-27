@@ -5,8 +5,8 @@ import { verifyPrivateToken } from '../../private-auth.js';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: HEADERS });
-const MAX_BODY_BYTES = 128 * 1024;
-const MAX_ITEMS = 80;
+const MAX_BODY_BYTES = 256 * 1024;
+const MAX_ITEMS = 120;
 const MAX_CANDLES_PER_ITEM = 200;
 const MARKET_TYPES = new Set(['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
 const SYMBOL_PATTERN = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
@@ -60,7 +60,7 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
     if (parsed.error) return reply(parsed.status, { error: parsed.error });
     const input = parsed.value || {};
     if (!Array.isArray(input.observations) || input.observations.length < 1 || input.observations.length > MAX_ITEMS) {
-      return reply(400, { error: 'observations must contain between 1 and ' + MAX_ITEMS + ' bounded ticker/candle items.' });
+      return reply(400, { error: 'observations must contain between 1 and ' + MAX_ITEMS + ' bounded market/ticker/candle items.' });
     }
 
     const startedAt = now().toISOString();
