@@ -9,9 +9,13 @@ function isMain() {
 
 function loadSecrets() {
   const file = path.resolve(process.cwd(), '.jpti-pages-secrets.json');
-  if (!fs.existsSync(file)) return {};
-  const parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Cloudflare Pages secrets file must contain a JSON object.');
+  let parsed = {};
+  if (fs.existsSync(file)) {
+    parsed = JSON.parse(fs.readFileSync(file, 'utf8'));
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Cloudflare Pages secrets file must contain a JSON object.');
+  }
+  const envKeys = ['JPTI_BITGET_API_KEY','JPTI_BITGET_API_SECRET','JPTI_BITGET_API_PASSPHRASE','BITGET_API_KEY','BITGET_API_SECRET','BITGET_API_PASSPHRASE','JPTI_BITGET_PASSWORD'];
+  for (const key of envKeys) if (process.env[key]) parsed[key] = process.env[key];
   return parsed;
 }
 
