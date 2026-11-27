@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { apiFetch, apiUrl, getApiBaseUrl, getApiToken, isApiUnavailable, setApiBaseUrl, setApiToken, validateApiBaseUrl, getApiSource } from './api.js';
+import { apiFetch, apiUrl, getApiBaseUrl, getApiToken, isApiUnavailable, setApiBaseUrl, setApiToken, validateApiBaseUrl, getApiSource, resetApiAvailability } from './api.js';
 
 test('accepts blank same-origin and loopback desktop API addresses', () => {
   assert.deepEqual(validateApiBaseUrl(''), { valid: true, value: '' });
@@ -96,4 +96,91 @@ test('an HTML page from a static host surfaces a clear API-unavailable error ins
     globalThis.fetch = async () => new Response(null, { status: 204 });
     assert.equal((await apiFetch('/api/x')).status, 204);
   } finally { globalThis.window = previousWindow; globalThis.fetch = previousFetch; }
+});
+
+test('retries a market-data 404 directly against the same exchange without cross-venue substitution', async () => {
+  const previousWindow = globalThis.window, previousFetch = globalThis.fetch;
+  const makeStore = () => ({ getItem: () => null, setItem() {}, removeItem() {} });
+  globalThis.window = {
+    location: { protocol: 'https:', origin: 'https://jpti.pages.dev', hostname: 'jpti.pages.dev' },
+    localStorage: makeStore(),
+    sessionStorage: makeStore()
+  };
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    calls.push(target);
+    if (target.startsWith('https://jpti.pages.dev/api/exchanges/bitget/ticker/')) {
+      return new Response(JSON.stringify({ error: 'Bitget edge ticker returned 404.' }), {
+        status: 404, headers: { 'content-type': 'application/json' }
+      });
+    }
+    if (target.startsWith('https://api.bitget.com/api/v3/market/tickers?')) {
+      return new Response(JSON.stringify({
+        code: '00000',
+        requestTime: 1700000000000,
+        data: [{
+          symbol: 'BTCUSDT', ts: '1700000000000', lastPrice: '123.45',
+          bid1Price: '123.44', ask1Price: '123.46', highPrice24h: '130',
+          lowPrice24h: '110', volume24h: '100', turnover24h: '12345',
+          price24hPcnt: '0.01'
+        }]
+      }), { status: 200, headers: { 'content-type': 'application/json' } });
+    }
+    throw new Error('Unexpected cross-venue or external request: ' + target);
+  };
+  try {
+    resetApiAvailability();
+    const response = await apiFetch('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot');
+    const body = await response.json();
+    assert.equal(response.status, 200);
+    assert.equal(body.exchange, 'bitget');
+    assert.equal(body.symbol, 'BTC/USDT');
+    assert.equal(body.last, 123.45);
+    assert.equal(body.source, 'browser-direct');
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1].startsWith('https://api.bitget.com/'));
+    assert.equal(getApiSource().mode, 'direct');
+  } finally {
+    resetApiAvailability();
+    if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('keeps the original market-data 404 when the requested venue also fails', async () => {
+  const previousWindow = globalThis.window, previousFetch = globalThis.fetch;
+  const makeStore = () => ({ getItem: () => null, setItem() {}, removeItem() {} });
+  globalThis.window = {
+    location: { protocol: 'https:', origin: 'https://jpti.pages.dev', hostname: 'jpti.pages.dev' },
+    localStorage: makeStore(),
+    sessionStorage: makeStore()
+  };
+  const calls = [];
+  globalThis.fetch = async (url) => {
+    const target = String(url);
+    calls.push(target);
+    if (target.startsWith('https://jpti.pages.dev/api/exchanges/bitget/ticker/')) {
+      return new Response(JSON.stringify({ error: 'Bitget edge ticker returned 404.' }), {
+        status: 404, headers: { 'content-type': 'application/json' }
+      });
+    }
+    if (target.startsWith('https://api.bitget.com/')) {
+      return new Response(JSON.stringify({ code: '500', msg: 'temporarily unavailable' }), {
+        status: 503, headers: { 'content-type': 'application/json' }
+      });
+    }
+    throw new Error('Cross-venue fallback is forbidden: ' + target);
+  };
+  try {
+    resetApiAvailability();
+    const response = await apiFetch('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot');
+    assert.equal(response.status, 404);
+    assert.equal(calls.length, 2);
+    assert.ok(calls[1].startsWith('https://api.bitget.com/'));
+  } finally {
+    resetApiAvailability();
+    if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
+    globalThis.fetch = previousFetch;
+  }
 });
