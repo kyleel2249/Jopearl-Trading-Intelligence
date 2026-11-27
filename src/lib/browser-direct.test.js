@@ -121,12 +121,12 @@ test('provider disables cross-venue failover when the replication runner request
   const ticker = await provider.request('/api/exchanges/binance/ticker/BTC-USDT?failover=false');
   assert.equal(ticker.failed, true);
   assert.ok(urls.length > 0);
-  assert.ok(urls.every(url => !/api\\.bybit\\.com|okx\\.com|bitget\\.com/i.test(url)), 'ticker requests stay on the requested exchange');
+  assert.ok(urls.every(url => !/api\.bybit\.com|okx\.com|bitget\.com/i.test(url)), 'ticker requests stay on the requested exchange');
   urls.length = 0;
   const candles = await provider.request('/api/exchanges/binance/ohlcv/BTC-USDT?timeframe=1m&limit=20&failover=false');
   assert.equal(candles.failed, true);
   assert.ok(urls.length > 0);
-  assert.ok(urls.every(url => !/api\\.bybit\\.com|okx\\.com|bitget\\.com/i.test(url)), 'candle requests stay on the requested exchange');
+  assert.ok(urls.every(url => !/api\.bybit\.com|okx\.com|bitget\.com/i.test(url)), 'candle requests stay on the requested exchange');
 });
 
 test('provider reports failure (not invented data) when every venue is down, and 404 for bad symbols', async () => {
