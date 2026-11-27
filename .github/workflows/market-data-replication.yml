@@ -47,32 +47,28 @@ jobs:
           console.log('Replication endpoint configuration validated for', url.origin + url.pathname);
           NODE
           echo "ready=true" >> "$GITHUB_OUTPUT"
-      - name: Run bounded exchange replication cycle
+      - name: Acquire venue-verified market data from GitHub runner and persist to D1
         if: steps.config.outputs.ready == 'true'
         shell: bash
         run: |
           set -euo pipefail
-          curl --fail-with-body --silent --show-error \
-            --connect-timeout 20 --max-time 240 \
-            --retry 2 --retry-delay 8 --retry-all-errors \
-            -X POST "$REPLICATION_URL" \
-            -H "content-type: application/json" \
-            -H "x-jpti-api-token: $JPTI_API_TOKEN" \
-            --data '{"includeCandles":true,"marketLimit":1,"candleLimit":80,"timeframes":["1m","5m","1h"]}' \
-            --output replication-result.json
+          JPTI_REPLICATION_EXCHANGES="binance,bybit,okx,bitget" \
+          JPTI_REPLICATION_MARKET_LIMIT="1" \
+          JPTI_REPLICATION_CANDLE_LIMIT="80" \
+          JPTI_REPLICATION_TIMEFRAMES="1m,5m,1h" \
+          node scripts/replicate-market-data.mjs
           node --input-type=module <<'NODE'
           import fs from 'node:fs';
           const r = JSON.parse(fs.readFileSync('replication-result.json', 'utf8'));
-          if (!r.runId || !['completed', 'partial'].includes(r.status)) {
-            throw new Error('Replication API did not return a completed or partial run: ' + JSON.stringify({ status: r.status, error: r.error }));
+          if (!Array.isArray(r.runIds) || !r.runIds.length || !['completed', 'partial'].includes(r.status)) {
+            throw new Error('Runner replication did not return a completed or partial D1 ingest: ' + JSON.stringify({ status: r.status, errors: r.errors?.slice(0, 3) }));
           }
-          if (!Number(r.counts?.attempted) || !Number(r.counts?.succeeded)) {
-            throw new Error('Replication returned no successful acquisition work. Inspect the API run errors and Cloudflare upstream access.');
+          if (!Number(r.counts?.succeeded) || !Number(r.counts?.valid)) {
+            throw new Error('Runner replication produced no validated market observations.');
           }
-          console.log('Replication run:', r.runId, 'status:', r.status, 'attempted:', r.counts.attempted, 'succeeded:', r.counts.succeeded, 'inserted:', r.counts.inserted ?? 0);
+          console.log('Runner replication runs:', r.runIds.join(','), 'status:', r.status, 'attempted:', r.counts.attempted, 'succeeded:', r.counts.succeeded, 'valid:', r.counts.valid, 'inserted:', r.counts.inserted, 'duplicates:', r.counts.duplicates);
           if (r.status === 'partial') {
-            const errors = Array.isArray(r.errors) ? r.errors.slice(0, 5) : [];
-            console.warn('::warning title=Partial market replication::Some configured sources failed. Review bounded errors: ' + JSON.stringify(errors));
+            console.warn('::warning title=Partial runner market replication::Some exchange sources were unavailable. Venue-verified observations were persisted; review bounded source errors.');
           }
           NODE
       - name: Replicate order books, trades, funding, open interest and liquidation events
