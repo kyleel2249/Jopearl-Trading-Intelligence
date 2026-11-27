@@ -377,6 +377,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         } };
       }
       case 'ticker': {
+        if (!DIRECT_EXCHANGES.includes(route.exchange)) throw new DirectError('Direct mode does not support ' + route.exchange + '.', 404);
         const marketType = normalizeBitgetMarketType(route.query.type || 'spot');
         const sym = parseSymbol(route.symbol);
         const instrumentId = String(route.query.instrumentId || '').trim().toUpperCase();
@@ -394,6 +395,7 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
       case 'ohlcv': {
+        if (!DIRECT_EXCHANGES.includes(route.exchange)) throw new DirectError('Direct mode does not support ' + route.exchange + '.', 404);
         const marketType = String(route.query.type || 'spot').toLowerCase();
         if (route.exchange === 'bitget' && marketType === 'cfd') throw new DirectError('Bitget CFD data must be requested through the authenticated Cloudflare Pages Function. Configure the Bitget read-only UTA secrets in Cloudflare.', 503);
         const sym = parseSymbol(route.symbol);
