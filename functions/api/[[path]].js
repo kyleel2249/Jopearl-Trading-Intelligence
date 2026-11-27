@@ -271,7 +271,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
   const requestedType = String(url.searchParams.get('type') || 'spot').trim().toLowerCase();
   const marketType = normalizeReplicatedMarketType(requestedType);
   const allowed = ['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m'];
-  const types = requestedType === 'all' ? allowed : [marketType];
+  const types = ['all', 'futures', 'perpetual'].includes(requestedType) ? allowed : [marketType];
   if (!types.every(type => allowed.includes(type))) return null;
   const search = String(url.searchParams.get('search') || '').trim().toLowerCase().slice(0, 60);
   try {
