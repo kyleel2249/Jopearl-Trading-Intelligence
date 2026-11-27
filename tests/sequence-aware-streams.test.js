@@ -74,3 +74,13 @@ test('scheduled stream selection excludes malformed rows and respects its bounde
  assert.equal(streams[0].exchange,'bitget');
  assert.equal(streams[1].marketType,'usdt-m');
 });
+
+
+test('explicit scheduled stream configuration does not silently add supplemental venues',()=>{
+ const streams=selectScheduledStreams([{exchange:'okx',marketType:'spot',symbol:'ETH/USDT'}],10,{includeFallbacks:false});
+ assert.deepEqual(streams,[
+  {exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},
+  {exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'},
+  {exchange:'okx',marketType:'spot',symbol:'ETH/USDT'}
+ ]);
+});
