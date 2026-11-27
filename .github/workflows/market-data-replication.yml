@@ -41,7 +41,7 @@ jobs:
           const allowedHosts = new Set(['jopearl-trading-intelligence.pages.dev', 'jpti.pages.dev']);
           if (url.protocol !== 'https:') throw new Error('JPTI_REPLICATION_URL must use HTTPS.');
           if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('JPTI_REPLICATION_URL host is not an approved JPTI Cloudflare Pages origin. Update the workflow allowlist only after verifying ownership of a custom domain.');
-          if (url.pathname.replace(/\\/+$/, '') !== '/api/replication' || url.search || url.hash || url.username || url.password) {
+          if (!['/api/replication', '/api/replication/'].includes(url.pathname) || url.search || url.hash || url.username || url.password) {
             throw new Error('JPTI_REPLICATION_URL must be the exact /api/replication endpoint without query, fragment or embedded credentials.');
           }
           console.log('Replication endpoint configuration validated for', url.origin + url.pathname);
