@@ -1,3 +1,4 @@
+import { assessCrossVenueSynchronization } from './market-data-integrity.js';
 export function buildCrossVenueComparison(symbol, observations, thresholdPercent = 0.5) {
   const valid = observations.filter((item) => Number.isFinite(item.last) && item.last > 0);
   const sorted = valid.map((item) => item.last).sort((a, b) => a - b);
@@ -24,5 +25,32 @@ export function buildCrossVenueComparison(symbol, observations, thresholdPercent
       'Displayed bid/ask sizes are not modeled. A positive gross edge is not proof of an executable arbitrage.',
       'Only venues that returned a valid ticker are included; market symbols and quote conventions must match.'
     ]
+  };
+}
+
+/**
+ * Production-facing ticker comparison: unlike the pure comparison helper above, this
+ * requires fresh timestamped quotes from independent venues and excludes cross-venue outliers.
+ */
+export function buildSynchronizedCrossVenueComparison(symbol, observations, thresholdPercent = 0.5, now = Date.now()) {
+  const synchronization = assessCrossVenueSynchronization(
+    (Array.isArray(observations) ? observations : []).map(item => ({
+      venue: item.exchange, price: item.last, timestamp: item.timestamp
+    })),
+    { now, maxAgeMs: 15000, maxSkewMs: 3000, minVenues: 2, outlierPct: thresholdPercent }
+  );
+  const acceptedVenues = new Set(synchronization.accepted.map(item => item.venue));
+  const trusted = (Array.isArray(observations) ? observations : []).filter(item => acceptedVenues.has(String(item.exchange || '').toLowerCase()));
+  return {
+    ...buildCrossVenueComparison(symbol, trusted, thresholdPercent),
+    synchronization: {
+      synchronized: synchronization.synchronized,
+      reason: synchronization.reason,
+      freshVenueCount: synchronization.venueCount,
+      acceptedVenues: synchronization.accepted.map(item => item.venue),
+      rejectedVenues: synchronization.rejected,
+      maxTimestampSkewMs: synchronization.maxSkewMs,
+      referencePrice: synchronization.referencePrice
+    }
   };
 }
