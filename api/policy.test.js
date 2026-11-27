@@ -50,3 +50,39 @@ test('local desktop private access is restricted to loopback server and client',
   process.env.JPTI_API_HOST = old.host ?? '127.0.0.1';
   if (old.token === undefined) delete process.env.JPTI_API_TOKEN; else process.env.JPTI_API_TOKEN = old.token;
 });
+
+
+test('private API auth accepts Bearer credentials consistently', () => {
+  const previous = {
+    enabled: process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS,
+    host: process.env.JPTI_API_HOST,
+    token: process.env.JPTI_API_TOKEN
+  };
+  process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = 'false';
+  process.env.JPTI_API_HOST = '127.0.0.1';
+  process.env.JPTI_API_TOKEN = 'long-random-private-token';
+  const req = { ip: '203.0.113.10', get: (name) => name === 'authorization' ? 'Bearer long-random-private-token' : undefined };
+  try {
+    assert.doesNotThrow(() => requirePrivateApiAuth(req));
+    assert.throws(() => requirePrivateApiAuth({ ...req, get: () => 'Bearer wrong-token' }), /Missing or invalid/);
+  } finally {
+    if (previous.enabled === undefined) delete process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS; else process.env.JPTI_ALLOW_LOCAL_PRIVATE_ACCESS = previous.enabled;
+    if (previous.host === undefined) delete process.env.JPTI_API_HOST; else process.env.JPTI_API_HOST = previous.host;
+    if (previous.token === undefined) delete process.env.JPTI_API_TOKEN; else process.env.JPTI_API_TOKEN = previous.token;
+  }
+});
+
+test('live trading gate accepts the documented Bearer token form', () => {
+  const keys = ['JPTI_TRADING_MODE','JPTI_ENABLE_LIVE_TRADING','JPTI_API_TOKEN','JPTI_MAX_ORDER_NOTIONAL_USDT'];
+  const old = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.JPTI_TRADING_MODE = 'live';
+  process.env.JPTI_ENABLE_LIVE_TRADING = 'true';
+  process.env.JPTI_API_TOKEN = 'long-random-private-token';
+  process.env.JPTI_MAX_ORDER_NOTIONAL_USDT = '100';
+  const req = { get: (name) => ({ authorization: 'Bearer long-random-private-token', 'x-jpti-live-confirmation': 'I_ACKNOWLEDGE_LIVE_TRADING' }[name]) };
+  try {
+    assert.doesNotThrow(() => assertLiveTradingAllowed(req, { has: { createOrder: true } }, { active: true, spot: true, quote: 'USDT' }, { type: 'limit', price: 50000, amount: 0.001 }, 50000));
+  } finally {
+    for (const key of keys) { if (old[key] === undefined) delete process.env[key]; else process.env[key] = old[key]; }
+  }
+});

@@ -1,10 +1,6 @@
+import './load-env.js';
 import { tokensMatch, requestApiToken } from './token-auth.js';
 import { getRuntimeConfigStatus, saveRuntimeConfig, verifyConfigAdminToken } from './runtime-config.js';
-import dotenv from 'dotenv';
-// Load the unified local configuration file for PC development. Existing process
-// variables (including Electron's per-user desktop .env) retain precedence.
-dotenv.config({ path: '.env.local', override: false });
-dotenv.config({ path: '.env', override: false });
 import express from 'express';
 import { resolve } from 'node:path';
 import helmet from 'helmet';

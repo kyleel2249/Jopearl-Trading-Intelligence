@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { tokensMatch } from './token-auth.js';
+import { tokensMatch, requestApiToken } from './token-auth.js';
 
 // Re-exported so existing imports of tokensMatch from this module keep working.
 export { tokensMatch };
@@ -22,7 +22,7 @@ export function assertLiveTradingAllowed(req, exchange, market, order, reference
     throw Object.assign(new Error('Live trading is locked. Set JPTI_TRADING_MODE=live and JPTI_ENABLE_LIVE_TRADING=true only after completing paper validation.'), { status: 403 });
   }
   const expectedToken = process.env.JPTI_API_TOKEN;
-  if (!tokensMatch(expectedToken, req.get('x-jpti-api-token'))) {
+  if (!tokensMatch(expectedToken, requestApiToken(req))) {
     throw Object.assign(new Error('Missing or invalid JPTI API authorization token.'), { status: 401 });
   }
   if (req.get('x-jpti-live-confirmation') !== 'I_ACKNOWLEDGE_LIVE_TRADING') {
