@@ -215,10 +215,9 @@ const isHtmlish = (response) => {
 // Venue-specific market requests must remain source-pure during browser fallback.
 // A failed Bitget request must never silently become a Binance/Bybit/OKX quote.
 function isBitgetMarketDataPath(path) {
-  const pathname = String(path || '').split('?')[0].replace(/\\/+$/, '');
-  return /^\\/api\\/exchanges\\/bitget\\/(?:markets|ticker\\/[^/]+|ohlcv\\/[^/]+)$/i.test(pathname);
+  const pathname = String(path || '').split('?')[0].replace(/\/+$/, '');
+  return /^\/api\/exchanges\/bitget\/(?:markets|ticker\/[^/]+|ohlcv\/[^/]+)$/i.test(pathname);
 }
-
 function directFallbackPath(path) {
   const raw = String(path || '');
   const [pathname, query = ''] = raw.split('?');
