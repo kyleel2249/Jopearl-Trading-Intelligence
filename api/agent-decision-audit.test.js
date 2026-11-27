@@ -1,0 +1,8 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {validateAgentDecision,arbitrateIndependentDecisions,appendDecisionAudit} from './agent-decision-audit.js';
+const d=(agentId,direction='long',source=agentId)=>({agentId,symbol:'BTC/USDT',direction,confidence:.8,timestamp:'2026-11-27T10:00:00Z',evidence:[{source,observedAt:'2026-11-27T09:59:00Z'}]});
+test('validates decision schema and evidence provenance',()=>{assert.equal(validateAgentDecision(d('a')).valid,true);assert.ok(validateAgentDecision({...d('a'),confidence:1.4}).errors.includes('confidence_out_of_range'));assert.ok(validateAgentDecision({...d('a'),evidence:[]}).errors.includes('evidence_required'));});
+test('requires independent agents and independent evidence and vetoes disagreement',()=>{assert.equal(arbitrateIndependentDecisions([d('a'),d('b')]).accepted.length,1);assert.equal(arbitrateIndependentDecisions([d('a'),d('b','short')]).vetoed[0].reason,'direction_conflict');assert.equal(arbitrateIndependentDecisions([d('a','long','shared'),d('b','long','shared')]).vetoed[0].reason,'evidence_not_independent');});
+test('duplicate votes from the same agent cannot inflate consensus',()=>{const r=arbitrateIndependentDecisions([d('a'),d('a'),d('b')]);assert.equal(r.results[0].agentCount,2);assert.equal(r.rejected.length,1);});
+test('decision audit hashes are deterministic and chained',()=>{const first=appendDecisionAudit('',{id:'1'}),second=appendDecisionAudit(first.hash,{id:'2'});assert.equal(first.hash,appendDecisionAudit('',{id:'1'}).hash);assert.notEqual(first.hash,second.hash);assert.equal(second.previousHash,first.hash);});
