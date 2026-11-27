@@ -19,6 +19,7 @@ export default function AlphaSignalEngine(){
  const loadLedger=useCallback(async()=>{try{const r=await apiFetch('/api/alpha/paper/ledger',{headers:headers(),cache:'no-store'});const d=await r.json();if(r.ok)setLedger(d);}catch{}},[apiToken]);
  useEffect(()=>{loadLedger();},[loadLedger]);
  const getMarketData=useCallback(async()=>{
+  if(marketType!=='spot')throw new Error('Alpha Signal Engine uses spot-only position sizing. Select Spot here; use the Futures Risk Gate for futures or perpetual contracts.');
   const normalized=symbol.trim().toUpperCase();if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(normalized))throw new Error('Enter BASE/QUOTE, or BASE/QUOTE:SETTLE for a Bitget contract.');
   const marketPath=normalized.replace('/','-');
   const [candleResponse,quoteResponse]=await Promise.all([
