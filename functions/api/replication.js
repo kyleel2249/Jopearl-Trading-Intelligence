@@ -12,7 +12,7 @@ const MAX_BODY_BYTES = 512 * 1024;
 
 async function readJson(request) {
   const raw = await request.text();
-  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return { error: 'Replication request exceeds 32 KB.', status: 413 };
+  if (new TextEncoder().encode(raw).byteLength > MAX_BODY_BYTES) return { error: 'Replication request exceeds 512 KB.', status: 413 };
   try { return { value: raw.trim() ? JSON.parse(raw) : {} }; }
   catch { return { error: 'A valid JSON request body is required.', status: 400 }; }
 }
