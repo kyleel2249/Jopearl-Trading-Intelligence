@@ -16,6 +16,7 @@ import {
 } from './terminal-dashboard-data.js';
 import './TerminalDashboard.css';
 import { resolveSavedChartMarket } from './chart-defaults.js';
+import { SYMBOL_PRESETS } from './symbol-presets.js';
 
 /* ------------------------------------------------------------------ utils */
 const store = {
@@ -23,7 +24,7 @@ const store = {
   set(key, value) { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage unavailable */ } }
 };
 const TIMEFRAMES = [['1m', '1m'], ['5m', '5m'], ['15m', '15m'], ['1h', '1h'], ['4h', '4h'], ['1d', '1D']];
-const SYMBOL_PRESETS = ['BTC/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'EUR/USDT', 'GBP/USDT', 'AUD/USDT', 'ETH/USDT', 'SOL/USDT', 'XRP/USDT', 'BNB/USDT', 'DOGE/USDT', 'LINK/USDT'];
+
 const DEFAULT_OVERLAYS = { smc: false, sessions: true, institutional: false, bands: false, liquidity: true, liquidityTargets: true };
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', GBP: '🇬🇧', JPY: '🇯🇵', AUD: '🇦🇺', NZD: '🇳🇿', CAD: '🇨🇦', CHF: '🇨🇭', CNY: '🇨🇳' };
 const SESSION_COLOR = { sydney: '#9b8cf6', tokyo: '#4a9bf5', london: '#a767ee', 'new-york': '#f0a848' };
