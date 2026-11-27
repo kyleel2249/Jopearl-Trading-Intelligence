@@ -114,14 +114,36 @@ async function readStoredMarketSnapshot(env, routeKey) {
   }
 }
 
+function normalizeReplicatedMarketSymbol(value, marketType) {
+  let raw;
+  try { raw = decodeURIComponent(String(value || '')).trim().toUpperCase(); } catch { return null; }
+  let symbol = raw.includes('/') ? raw : raw.includes('-') ? raw.replace('-', '/') : '';
+  if (!symbol) {
+    const quote = marketType === 'coin-m' ? 'USD' : marketType === 'usdc-m' ? 'USDC' : 'USDT';
+    if (raw.endsWith(quote) && raw.length > quote.length) symbol = raw.slice(0, -quote.length) + '/' + quote;
+  }
+  if (!symbol) return null;
+  if (!symbol.includes(':')) {
+    if (marketType === 'usdt-m') symbol += ':USDT';
+    else if (marketType === 'coin-m') symbol += ':' + symbol.split('/')[0];
+    else if (marketType === 'usdc-m') symbol += ':USDC';
+  }
+  return symbol;
+}
+
+function normalizeReplicatedMarketType(value) {
+  const requested = String(value || 'spot').trim().toLowerCase();
+  return ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'coin-futures': 'coin-m', 'usdc-futures': 'usdc-m' })[requested] || requested;
+}
+
 async function readReplicatedCandles(env, url) {
   if (!env.JPTI_DB) return null;
   const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/ohlcv\/([^/]+)$/i);
   if (!match) return null;
-  let symbol;
-  try { symbol = decodeURIComponent(match[2]).toUpperCase(); } catch { return null; }
   const exchange = match[1].toLowerCase();
-  const marketType = String(url.searchParams.get('type') || 'spot').toLowerCase();
+  const marketType = normalizeReplicatedMarketType(url.searchParams.get('type'));
+  const symbol = normalizeReplicatedMarketSymbol(match[2], marketType);
+  if (!symbol) return null;
   const timeframe = String(url.searchParams.get('timeframe') || '1h');
   const limit = Math.max(20, Math.min(500, Number.parseInt(url.searchParams.get('limit') || '200', 10) || 200));
   try {
@@ -150,14 +172,10 @@ async function readReplicatedTicker(env, url, nowMs = Date.now()) {
   if (!env.JPTI_DB) return null;
   const match = url.pathname.match(/^\/api\/exchanges\/([a-z0-9_]+)\/ticker\/([^/]+)$/i);
   if (!match) return null;
-  let symbol;
-  try {
-    const raw = decodeURIComponent(match[2]).toUpperCase();
-    symbol = raw.includes('/') ? raw : raw.replace('-', '/');
-  } catch { return null; }
   const exchange = match[1].toLowerCase();
-  const requestedType = String(url.searchParams.get('type') || 'spot').toLowerCase();
-  const marketType = ({ futures: 'usdt-m', 'usdt-futures': 'usdt-m', 'coin-futures': 'coin-m', 'usdc-futures': 'usdc-m' })[requestedType] || requestedType;
+  const marketType = normalizeReplicatedMarketType(url.searchParams.get('type'));
+  const symbol = normalizeReplicatedMarketSymbol(match[2], marketType);
+  if (!symbol) return null;
   if (!['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m'].includes(marketType)) return null;
   try {
     const row = await env.JPTI_DB.prepare(

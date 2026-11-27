@@ -10,9 +10,12 @@ function makeEnv(observation) {
     JPTI_DB: {
       prepare(sql) {
         return {
-          bind() { return this; },
+          args: [],
+          bind(...args) { this.args = args; return this; },
           async first() {
             if (sql.includes("observation_kind = 'ticker'")) {
+              const [, marketType, symbol] = this.args;
+              if (!observation || observation.marketType !== marketType || observation.symbol !== symbol) return null;
               return observation ? {
                 payload: JSON.stringify(observation),
                 observed_at: observation.observedAt,
@@ -28,7 +31,7 @@ function makeEnv(observation) {
   };
 }
 
-function makeObservation(receivedAt) {
+function makeObservation(receivedAt, overrides = {}) {
   const observedAt = new Date(Date.parse(receivedAt) - 1000).toISOString();
   return {
     exchange: 'bitget',
@@ -45,7 +48,8 @@ function makeObservation(receivedAt) {
     baseVolume: 123,
     quoteVolume: 11200000,
     changePct: 1.25,
-    quality: { stale: false }
+    quality: { stale: false },
+    ...overrides
   };
 }
 
@@ -82,4 +86,32 @@ test('replicated ticker older than the bounded fallback window is not returned a
   const body = await response.json();
   assert.equal(response.status, 502);
   assert.equal(body.error, 'Bitget upstream HTTP 403');
+});
+
+
+test('replicated derivative tickers normalize settlement symbols for all Bitget contract categories', async () => {
+  const cases = [
+    { type: 'margin', path: 'BTC-USDT', marketType: 'margin', symbol: 'BTC/USDT' },
+    { type: 'usdt-m', path: 'BTC-USDT', marketType: 'usdt-m', symbol: 'BTC/USDT:USDT' },
+    { type: 'coin-m', path: 'BTC-USD', marketType: 'coin-m', symbol: 'BTC/USD:BTC' },
+    { type: 'usdc-m', path: 'BTC-USDC', marketType: 'usdc-m', symbol: 'BTC/USDC:USDC' }
+  ];
+  for (const item of cases) {
+    const handler = createPagesApiHandler({
+      marketProvider: { request: async () => ({ status: 502, body: { error: 'Bitget upstream HTTP 403' } }) },
+      now: () => new Date(NOW)
+    });
+    const receivedAt = new Date(NOW - 2 * 60 * 1000).toISOString();
+    const observation = makeObservation(receivedAt, { marketType: item.marketType, symbol: item.symbol });
+    const response = await handler({
+      request: new Request('https://jpti.example/api/exchanges/bitget/ticker/' + item.path + '?type=' + item.type),
+      env: makeEnv(observation)
+    });
+    const body = await response.json();
+    assert.equal(response.status, 200, item.type);
+    assert.equal(body.replication.marketType, item.marketType, item.type);
+    assert.equal(body.symbol, item.symbol, item.type);
+    assert.equal(body.stale, true, item.type);
+    assert.equal(body.source, 'cloudflare-d1-replicated-history', item.type);
+  }
 });
