@@ -105,7 +105,7 @@ export async function runRunnerReplication({
       headers: { 'content-type': 'application/json', 'x-jpti-api-token': token },
       body: JSON.stringify({
         observations: batch,
-        attempted: index === 0 ? counts.attempted : batch.length,
+        attempted: batch.length,
         errors: index === 0 ? errors : []
       })
     });
