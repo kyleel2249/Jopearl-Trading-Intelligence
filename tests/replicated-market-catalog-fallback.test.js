@@ -102,7 +102,7 @@ test('replicated market catalogue rejects expired, inactive and identity-incompl
   const response = await createHandler()({
     request: new Request('https://jpti.test/api/exchanges/bitget/markets?type=spot'),
     env: makeEnv([
-      marketRow({ ageMs: 31 * 60 * 1000 }),
+      marketRow({ ageMs: 7 * 60 * 60 * 1000 }),
       marketRow({ symbol: 'ETH/USDT', id: 'ETHUSDT', active: false }),
       marketRow({ symbol: 'SOL/USDT', id: '' })
     ])
