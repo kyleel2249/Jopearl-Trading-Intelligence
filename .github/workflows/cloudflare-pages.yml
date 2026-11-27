@@ -143,7 +143,7 @@ jobs:
         run: npm run verify:private-auth
         env:
           JPTI_DEPLOY_URL: https://jopearl-trading-intelligence.pages.dev
-          JPTI_PAGES_URL: ${{ vars.CLOUDFLARE_PAGES_URL }}
+          JPTI_PAGES_URL: https://jopearl-trading-intelligence.pages.dev
           JPTI_JOURNAL_TOKEN: ${{ secrets.JPTI_JOURNAL_TOKEN || secrets.JPTI_API_TOKEN }}
 
       - name: Verify deployed Bitget markets, tickers, candles and symbol switching
