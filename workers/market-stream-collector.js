@@ -2,42 +2,6 @@ import { normaliseToken, providedToken, tokensEqual } from '../functions/private
 import { normalizeStreamRequest, exchangeStreamConfig, parseStreamMessage, advanceBookSequence, applyOrderBookUpdate, summarizeOrderBook } from '../src/sequence-aware-stream-engine.js';
 const json=(status,body)=>new Response(JSON.stringify(body),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 async function safeToken(request,env){const expected=normaliseToken(env.JPTI_API_TOKEN)||normaliseToken(env.JPTI_JOURNAL_TOKEN);return Boolean(expected)&&tokensEqual(expected,providedToken(request));}
-const PRIMARY_STREAMS = [
- { exchange: 'bitget', marketType: 'spot', symbol: 'BTC/USDT' },
- { exchange: 'bitget', marketType: 'usdt-m', symbol: 'BTC/USDT' }
-];
-const FALLBACK_STREAMS = [
- { exchange: 'binance', marketType: 'spot', symbol: 'BTC/USDT' },
- { exchange: 'bybit', marketType: 'spot', symbol: 'BTC/USDT' },
- { exchange: 'okx', marketType: 'spot', symbol: 'BTC/USDT' },
- { exchange: 'binance', marketType: 'usdt-m', symbol: 'BTC/USDT' },
- { exchange: 'bybit', marketType: 'usdt-m', symbol: 'BTC/USDT' },
- { exchange: 'okx', marketType: 'usdt-m', symbol: 'BTC/USDT' }
-];
-
-export function selectScheduledStreams(rows = [], limit = 40, { includeFallbacks = true } = {}) {
- const selected = [], seen = new Set();
- const add = item => {
-  if (selected.length >= Math.max(1, Math.min(40, limit))) return;
-  try {
-   const config = normalizeStreamRequest(item);
-   if (seen.has(config.streamId)) return;
-   seen.add(config.streamId);
-   selected.push({ exchange: config.exchange, marketType: config.marketType, symbol: config.symbol });
-  } catch {}
- };
- // Reserve the first slots for Bitget so other venues cannot crowd it out.
- for (const item of PRIMARY_STREAMS) add(item);
- const ordered = [...(Array.isArray(rows) ? rows : [])].sort((a, b) => {
-  const priority = item => item.exchange === 'bitget' ? 0 : 1;
-  const marketPriority = item => item.market_type === 'spot' ? 0 : 1;
-  return priority(a) - priority(b) || marketPriority(a) - marketPriority(b) || String(b.last_seen || '').localeCompare(String(a.last_seen || ''));
- });
- for (const item of ordered) add({ exchange: item.exchange, marketType: item.market_type || item.marketType, symbol: item.symbol });
- if (includeFallbacks) for (const item of FALLBACK_STREAMS) add(item);
- return selected;
-}
-
 export default {
  async fetch(request,env){const url=new URL(request.url);if(url.pathname==='/health')return json(200,{service:'JPTI sequence-aware stream collector',storage:'Durable Objects + D1',liveExecutionAuthorized:false});
   if(url.pathname==='/history'&&request.method==='GET'){
@@ -51,27 +15,11 @@ export default {
   return json(200,{results,requested:items.length,started:results.filter(x=>x.status==='connected'||x.status==='connecting').length,liveExecutionAuthorized:false});
  },
  async scheduled(_event,env,ctx){
-  let configured=[],explicitConfiguration=false;
-  if(env.JPTI_STREAMS_CONFIG){
-   explicitConfiguration=true;
-   try{configured=JSON.parse(env.JPTI_STREAMS_CONFIG);if(!Array.isArray(configured))throw new Error('JPTI_STREAMS_CONFIG must be an array.');}
-   catch(error){console.error('Invalid JPTI_STREAMS_CONFIG:',String(error?.message||error));return;}
-  } else {
-   try {
-    const rows=await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') AND datetime(received_at)>=datetime('now','-10 minutes') GROUP BY exchange,market_type,symbol ORDER BY CASE WHEN exchange='bitget' THEN 0 ELSE 1 END,CASE WHEN market_type='spot' THEN 0 ELSE 1 END,last_seen DESC LIMIT 40").all();
-    configured=rows.results||[];
-   } catch(error){console.error('Unable to load fresh market streams from D1:',String(error?.message||error));}
-  }
-  const streams=selectScheduledStreams(configured,40,{includeFallbacks:!explicitConfiguration});
-  const starts=streams.map(async item=>{
-   try {
-    const c=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(c.streamId),stub=env.MARKET_STREAMS.get(id);
-    const response=await stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)});
-    if(!response.ok)throw new Error('Stream start returned HTTP '+response.status);
-    return {streamId:c.streamId,status:'started'};
-   } catch(error){console.error('Scheduled stream start failed:',item.exchange,item.marketType,item.symbol,String(error?.message||error));return {status:'failed'};}
-  });
-  ctx.waitUntil(Promise.all(starts));
+  let streams=[];
+  if(env.JPTI_STREAMS_CONFIG){try{streams=JSON.parse(env.JPTI_STREAMS_CONFIG);}catch{return;}}
+  else{try{const rows=await env.JPTI_DB.prepare("SELECT exchange,market_type,symbol,MAX(observed_at) AS last_seen FROM jpti_market_observations WHERE market_type IN ('spot','margin','usdt-m','coin-m','usdc-m') GROUP BY exchange,market_type,symbol ORDER BY last_seen DESC LIMIT 40").all();streams=(rows.results||[]).map(r=>({exchange:r.exchange,marketType:r.market_type,symbol:r.symbol}));}catch{}}
+  if(!streams.length)streams=[{exchange:'binance',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bybit',marketType:'spot',symbol:'BTC/USDT'},{exchange:'okx',marketType:'spot',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'spot',symbol:'BTC/USDT'},{exchange:'binance',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'bybit',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'okx',marketType:'usdt-m',symbol:'BTC/USDT'},{exchange:'bitget',marketType:'usdt-m',symbol:'BTC/USDT'}];
+  for(const item of streams.slice(0,40)){try{const c=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(c.streamId),stub=env.MARKET_STREAMS.get(id);ctx.waitUntil(stub.fetch('https://stream-hub/start',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(c)}));}catch{}}
  }
 };
 export class MarketStreamHub {
