@@ -8,7 +8,7 @@ import { verifyPrivateToken } from '../private-auth.js';
 
 const HEADERS = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', 'x-content-type-options': 'nosniff' };
 const reply = (status, body) => new Response(JSON.stringify(body), { status, headers: HEADERS });
-const MAX_BODY_BYTES = 32 * 1024;
+const MAX_BODY_BYTES = 256 * 1024;
 
 async function readJson(request) {
   const raw = await request.text();
@@ -71,6 +71,93 @@ async function getStatus(db) {
   };
 }
 
+
+const VALID_MARKET_TYPES = new Set(['spot', 'margin', 'usdt-m', 'coin-m', 'usdc-m']);
+const INGEST_SYMBOL = /^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/;
+
+function normalizeRunnerObservations(rows, receivedAt) {
+  const observations = [], errors = [];
+  if (!Array.isArray(rows) || rows.length < 1 || rows.length > 500) {
+    return { observations, errors: [{ stage: 'validation', error: 'observations must contain between 1 and 500 rows.' }] };
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    const row = rows[index];
+    const reject = error => errors.push({ index, exchange: row?.exchange, marketType: row?.marketType, symbol: row?.symbol, kind: row?.kind, error });
+    if (!row || typeof row !== 'object' || Array.isArray(row)) { reject('Observation must be an object.'); continue; }
+    const exchange = String(row.exchange || '').toLowerCase();
+    const marketType = String(row.marketType || '').toLowerCase();
+    const symbol = String(row.symbol || '').toUpperCase();
+    const kind = String(row.kind || '').toLowerCase();
+    if (!DIRECT_EXCHANGES.includes(exchange)) { reject('Unsupported exchange.'); continue; }
+    if (!VALID_MARKET_TYPES.has(marketType) || (exchange !== 'bitget' && marketType !== 'spot')) { reject('Unsupported exchange market type.'); continue; }
+    if (!INGEST_SYMBOL.test(symbol)) { reject('Invalid normalized market symbol.'); continue; }
+    const observedMs = Date.parse(row.observedAt || '');
+    if (!Number.isFinite(observedMs) || observedMs <= 0 || observedMs > receivedAt + 5000) { reject('Observation timestamp is invalid or too far in the future.'); continue; }
+    if (kind === 'ticker') {
+      const observation = normalizeTickerObservation({
+        exchange, marketType, symbol, receivedAt,
+        ticker: {
+          last: row.last, bid: row.bid, ask: row.ask, high: row.high, low: row.low,
+          baseVolume: row.baseVolume, quoteVolume: row.quoteVolume, percentage: row.changePct,
+          timestamp: observedMs
+        }
+      });
+      if (!observation) { reject('Ticker failed timestamp and positive-price validation.'); continue; }
+      observations.push(observation);
+      continue;
+    }
+    if (kind === 'ohlcv') {
+      const normalized = normalizeCandleObservations({
+        exchange, marketType, symbol, timeframe: String(row.timeframe || ''),
+        candles: [[observedMs, row.open, row.high, row.low, row.close, row.volume]],
+        receivedAt
+      });
+      if (!normalized.length) { reject('OHLCV failed timestamp, price-range or volume validation.'); continue; }
+      observations.push(normalized[0]);
+      continue;
+    }
+    reject('kind must be ticker or ohlcv.');
+  }
+  return { observations, errors };
+}
+
+async function ingestRunnerObservations(db, rows, now) {
+  const startedAt = now().toISOString();
+  const receivedAt = Date.parse(startedAt);
+  const runId = crypto.randomUUID();
+  const normalized = normalizeRunnerObservations(rows, receivedAt);
+  const observations = normalized.observations;
+  const counts = {
+    attempted: Array.isArray(rows) ? rows.length : 0,
+    succeeded: observations.length,
+    valid: observations.length,
+    inserted: 0,
+    tickers: observations.filter(row => row.kind === 'ticker').length,
+    candles: observations.filter(row => row.kind === 'ohlcv').length,
+    markets: new Set(observations.map(row => row.symbol)).size
+  };
+  await db.prepare(
+    'INSERT INTO jpti_market_replication_runs (run_id,status,started_at,plan_json,counts_json,errors_json) VALUES (?,\\'running\\',?,?,?,?)'
+  ).bind(runId, startedAt, JSON.stringify({ source: 'github-actions-direct-ingest', transport: 'authenticated-push', observationCount: counts.attempted }), JSON.stringify(counts), '[]').run();
+  try { counts.inserted = await saveObservations(db, observations); }
+  catch (error) { normalized.errors.push({ stage: 'd1-write', error: String(error?.message || error).slice(0, 220) }); }
+  const finishedAt = now().toISOString();
+  const summary = buildReplicationSummary({
+    startedAt, finishedAt,
+    plan: { source: 'github-actions-direct-ingest', transport: 'authenticated-push' },
+    counts, errors: normalized.errors, skipped: [], runId
+  });
+  await db.prepare(
+    'UPDATE jpti_market_replication_runs SET status=?,finished_at=?,duration_ms=?,counts_json=?,errors_json=? WHERE run_id=?'
+  ).bind(summary.status, finishedAt, summary.durationMs, JSON.stringify(summary.counts), JSON.stringify(summary.errors), runId).run();
+  if (counts.inserted > 0) {
+    await db.prepare(
+      'INSERT INTO jpti_market_replication_cursors (cursor_key,cursor_value,updated_at) VALUES (?,?,?) ON CONFLICT(cursor_key) DO UPDATE SET cursor_value=excluded.cursor_value,updated_at=excluded.updated_at'
+    ).bind('last-successful-run', runId, finishedAt).run();
+  }
+  return { ...summary, storage: 'cloudflare-d1', immutableObservations: true, source: 'github-actions-direct-ingest', liveExecutionAuthorized: false };
+}
+
 function safeJson(value, fallback) {
   try { return typeof value === 'string' ? JSON.parse(value) : value ?? fallback; }
   catch { return fallback; }
@@ -122,6 +209,16 @@ export function createMarketReplicationHandler({ provider = createDirectProvider
     if (!auth.ok) return reply(auth.status, { error: auth.error });
     const parsed = await readJson(request);
     if (parsed.error) return reply(parsed.status, { error: parsed.error });
+
+    if (parsed.value?.mode === 'ingest') {
+      if (!Array.isArray(parsed.value.observations)) return reply(400, { error: 'mode=ingest requires an observations array.' });
+      try {
+        const summary = await ingestRunnerObservations(env.JPTI_DB, parsed.value.observations, now);
+        return reply(summary.status === 'failed' ? 422 : 200, summary);
+      } catch (error) {
+        return reply(503, { error: 'Authenticated runner observations could not be committed to D1.', detail: String(error?.message || error).slice(0, 180) });
+      }
+    }
 
     let plan;
     try { plan = normalizeReplicationPlan(parsed.value, env); }
