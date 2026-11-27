@@ -37,6 +37,7 @@
     "db:d1:list": "wrangler d1 migrations list JPTI_DB --remote --config ./wrangler.toml",
     "db:d1:apply": "wrangler d1 migrations apply JPTI_DB --remote --config ./wrangler.toml",
     "verify:bitget:live": "node scripts/verify-bitget-live.mjs",
+    "verify:bitget:cfd-runner": "node scripts/verify-bitget-cfd-runner.mjs",
     "verify:chart-intelligence": "node scripts/verify-chart-intelligence.mjs",
     "verify:institutional-intelligence": "node scripts/verify-institutional-intelligence.mjs"
   },
