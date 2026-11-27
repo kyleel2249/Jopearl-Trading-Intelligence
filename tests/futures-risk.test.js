@@ -109,5 +109,5 @@ test('invalid side, negative fees and impossible maintenance-margin assumptions 
   assert.ok(evaluateFuturesRisk({ ...base, takerFeeBps: -10 }).failedChecks.includes('cost_assumptions'));
   assert.ok(evaluateFuturesRisk({ ...base, maintenanceMarginRate: -0.01 }).failedChecks.includes('cost_assumptions'));
   assert.ok(evaluateFuturesRisk({ ...base, maintenanceMarginRate: 0.5 }).failedChecks.includes('cost_assumptions'));
-  assert.equal(evaluateFuturesRisk({ ...base, stop: 99.99999999999999, riskPercent: 2 }).decision, 'blocked');
+  assert.equal(evaluateFuturesRisk({ ...base, entry: 1e308, stop: 9.99999999999999e307, equity: Number.MAX_VALUE, riskPercent: 2 }).decision, 'blocked');
 });
