@@ -16,6 +16,13 @@ test('Cloudflare deployment is pinned to the canonical production Pages project'
   assert.ok(!workflow.includes('vars.CLOUDFLARE_PAGES_URL'));
   assert.ok(!workflow.includes('https://jpti.pages.dev'));
 });
+test('scheduled replication uses the canonical production API endpoint', () => {
+  const workflow = read('../.github/workflows/market-data-replication.yml');
+  assert.ok(workflow.includes('REPLICATION_URL: ' + productionOrigin + '/api/replication'));
+  assert.ok(workflow.includes("new Set(['jopearl-trading-intelligence.pages.dev'])"));
+  assert.ok(!workflow.includes('vars.JPTI_REPLICATION_URL'));
+});
+
 test('Android builds use the same production API origin as the web deployment', () => {
   for (const path of ['../.github/workflows/build-apps.yml', '../.github/workflows/mobile-android.yml']) {
     const workflow = read(path);
