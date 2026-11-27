@@ -150,3 +150,6 @@ jobs:
         run: npm run verify:bitget:live
         env:
           JPTI_PAGES_URL: https://jopearl-trading-intelligence.pages.dev
+
+      - name: Diagnose signed Bitget CFD access from the GitHub runner
+        run: npm run verify:bitget:cfd-runner
