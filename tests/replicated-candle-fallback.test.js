@@ -4,7 +4,7 @@ import { createPagesApiHandler } from '../functions/api/[[path]].js';
 
 const NOW = Date.parse('2026-11-27T03:00:00.000Z');
 
-function makeEnv(symbol, marketType, timeframe = '1m') {
+function makeEnv(symbol, marketType, timeframe = '1m', mutate = () => {}) {
   const observations = Array.from({ length: 24 }, (_, index) => {
     const timestamp = NOW - (24 - index) * 60000;
     return {
@@ -16,6 +16,7 @@ function makeEnv(symbol, marketType, timeframe = '1m') {
       quality: { stale: false, validOhlc: true }
     };
   });
+  mutate(observations);
   return {
     JPTI_DB: {
       prepare(sql) {
@@ -95,4 +96,30 @@ test('Bitget upstream 404 also uses a matching durable candle snapshot', async (
   assert.equal(body.source, 'cloudflare-d1-replicated-history');
   assert.equal(body.exchange, 'bitget');
   assert.equal(body.stale, true);
+});
+
+
+test('replicated candle fallback rejects impossible OHLC, negative volume and invalid timestamps', async () => {
+  const handler = createPagesApiHandler({
+    marketProvider: { request: async () => ({ status: 502, body: { error: 'Bitget upstream unavailable' } }) },
+    now: () => new Date(NOW)
+  });
+  const env = makeEnv('BTC/USDT', 'spot', '1m', (observations) => {
+    observations[0].high = observations[0].close - 1;
+    observations[1].volume = -1;
+    observations[2].observedAt = 'not-a-timestamp';
+  });
+  const response = await handler({
+    request: new Request('https://jpti.test/api/exchanges/bitget/ohlcv/BTC-USDT?type=spot&timeframe=1m&limit=30'),
+    env
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.candles.length, 21);
+  assert.ok(body.candles.every((candle) =>
+    candle.every(Number.isFinite) &&
+    candle[1] > 0 && candle[2] >= Math.max(candle[1], candle[4], candle[3]) &&
+    candle[3] <= Math.min(candle[1], candle[4], candle[2]) &&
+    candle[5] >= 0
+  ));
 });
