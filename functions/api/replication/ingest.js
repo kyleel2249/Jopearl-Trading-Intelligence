@@ -100,7 +100,10 @@ export function createRunnerReplicationIngestHandler({ now = () => new Date(), v
         errors.push({ stage: 'ingest-validation', error: 'Unsupported exchange, market type or symbol at item ' + index + '.', exchange, marketType, symbol });
         continue;
       }
-      if (item.failedOver === true || (sourceExchange && sourceExchange !== exchange) || (requestedExchange && requestedExchange !== exchange)) {
+      const nestedExchange = item.kind === 'ticker' ? String(item.ticker?.exchange || '').toLowerCase() : sourceExchange;
+      const nestedRequested = item.kind === 'ticker' ? String(item.ticker?.requestedExchange || '').toLowerCase() : requestedExchange;
+      const nestedFailedOver = item.kind === 'ticker' && item.ticker?.failedOver === true;
+      if (item.failedOver === true || nestedFailedOver || (sourceExchange && sourceExchange !== exchange) || (requestedExchange && requestedExchange !== exchange) || (nestedExchange && nestedExchange !== exchange) || (nestedRequested && nestedRequested !== exchange)) {
         errors.push({ stage: 'source-integrity', error: 'Cross-exchange failover data cannot be stored under the requested venue.', exchange, marketType, symbol });
         continue;
       }
