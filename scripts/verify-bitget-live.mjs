@@ -239,7 +239,7 @@ results.push(cfd);
 
 const failures = results.filter((row) => row.status === 'failed');
 const edgeWarnings = results.filter((row) => row.status === 'runner-region-blocked' || row.status === 'passed-with-edge-warning');
-const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'blocked-permissions' || row.status === 'not-configured' || row.status === 'blocked-cors' || row.status === 'probe-blocked');
+const accessWarnings = results.filter((row) => row.status === 'blocked-403' || row.status === 'blocked-permissions' || row.status === 'not-configured' || row.status === 'blocked-cors' || row.status === 'probe-blocked' || row.status === 'probe-failed');
 console.log(JSON.stringify({
   target: base,
   status: failures.length ? 'failed' : accessWarnings.length ? 'passed-with-access-warnings' : edgeWarnings.length ? 'passed-with-edge-warnings' : 'passed',
