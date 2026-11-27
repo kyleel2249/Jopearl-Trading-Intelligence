@@ -34,7 +34,7 @@ function makeEnv(rows) {
           args: [],
           bind(...args) { this.args = args; return this; },
           async all() {
-            if (!sql.includes("observation_kind = 'markets'")) return { results: [] };
+            if (!sql.toLowerCase().includes('observation_kind') || !sql.toLowerCase().includes("'markets'")) return { results: [] };
             const [exchange, ...types] = this.args;
             return { results: rows.filter(row => {
               const payload = JSON.parse(row.payload);
