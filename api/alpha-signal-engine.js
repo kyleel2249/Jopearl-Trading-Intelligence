@@ -103,7 +103,8 @@ export function evaluateHistoricalSessionMemory(records=[],{symbol='unknown',act
 }
 
 export function evaluateAlphaSignal(input={}, now=Date.now()) {
-  const symbol=String(input.symbol||'').trim().toUpperCase(),exchange=String(input.exchange||'').trim().toLowerCase(),timeframe=String(input.timeframe||'');
+  const symbol=String(input.symbol||'').trim().toUpperCase(),exchange=String(input.exchange||'').trim().toLowerCase(),timeframe=String(input.timeframe||''),marketType=String(input.marketType||'spot').trim().toLowerCase();
+  if(marketType!=='spot') throw new Error('Alpha Signal Engine currently supports spot markets only; use the futures risk gate for leveraged or contract instruments.');
   if(!/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}$/.test(symbol)) throw new Error('Use a normalized BASE/QUOTE symbol such as BTC/USDT.');
   if(!/^[a-z0-9_-]{2,30}$/.test(exchange)) throw new Error('A valid exchange identifier is required.');
   const tf=timeframeMs(timeframe);if(!tf)throw new Error('Unsupported timeframe.');
