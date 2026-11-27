@@ -2,7 +2,8 @@ name: JPTI Continuous Market Data Replication
 
 on:
   schedule:
-    - cron: "*/5 * * * *"
+    # Avoid minute zero, when GitHub documents higher schedule congestion.
+    - cron: "2-59/5 * * * *"
   workflow_dispatch:
 
 permissions:
@@ -79,4 +80,23 @@ jobs:
           }
           console.log('Microstructure run:', r.runId, 'status:', r.status, 'inserted:', r.inserted ?? 0, 'unsupported:', r.coverage?.unsupported ?? 0);
           if (r.status === 'partial') console.warn('::warning title=Partial microstructure replication::Review source errors and unsupported coverage in the returned run.');
+          NODE
+
+      - name: Verify durable Bitget replication freshness
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --input-type=module <<'NODE'
+          const endpoint = process.env.REPLICATION_URL;
+          const response = await fetch(endpoint, { headers: { accept: 'application/json' }, signal: AbortSignal.timeout(20000) });
+          if (!response.ok) throw new Error('Replication status endpoint returned HTTP ' + response.status);
+          const status = await response.json();
+          const spot = (status.coverage || []).find(row => row.exchange === 'bitget' && row.market_type === 'spot');
+          const receivedAt = Date.parse(spot?.last_received_at || '');
+          const ageMs = Date.now() - receivedAt;
+          if (!Number.isFinite(receivedAt) || ageMs < -5000 || ageMs > 10 * 60 * 1000) {
+            throw new Error('Bitget Spot D1 observations are not fresh enough. Latest received_at=' + (spot?.last_received_at || 'missing') + ', ageMs=' + ageMs);
+          }
+          if (!(Number(spot.observations) > 0)) throw new Error('Bitget Spot replication has no durable observations.');
+          console.log('Bitget Spot D1 freshness verified:', spot.last_received_at, 'ageMs:', ageMs, 'observations:', spot.observations);
           NODE
