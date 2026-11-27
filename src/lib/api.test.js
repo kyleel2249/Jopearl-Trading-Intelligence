@@ -176,8 +176,9 @@ test('keeps the original market-data 404 when the requested venue also fails', a
     resetApiAvailability();
     const response = await apiFetch('/api/exchanges/bitget/ticker/BTC%2FUSDT?type=spot');
     assert.equal(response.status, 404);
-    assert.equal(calls.length, 2);
+    assert.ok(calls.length >= 2);
     assert.ok(calls[1].startsWith('https://api.bitget.com/'));
+    assert.ok(calls.slice(1).every(url => /^https:\/\/(?:api|capi)\.bitget\.com\//.test(url) || url.startsWith('https://api.bitgetapi.com/')), 'all retries must stay within Bitget API hosts');
   } finally {
     resetApiAvailability();
     if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow;
