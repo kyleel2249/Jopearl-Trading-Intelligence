@@ -384,11 +384,12 @@ export function createDirectProvider({ fetchImpl, now = () => Date.now() } = {})
         if (instrumentId && !/^[A-Z0-9_]{2,40}$/.test(instrumentId)) throw new DirectError('Invalid Bitget instrument ID.', 400);
         if (route.exchange === 'bitget' && instrumentId) sym.instrumentId = instrumentId;
         sym.marketType = marketType;
+        const allowFailover = String(route.query.failover || 'true').toLowerCase() !== 'false' && !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER));
         const r = await withFailover(route.exchange, (venue) => cached('t:' + venue + ':' + marketType + ':' + sym.symbol + ':' + (sym.instrumentId || ''), CACHE_TTL.ticker, async () => {
           const t = TICKER_PARSERS[venue](await getJson(tickerUrl(venue, sym), opts));
           if (t.last === null) throw new DirectError('The exchange returned no price.', 502);
           return t;
-        }), signal, !(route.exchange === 'bitget' && (marketType !== 'spot' || !IS_BROWSER)));
+        }), signal, allowFailover);
         const t = r.value;
         return { status: 200, body: { exchange: r.venue, symbol: sym.symbol, timestamp: t.timestamp, datetime: isoOrNull(t.timestamp), last: t.last, bid: t.bid, ask: t.ask, high: t.high, low: t.low, baseVolume: t.baseVolume, quoteVolume: t.quoteVolume, percentage: t.percentage, source: DIRECT_SOURCE, requestedExchange: r.requested, failedOver: r.failedOver } };
       }
