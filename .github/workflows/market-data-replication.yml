@@ -38,7 +38,7 @@ jobs:
           const raw = process.env.REPLICATION_URL;
           let url;
           try { url = new URL(raw); } catch { throw new Error('JPTI_REPLICATION_URL must be a valid absolute URL.'); }
-          const allowedHosts = new Set(['jopearl-trading-intelligence.pages.dev', 'jpti.pages.dev']);
+          const allowedHosts = new Set(['jopearl-trading-intelligence.pages.dev']);
           if (url.protocol !== 'https:') throw new Error('JPTI_REPLICATION_URL must use HTTPS.');
           if (!allowedHosts.has(url.hostname.toLowerCase())) throw new Error('JPTI_REPLICATION_URL host is not an approved JPTI Cloudflare Pages origin. Update the workflow allowlist only after verifying ownership of a custom domain.');
           if (url.pathname !== '/api/replication' || url.search || url.hash || url.username || url.password) {
