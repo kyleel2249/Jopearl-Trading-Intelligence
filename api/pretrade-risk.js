@@ -53,5 +53,5 @@ pretradeRouter.post('/futures-gate', (req,res) => {
   const result=evaluateFuturesRisk(req.body||{});
   const eligible=result.decision==='eligible';
   res.json({...result,permissions:{paperIntentEligible:eligible,liveExecutionAuthorized:false,ordersCreated:0},note:'Futures risk assessment only. No exchange order is created or authorized.'});
- } catch(error) { res.status(400).json({decision:'blocked',error:error.message||'Futures risk assessment failed.',permissions:{liveExecutionAuthorized:false,ordersCreated:0}}); }
+ } catch(error) { res.status(error.status||400).json({decision:'blocked',error:error.message||'Futures risk assessment failed.',permissions:{liveExecutionAuthorized:false,ordersCreated:0}}); }
 });
