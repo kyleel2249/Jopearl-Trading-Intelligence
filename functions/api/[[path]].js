@@ -291,7 +291,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       const id = String(market?.id || '').trim();
       const ageMs = nowMs - receivedAt;
       if (!symbol || !id || !Number.isFinite(receivedAt) || !Number.isFinite(observedAt)
-        || ageMs < -5000 || ageMs > 30 * 60 * 1000 || market.active !== true
+        || ageMs < -5000 || ageMs > 6 * 60 * 60 * 1000 || market.active !== true
         || !/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(symbol)
         || !types.includes(rowMarketType) || bySymbol.has(instrumentKey)) continue;
       if (search && ![symbol, id, market.base, market.quote, market.settle].some(value => String(value || '').toLowerCase().includes(search))) continue;
@@ -330,8 +330,8 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
       fetchedAt: new Date(latestReceivedAt).toISOString(), categoryErrors: [],
       unsupported: { cfd: 'CFD instruments require the separate authenticated Bitget UTA provider.', options: 'Options are not included in this replicated public instrument catalogue.' },
       source: 'cloudflare-d1-replicated-market-catalog',
-      replication: { durable: true, marketTypes: types, ageMs: Math.max(0, nowMs - latestReceivedAt), maxFallbackAgeMs: 30 * 60 * 1000 },
-      note: 'Instrument metadata was replicated from the exact exchange. This is a bounded stale catalogue snapshot, not a live exchange response.'
+      replication: { durable: true, marketTypes: types, ageMs: Math.max(0, nowMs - latestReceivedAt), maxFallbackAgeMs: 6 * 60 * 60 * 1000 },
+      note: 'Instrument metadata was replicated from the exact exchange. This is a bounded stale catalogue snapshot (maximum six hours), not a live exchange response.'
     };
   } catch {
     return null;
