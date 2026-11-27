@@ -1529,17 +1529,32 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
         const tickers = Array.isArray(tickersRaw) ? tickersRaw : [];
         const instruments = Array.isArray(instrumentsRaw) ? instrumentsRaw : [];
         const byInstrument = new Map(instruments.map(item => [item.symbol, item]));
-        const reference = tickers.find(item => item.symbol === 'SOPHUSDT');
-        if (!reference || !(Number(reference.lastPrice) > 0)) {
-          return json(503, { error: 'SOPHUSDT is not currently available in Bitget USDT-M ticker data.', code: 'REFERENCE_CONTRACT_UNAVAILABLE' }, request);
+        // Prefer the requested benchmark, then fall back through liquid USDT
+        // benchmarks. A delisted or temporarily unavailable reference must not
+        // disable the entire scanner.
+        const requestedReference = String(url.searchParams.get('reference') || 'BTCUSDT').trim().toUpperCase();
+        const referenceCandidates = [...new Set([
+          requestedReference, 'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'XRPUSDT', 'BNBUSDT'
+        ])].filter(symbol => /^[A-Z0-9]{2,20}USDT$/.test(symbol));
+        let reference = referenceCandidates
+          .map(symbol => tickers.find(item => item.symbol === symbol && Number(item.lastPrice) > 0))
+          .find(Boolean);
+        if (!reference) {
+          reference = [...tickers]
+            .filter(item => String(item.symbol || '').endsWith('USDT') && Number(item.lastPrice) > 0)
+            .sort((a, b) => Number(b.turnover24h || 0) - Number(a.turnover24h || 0))[0] || null;
         }
+        if (!reference) {
+          return json(503, { error: 'Bitget returned no usable USDT reference ticker.', code: 'REFERENCE_CONTRACT_UNAVAILABLE' }, request);
+        }
+        const referenceSymbol = reference.symbol;
         const referencePrice = Number(reference.lastPrice);
         const minPrice = referencePrice * (1 - rangePct / 100), maxPrice = referencePrice * (1 + rangePct / 100);
         const eligible = tickers.filter(item => {
           const p = Number(item.lastPrice), turnover = Number(item.turnover24h || 0);
           return item.symbol.endsWith('USDT') && p > 0 && p >= minPrice && p <= maxPrice && turnover >= minTurnover;
         });
-        if (!eligible.some(item => item.symbol === 'SOPHUSDT')) eligible.push(reference);
+        if (!eligible.some(item => item.symbol === referenceSymbol)) eligible.push(reference);
         const pairs = eligible.map(item => {
           const instrument = byInstrument.get(item.symbol) || {};
           const bid = Number(item.bid1Price), ask = Number(item.ask1Price);
@@ -1567,8 +1582,8 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
             sourceTimestamp: item.ts || null
           };
         }).sort((a,b) => b.turnover24h - a.turnover24h);
-        const selected = pairs.filter(item => item.symbol !== 'SOPHUSDT').slice(0, 14);
-        const correlationSymbols = ['SOPHUSDT', ...selected.map(item => item.symbol)];
+        const selected = pairs.filter(item => item.symbol !== referenceSymbol).slice(0, 14);
+        const correlationSymbols = [referenceSymbol, ...selected.map(item => item.symbol)];
         const candleResults = await Promise.all(correlationSymbols.map(async symbol => {
           try {
             const candles = await get('candles?category=USDT-FUTURES&symbol=' + encodeURIComponent(symbol) + '&interval=' + interval + '&type=market&limit=100');
@@ -1576,14 +1591,14 @@ export function createPagesApiHandler({ marketProvider = provider, bitgetCfdProv
           } catch { return [symbol, []]; }
         }));
         const candleMap = new Map(candleResults);
-        const referenceCandles = candleMap.get('SOPHUSDT') || [];
+        const referenceCandles = candleMap.get(referenceSymbol) || [];
         const correlations = selected.map(item => correlateCandleSeries(referenceCandles, candleMap.get(item.symbol) || [], item.symbol, interval))
           .filter(item => item.status === 'measured');
         const observationCounts = correlations.map(item => item.observations);
         return json(200, {
           generatedAt: new Date().toISOString(),
           venue: 'Bitget', category: 'USDT-FUTURES',
-          reference: { symbol: 'SOPHUSDT', price: referencePrice, change24h: Number(reference.price24hPcnt || 0) * 100, turnover24h: Number(reference.turnover24h || 0) },
+          reference: { symbol: referenceSymbol, price: referencePrice, change24h: Number(reference.price24hPcnt || 0) * 100, turnover24h: Number(reference.turnover24h || 0) },
           filters: { rangePct, minTurnover, timeframe: interval },
           pairs,
           correlations,
