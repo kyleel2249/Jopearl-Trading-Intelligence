@@ -15,7 +15,7 @@ const FALLBACK_STREAMS = [
  { exchange: 'okx', marketType: 'usdt-m', symbol: 'BTC/USDT' }
 ];
 
-export function selectScheduledStreams(rows = [], limit = 40) {
+export function selectScheduledStreams(rows = [], limit = 40, { includeFallbacks = true } = {}) {
  const selected = [], seen = new Set();
  const add = item => {
   if (selected.length >= Math.max(1, Math.min(40, limit))) return;
@@ -34,7 +34,7 @@ export function selectScheduledStreams(rows = [], limit = 40) {
   return priority(a) - priority(b) || marketPriority(a) - marketPriority(b) || String(b.last_seen || '').localeCompare(String(a.last_seen || ''));
  });
  for (const item of ordered) add({ exchange: item.exchange, marketType: item.market_type || item.marketType, symbol: item.symbol });
- for (const item of FALLBACK_STREAMS) add(item);
+ if (includeFallbacks) for (const item of FALLBACK_STREAMS) add(item);
  return selected;
 }
 
@@ -51,8 +51,9 @@ export default {
   return json(200,{results,requested:items.length,started:results.filter(x=>x.status==='connected'||x.status==='connecting').length,liveExecutionAuthorized:false});
  },
  async scheduled(_event,env,ctx){
-  let configured=[];
+  let configured=[],explicitConfiguration=false;
   if(env.JPTI_STREAMS_CONFIG){
+   explicitConfiguration=true;
    try{configured=JSON.parse(env.JPTI_STREAMS_CONFIG);if(!Array.isArray(configured))throw new Error('JPTI_STREAMS_CONFIG must be an array.');}
    catch(error){console.error('Invalid JPTI_STREAMS_CONFIG:',String(error?.message||error));return;}
   } else {
@@ -61,7 +62,7 @@ export default {
     configured=rows.results||[];
    } catch(error){console.error('Unable to load fresh market streams from D1:',String(error?.message||error));}
   }
-  const streams=selectScheduledStreams(configured,40);
+  const streams=selectScheduledStreams(configured,40,{includeFallbacks:!explicitConfiguration});
   const starts=streams.map(async item=>{
    try {
     const c=normalizeStreamRequest(item),id=env.MARKET_STREAMS.idFromName(c.streamId),stub=env.MARKET_STREAMS.get(id);
