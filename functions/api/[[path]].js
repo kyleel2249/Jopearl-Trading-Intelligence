@@ -326,7 +326,7 @@ async function readReplicatedMarkets(env, url, nowMs = Date.now()) {
     };
     return {
       exchange, filter: requestedType, count: markets.length, markets, totalMarkets: markets.length, counts,
-      timeframes: ['1m','3m','5m','15m','30m','1h','2h','4h','6h','12h','1d'],
+      timeframes: ['1m','3m','5m','15m','30m','1h','4h','6h','12h','1d'],
       capabilities: { fetchTicker: true, fetchOHLCV: true, fetchOrderBook: false, fetchFundingRate: false, fetchPositions: false, createOrder: false },
       stale: true, lastUpdatedAt: new Date(latestReceivedAt).toISOString(),
       source: 'cloudflare-d1-replicated-market-catalog',
