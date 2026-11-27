@@ -25,7 +25,7 @@ const marketsSeen = [];
 async function request(path) {
   const result = await provider.request(path, { method: 'GET' });
   if (!result || result.status !== 200) throw new Error(result?.body?.error || 'Direct exchange request returned no response.');
-  const expectedExchange = String(path.match(/^\\/api\\/exchanges\\/([a-z0-9_]+)/i)?.[1] || '').toLowerCase();
+  const expectedExchange = String(path.match(/^\/api\/exchanges\/([a-z0-9_]+)/i)?.[1] || '').toLowerCase();
   const servedExchange = String(result.body?.exchange || '').toLowerCase();
   if (expectedExchange && servedExchange && servedExchange !== expectedExchange) {
     throw new Error('Exchange failover served ' + servedExchange + ' for a ' + expectedExchange + ' request; refusing to mislabel observations.');
