@@ -79,3 +79,20 @@ test('Bitget contract candle fallback maps settlement symbols for USDT-M, Coin-M
     assert.equal(body.replication.marketType, item.type, item.type);
   }
 });
+
+
+test('Bitget upstream 404 also uses a matching durable candle snapshot', async () => {
+  const handler = createPagesApiHandler({
+    marketProvider: { request: async () => ({ status: 404, body: { error: 'Exchange answered HTTP 404.' } }) },
+    now: () => new Date(NOW)
+  });
+  const response = await handler({
+    request: new Request('https://jpti.test/api/exchanges/bitget/ohlcv/BTC-USDT?type=spot&timeframe=1m&limit=30'),
+    env: makeEnv('BTC/USDT', 'spot')
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.source, 'cloudflare-d1-replicated-history');
+  assert.equal(body.exchange, 'bitget');
+  assert.equal(body.stale, true);
+});
