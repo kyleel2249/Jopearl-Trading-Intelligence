@@ -188,7 +188,11 @@ if (!platformHealth.capabilities?.bitgetCfdConfigured) {
         status: error.body.upstreamStatus || error.status || null,
         code: error.body.upstreamCode || null,
         message: error.body.upstreamMessage || null,
-        contentType: error.body.upstreamContentType || null
+        contentType: error.body.upstreamContentType || null,
+        preview: error.body.upstreamPreview || null,
+        server: error.body.upstreamServer || null,
+        ray: error.body.upstreamRay || null,
+        date: error.body.upstreamDate || null
       } : null;
       console.warn('WARN CFD: ' + cfd.warning);
     } else {
