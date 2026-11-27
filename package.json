@@ -33,7 +33,7 @@
     "smoke": "node scripts/runtime-smoke.mjs",
     "env:check": "node scripts/check-env.mjs",
     "dev:pages": "npm run build && npx wrangler pages dev dist",
-    "deploy:pages": "npm run build:pages && npx wrangler pages deploy dist --project-name jpti",
+    "deploy:pages": "npm run build:pages && npx wrangler pages deploy dist --project-name jopearl-trading-intelligence",
     "db:d1:list": "wrangler d1 migrations list JPTI_DB --remote --config ./wrangler.toml",
     "db:d1:apply": "wrangler d1 migrations apply JPTI_DB --remote --config ./wrangler.toml",
     "verify:bitget:live": "node scripts/verify-bitget-live.mjs",
