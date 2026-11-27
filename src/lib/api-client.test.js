@@ -131,7 +131,10 @@ test('apiRequest falls back to the same Bitget venue when the Cloudflare edge re
     assert.equal(result.data.last, 64000.5);
     assert.ok(requestedUrls.some(url => url.includes('/api/v3/market/tickers')));
     assert.ok(requestedUrls.some(url => url.includes('/api/v2/spot/market/tickers')));
-    assert.ok(requestedUrls.every(url => url.includes('bitget.com')));
+    assert.ok(requestedUrls.every(url => {
+      const host = new URL(url).hostname;
+      return host === 'api.bitget.com' || host === 'capi.bitget.com' || host === 'api.bitgetapi.com';
+    }), 'all direct fallback requests must stay on Bitget-owned API hosts');
   } finally {
     globalThis.fetch = previousFetch;
   }
