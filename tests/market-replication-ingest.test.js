@@ -66,7 +66,7 @@ test('authenticated runner ingest stores a normalized Bitget ticker in durable D
   assert.equal(body.counts.valid, 1);
   assert.equal(body.counts.inserted, 1);
   assert.equal(body.source, 'github-actions-direct-ingest');
-  assert.ok(db.writes.some(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations')));
+  assert.ok(db.writes.some(write => write.sql.includes('INSERT INTO jpti_market_observations')));
 });
 
 test('runner ingest rejects unsupported market types and malformed prices without storing them', async () => {
@@ -85,7 +85,7 @@ test('runner ingest rejects unsupported market types and malformed prices withou
   assert.equal(body.status, 'failed');
   assert.equal(body.counts.inserted, 0);
   assert.equal(body.errorCount, 2);
-  assert.ok(!db.writes.some(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations')));
+  assert.ok(!db.writes.some(write => write.sql.includes('INSERT INTO jpti_market_observations')));
 });
 
 test('runner ingest rejects unauthenticated writes', async () => {
@@ -143,7 +143,7 @@ test('authenticated runner ingest stores integrity-checked OHLCV candles', async
   assert.equal(response.status, 200);
   assert.equal(body.counts.candles, 1);
   assert.equal(body.counts.inserted, 1);
-  const observationWrite = db.writes.find(write => write.sql.includes('INSERT OR IGNORE INTO jpti_market_observations'));
+  const observationWrite = db.writes.find(write => write.sql.includes('INSERT INTO jpti_market_observations'));
   assert.ok(observationWrite);
 });
 
@@ -169,4 +169,27 @@ test('authenticated runner ingest rejects unsupported candle intervals', async (
   const body = await response.json();
   assert.equal(response.status, 422);
   assert.equal(body.counts.inserted, 0);
+});
+
+
+test('runner ingest reports D1 constraint failures instead of classifying them as duplicates',async()=>{
+ const db=makeDb();
+ db.batch=async()=>{throw new Error('CHECK constraint failed: observation_kind');};
+ const handler=createHandler(db);
+ const response=await handler({
+  request:new Request('https://jpti.example/api/replication/ingest',{
+   method:'POST',headers:{'content-type':'application/json','x-jpti-api-token':'test-token'},
+   body:JSON.stringify({observations:[{
+    exchange:'bitget',marketType:'spot',symbol:'BTC/USDT',kind:'markets',
+    observedAt:new Date(NOW-1000).toISOString(),
+    market:{id:'BTCUSDT',symbol:'BTC/USDT',active:true,productCategory:'SPOT'},
+    sourceExchange:'bitget',requestedExchange:'bitget',failedOver:false
+   }]})
+  }),env:{JPTI_DB:db}
+ });
+ const body=await response.json();
+ assert.equal(response.status,200);
+ assert.equal(body.status,'partial');
+ assert.equal(body.counts.inserted,0);
+ assert.ok(body.errors.some(error=>error.stage==='d1-write'&&/CHECK constraint failed/.test(error.error)));
 });

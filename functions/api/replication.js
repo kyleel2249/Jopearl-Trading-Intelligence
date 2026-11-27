@@ -42,7 +42,7 @@ async function saveObservations(db, observations) {
   for (let offset = 0; offset < observations.length; offset += 40) {
     const chunk = observations.slice(offset, offset + 40);
     const statements = chunk.map(observation => db.prepare(
-      'INSERT OR IGNORE INTO jpti_market_observations (observation_key,exchange,market_type,symbol,observation_kind,timeframe,observed_at,received_at,payload,quality) VALUES (?,?,?,?,?,?,?,?,?,?)'
+      'INSERT INTO jpti_market_observations (observation_key,exchange,market_type,symbol,observation_kind,timeframe,observed_at,received_at,payload,quality) VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(observation_key) DO NOTHING'
     ).bind(
       replicationObservationKey(observation), observation.exchange, observation.marketType, observation.symbol,
       observation.kind, observation.timeframe || '', observation.observedAt, observation.receivedAt,
@@ -180,12 +180,12 @@ async function readHistory(db, url) {
   if (exchange && !DIRECT_EXCHANGES.includes(exchange)) return { status: 400, body: { error: 'Unsupported exchange.' } };
   if (kind !== 'ticker' && kind !== 'ohlcv' && kind !== 'markets') return { status: 400, body: { error: 'kind must be ticker, ohlcv or markets.' } };
   if (symbol && !/^[A-Z0-9._-]{2,20}\/[A-Z0-9._-]{2,20}(?::[A-Z0-9._-]{2,20})?$/.test(symbol)) return { status: 400, body: { error: 'Invalid market symbol.' } };
-  const clauses = ['observation_kind = ?'];
+  const clauses = ['LOWER(observation_kind) = ?'];
   const args = [kind];
-  if (exchange) { clauses.push('exchange = ?'); args.push(exchange); }
-  if (symbol) { clauses.push('symbol = ?'); args.push(symbol); }
+  if (exchange) { clauses.push('LOWER(exchange) = ?'); args.push(exchange); }
+  if (symbol) { clauses.push('UPPER(symbol) = ?'); args.push(symbol); }
   if (timeframe && kind === 'ohlcv') { clauses.push('timeframe = ?'); args.push(timeframe); }
-  if (marketType) { clauses.push('market_type = ?'); args.push(marketType); }
+  if (marketType) { clauses.push('LOWER(market_type) = ?'); args.push(marketType); }
   args.push(limit);
   const result = await db.prepare(
     'SELECT payload FROM jpti_market_observations WHERE ' + clauses.join(' AND ') + ' ORDER BY observed_at DESC LIMIT ?'
